@@ -7,9 +7,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.http.MediaType;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -31,12 +31,12 @@ public class LangChainProvider implements AIProvider {
     @Value("${ai.providers.langchain.model:gpt-3.5-turbo}")
     private String model;
     
-    private final RestTemplate restTemplate;
+    private final WebClient webClient;
     private final ObjectMapper objectMapper;
     private double lastConfidence = 0.0;
     
-    public LangChainProvider(RestTemplate restTemplate, ObjectMapper objectMapper) {
-        this.restTemplate = restTemplate;
+    public LangChainProvider(WebClient webClient, ObjectMapper objectMapper) {
+        this.webClient = webClient;
         this.objectMapper = objectMapper;
     }
     
@@ -248,25 +248,30 @@ public class LangChainProvider implements AIProvider {
     }
     
     private Map<String, Object> callLangChainAPI(String endpoint, Map<String, Object> requestBody) throws Exception {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        
-        if (apiKey != null && !apiKey.trim().isEmpty()) {
-            headers.set("Authorization", "Bearer " + apiKey);
-        }
-        
-        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
         String url = apiEndpoint + endpoint;
-        
         logger.debug("Calling LangChain API: {}", url);
         
-        ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
+        WebClient.RequestHeadersSpec<?> requestSpec = webClient.post()
+                .uri(url)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(requestBody);
         
-        if (!response.getStatusCode().is2xxSuccessful()) {
-            throw new RuntimeException("LangChain API call failed with status: " + response.getStatusCode());
+        if (apiKey != null && !apiKey.trim().isEmpty()) {
+            requestSpec = requestSpec.header("Authorization", "Bearer " + apiKey);
         }
         
-        return objectMapper.readValue(response.getBody(), Map.class);
+        String responseBody = requestSpec
+                .retrieve()
+                .bodyToMono(String.class)
+                .block();
+        
+        if (responseBody == null) {
+            throw new RuntimeException("LangChain API call failed: empty response");
+        }
+        
+        @SuppressWarnings("unchecked")
+        Map<String, Object> response = objectMapper.readValue(responseBody, Map.class);
+        return response;
     }
     
     // Data preparation methods

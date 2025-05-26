@@ -18,6 +18,7 @@ public class AIRequest {
     private Map<String, Object> context;
     private String tenantId;
     private String preferredProvider;
+    private String userId;
     
     // Constructors
     public AIRequest() {}
@@ -51,4 +52,7 @@ public class AIRequest {
     
     public String getPreferredProvider() { return preferredProvider; }
     public void setPreferredProvider(String preferredProvider) { this.preferredProvider = preferredProvider; }
+    
+    public String getUserId() { return userId; }
+    public void setUserId(String userId) { this.userId = userId; }
 }

@@ -3,9 +3,10 @@ package com.lucid.automation.airouting.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.client.RestTemplate;
-import org.springframework.boot.web.client.RestTemplateBuilder;
-import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import reactor.netty.http.client.HttpClient;
+import io.netty.channel.ChannelOption;
 
 import java.time.Duration;
 
@@ -13,11 +14,13 @@ import java.time.Duration;
 public class AppConfig {
     
     @Bean
-    public RestTemplate restTemplate(RestTemplateBuilder builder) {
-        return builder
-            .setConnectTimeout(Duration.ofSeconds(30))
-            .setReadTimeout(Duration.ofSeconds(60))
-            .requestFactory(HttpComponentsClientHttpRequestFactory.class)
+    public WebClient webClient() {
+        HttpClient httpClient = HttpClient.create()
+            .responseTimeout(Duration.ofSeconds(60))
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 30000);
+            
+        return WebClient.builder()
+            .clientConnector(new ReactorClientHttpConnector(httpClient))
             .build();
     }
     
