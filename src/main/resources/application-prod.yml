@@ -1,0 +1,94 @@
+# Production profile for live environment
+server:
+  port: ${SERVER_PORT:8083}
+
+spring:
+  datasource:
+    url: jdbc:postgresql://${PROD_DB_HOST}:${PROD_DB_PORT:5432}/${PROD_DB_NAME}
+    driver-class-name: org.postgresql.Driver
+    username: ${PROD_DB_USERNAME}
+    password: ${PROD_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          batch_size: 25
+          fetch_size: 50
+
+# Production service discovery
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE}
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+    hostname: ${HOSTNAME:ai-routing-service}
+
+# Production AI provider configurations
+ai:
+  providers:
+    gemini:
+      type: gemini
+      api-key: ${PROD_GEMINI_API_KEY}
+      endpoint: https://generativelanguage.googleapis.com/v1/models
+      timeout: 60000
+      enabled: ${PROD_GEMINI_ENABLED:true}
+    
+    openai:
+      type: openai
+      api-key: ${PROD_OPENAI_API_KEY}
+      endpoint: https://api.openai.com/v1
+      timeout: 60000
+      enabled: ${PROD_OPENAI_ENABLED:true}
+    
+    langchain:
+      type: langchain
+      endpoint: ${PROD_LANGCHAIN_SERVICE_URL}
+      timeout: 120000
+      enabled: ${PROD_LANGCHAIN_ENABLED:true}
+
+# Swagger disabled in production
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+# Production logging - minimal for performance
+logging:
+  level:
+    com.lucid.automation.airouting: ${PROD_LOG_LEVEL:WARN}
+    org.springframework.web: ERROR
+    AI_AUDIT: INFO
+    root: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [${spring.application.name}] %logger{36} - %msg%n"
+  file:
+    name: /var/log/ai-routing-service/ai-routing-service.log
+  logback:
+    rollingpolicy:
+      max-file-size: 500MB
+      max-history: 60
+
+# Production management endpoints - restricted
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized

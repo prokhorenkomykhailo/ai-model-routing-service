@@ -1,0 +1,68 @@
+# Docker profile for containerized deployment
+server:
+  port: ${SERVER_PORT:8083}
+
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:database-1.co5mcmkmyz7i.us-east-1.rds.amazonaws.com}:${DB_PORT:5432}/${DB_NAME:ai_routing_db}
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USERNAME:admin}
+    password: ${DB_PASSWORD:1234566}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+# Service discovery configuration for Docker
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://discovery-service:8761/eureka/}
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+    hostname: ai-routing-service
+
+# AI provider configurations for Docker environment
+ai:
+  providers:
+    gemini:
+      type: gemini
+      api-key: ${GEMINI_API_KEY}
+      endpoint: https://generativelanguage.googleapis.com/v1/models
+      timeout: 45000
+      enabled: ${GEMINI_ENABLED:true}
+    
+    openai:
+      type: openai
+      api-key: ${OPENAI_API_KEY}
+      endpoint: https://api.openai.com/v1
+      timeout: 45000
+      enabled: ${OPENAI_ENABLED:true}
+    
+    langchain:
+      type: langchain
+      endpoint: ${LANGCHAIN_SERVICE_URL:http://langchain-service:8000}
+      timeout: 90000
+      enabled: ${LANGCHAIN_ENABLED:true}
+
+# Swagger disabled in Docker by default
+springdoc:
+  api-docs:
+    enabled: ${SWAGGER_ENABLED:false}
+  swagger-ui:
+    enabled: ${SWAGGER_ENABLED:false}
+
+# Docker logging configuration
+logging:
+  level:
+    com.lucid.automation.airouting: ${LOG_LEVEL:INFO}
+    org.springframework.web: WARN
+    AI_AUDIT: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [${spring.application.name}] %logger{36} - %msg%n"

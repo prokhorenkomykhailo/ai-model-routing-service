@@ -4,59 +4,68 @@ server:
 spring:
   application:
     name: lucid-ai-routing-service-test
+  profiles:
+    active: test
   
   datasource:
-    url: jdbc:h2:mem:testdb
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     driver-class-name: org.h2.Driver
     username: sa
-    password: test
-  
+    password: 
+
   jpa:
     hibernate:
       ddl-auto: create-drop
     show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
 
-# AI Routing Test Configuration
+  h2:
+    console:
+      enabled: false
+
+  cloud:
+    discovery:
+      enabled: false
+
+# Disable Eureka for tests
+eureka:
+  client:
+    enabled: false
+
+# Test AI configuration
 ai:
   routing:
-    default-provider: gemini
+    default-provider: mock
     task-providers:
-      categorize: openai
-      summarize: gemini
-      enrich_conversation: langchain
-      enrich_message: openai
-      analyze_participant: gemini
-      assess_urgency: openai
-      generate_topic: gemini
-      extract_entities: langchain
-      sentiment_analysis: openai
-    
-  providers:
-    gemini:
-      type: gemini
-      api-key: test-gemini-key
-      endpoint: https://test-gemini-endpoint
-      timeout: 5000
-      enabled: true
-    
-    openai:
-      type: openai
-      api-key: test-openai-key
-      endpoint: https://test-openai-endpoint
-      timeout: 5000
-      enabled: true
-    
-    langchain:
-      type: langchain
-      endpoint: http://test-langchain-endpoint
-      timeout: 5000
-      enabled: true
+      categorize: mock
+      summarize: mock
+      enrich_conversation: mock
+      enrich_message: mock
+      analyze_participant: mock
+      assess_urgency: mock
+      generate_topic: mock
+      extract_entities: mock
+      sentiment_analysis: mock
 
-# Logging Configuration for Tests
+  providers:
+    mock:
+      type: mock
+      enabled: true
+      timeout: 1000
+
+# Minimal logging for tests
 logging:
   level:
-    com.lucid.automation.airouting: DEBUG
-    org.springframework.web: WARN
+    com.lucid.automation.airouting: INFO
+    org.springframework: WARN
     AI_AUDIT: INFO
+    org.hibernate.SQL: WARN
   pattern:
-    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    console: "%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n"
+
+# Disable management endpoints
+management:
+  endpoints:
+    enabled-by-default: false
