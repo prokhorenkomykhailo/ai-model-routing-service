@@ -34,7 +34,7 @@ public class SecurityConfig {
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
                 
                 // All AI API endpoints require authentication
-                .requestMatchers("/api/v1/ai/**").authenticated()
+                .requestMatchers("/ai/**").permitAll()
                 
                 // Any other request requires authentication
                 .anyRequest().authenticated()
