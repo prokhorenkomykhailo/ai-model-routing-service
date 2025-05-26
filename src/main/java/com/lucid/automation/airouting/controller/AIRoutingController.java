@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/v1/ai")
+@RequestMapping("/ai")
 @CrossOrigin(origins = "*")
 public class AIRoutingController {
     

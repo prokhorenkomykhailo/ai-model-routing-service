@@ -7,6 +7,7 @@ public class CategoryRequest {
     private String content;
     private String tenantId;
     private String preferredProvider;
+    private String replyTopic;
     
     // Constructors
     public CategoryRequest() {}
@@ -24,4 +25,7 @@ public class CategoryRequest {
     
     public String getPreferredProvider() { return preferredProvider; }
     public void setPreferredProvider(String preferredProvider) { this.preferredProvider = preferredProvider; }
+    
+    public String getReplyTopic() { return replyTopic; }
+    public void setReplyTopic(String replyTopic) { this.replyTopic = replyTopic; }
 }

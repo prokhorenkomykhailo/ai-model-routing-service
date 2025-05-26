@@ -1,19 +1,20 @@
 package com.lucid.automation.airouting.model.request;
 
 import jakarta.validation.constraints.NotBlank;
+import java.util.Map;
 
-public class SummaryRequest {
+public class MessageEnrichmentRequest {
     @NotBlank
     private String content;
+    private Map<String, Object> context;
     private String tenantId;
     private String preferredProvider;
-    private Integer maxLength;
     private String replyTopic;
     
     // Constructors
-    public SummaryRequest() {}
+    public MessageEnrichmentRequest() {}
     
-    public SummaryRequest(String content) {
+    public MessageEnrichmentRequest(String content) {
         this.content = content;
     }
     
@@ -21,14 +22,14 @@ public class SummaryRequest {
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
     
+    public Map<String, Object> getContext() { return context; }
+    public void setContext(Map<String, Object> context) { this.context = context; }
+    
     public String getTenantId() { return tenantId; }
     public void setTenantId(String tenantId) { this.tenantId = tenantId; }
     
     public String getPreferredProvider() { return preferredProvider; }
     public void setPreferredProvider(String preferredProvider) { this.preferredProvider = preferredProvider; }
-    
-    public Integer getMaxLength() { return maxLength; }
-    public void setMaxLength(Integer maxLength) { this.maxLength = maxLength; }
     
     public String getReplyTopic() { return replyTopic; }
     public void setReplyTopic(String replyTopic) { this.replyTopic = replyTopic; }

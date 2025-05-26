@@ -32,6 +32,27 @@ spring:
     discovery:
       enabled: true
 
+  # RabbitMQ Configuration
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:admin}
+    password: ${RABBITMQ_PASSWORD:admin123}
+    virtual-host: ${RABBITMQ_VHOST:/}
+    connection-timeout: 30000
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    listener:
+      simple:
+        acknowledge-mode: auto
+        concurrency: 3
+        max-concurrency: 10
+        retry:
+          enabled: true
+          initial-interval: 1000
+          max-attempts: 3
+          multiplier: 2.0
+
 # Service Discovery Configuration
 eureka:
   client:
@@ -119,3 +140,20 @@ info:
     encoding: UTF-8
     java:
       version: ${java.version}
+
+# RabbitMQ Queue Configuration
+rabbitmq:
+  exchange:
+    ai-requests: ai.requests
+    ai-responses: ai.responses
+  queue:
+    ai-requests: ai.requests.queue
+    ai-categorize: ai.categorize.queue
+    ai-summarize: ai.summarize.queue
+    ai-enrich: ai.enrich.queue
+    ai-responses: ai.responses.queue
+  routing:
+    categorize: ai.categorize
+    summarize: ai.summarize
+    enrich: ai.enrich
+    responses: ai.responses

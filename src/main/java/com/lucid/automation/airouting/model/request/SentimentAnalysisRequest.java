@@ -2,18 +2,17 @@ package com.lucid.automation.airouting.model.request;
 
 import jakarta.validation.constraints.NotBlank;
 
-public class SummaryRequest {
+public class SentimentAnalysisRequest {
     @NotBlank
     private String content;
     private String tenantId;
     private String preferredProvider;
-    private Integer maxLength;
     private String replyTopic;
     
     // Constructors
-    public SummaryRequest() {}
+    public SentimentAnalysisRequest() {}
     
-    public SummaryRequest(String content) {
+    public SentimentAnalysisRequest(String content) {
         this.content = content;
     }
     
@@ -26,9 +25,6 @@ public class SummaryRequest {
     
     public String getPreferredProvider() { return preferredProvider; }
     public void setPreferredProvider(String preferredProvider) { this.preferredProvider = preferredProvider; }
-    
-    public Integer getMaxLength() { return maxLength; }
-    public void setMaxLength(Integer maxLength) { this.maxLength = maxLength; }
     
     public String getReplyTopic() { return replyTopic; }
     public void setReplyTopic(String replyTopic) { this.replyTopic = replyTopic; }
