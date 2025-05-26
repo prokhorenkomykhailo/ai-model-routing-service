@@ -1,0 +1,4 @@
+/home/beou/IdeaProjects/lucy/lucid-backend2/lucid-ai-routing-service/src/test/java/com/lucid/automation/airouting/provider/impl/LangChainProviderTest.java
+/home/beou/IdeaProjects/lucy/lucid-backend2/lucid-ai-routing-service/src/test/java/com/lucid/automation/airouting/provider/impl/OpenAIProviderTest.java
+/home/beou/IdeaProjects/lucy/lucid-backend2/lucid-ai-routing-service/src/test/java/com/lucid/automation/airouting/AIRoutingIntegrationTest.java
+/home/beou/IdeaProjects/lucy/lucid-backend2/lucid-ai-routing-service/src/test/java/com/lucid/automation/airouting/provider/impl/GeminiProviderTest.java
