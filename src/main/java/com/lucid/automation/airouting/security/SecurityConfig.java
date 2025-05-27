@@ -36,6 +36,9 @@ public class SecurityConfig {
                 // All AI API endpoints require authentication
                 .requestMatchers("/ai/**").permitAll()
                 
+                // Tenant API endpoints require authentication
+                .requestMatchers("/api/tenants/**").authenticated()
+                
                 // Any other request requires authentication
                 .anyRequest().authenticated()
             )

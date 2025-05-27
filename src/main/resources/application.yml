@@ -145,3 +145,11 @@ rabbitmq:
     summarize: ai.summarize
     enrich: ai.enrich
     responses: ai.responses
+
+# Data storage service configuration
+data-storage-service:
+  url: ${DATA_STORAGE_SERVICE_URL:http://localhost:8082}
+
+# auth service configuration
+auth-service:
+  url: ${AUTH_SERVICE_URL:http://localhost:8088}
