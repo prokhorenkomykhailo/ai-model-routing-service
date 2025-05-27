@@ -4,12 +4,12 @@ import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.SlackParticipant;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.genai.Client;
+import com.google.genai.types.GenerateContentResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -25,15 +25,16 @@ public class GeminiProvider implements AIProvider {
     @Value("${ai.providers.gemini.endpoint:https://generativelanguage.googleapis.com/v1/models}")
     private String apiEndpoint;
     
-    @Value("${ai.providers.gemini.model:gemini-pro}")
+    @Value("${ai.providers.gemini.model:gemini-2.0-flash}")
     private String model;
     
-    private final WebClient webClient;
+    private final Client geminiClient;
     private final ObjectMapper objectMapper;
     private double lastConfidence = 0.0;
     
-    public GeminiProvider(WebClient webClient, ObjectMapper objectMapper) {
-        this.webClient = webClient;
+    public GeminiProvider(ObjectMapper objectMapper) {
+        // The client gets the API key from the environment variable `GOOGLE_API_KEY`
+        this.geminiClient = new Client();
         this.objectMapper = objectMapper;
     }
     
@@ -186,12 +187,7 @@ public class GeminiProvider implements AIProvider {
     @Override
     public boolean isAvailable() {
         try {
-            if (apiKey == null || apiKey.trim().isEmpty()) {
-                logger.warn("Gemini API key not configured");
-                return false;
-            }
-            
-            // Simple test call
+            // Simple test call to verify API availability
             String testPrompt = "Hello";
             callGeminiAPI(testPrompt);
             return true;
@@ -209,68 +205,23 @@ public class GeminiProvider implements AIProvider {
     
     // Private helper methods
     private String callGeminiAPI(String prompt) {
-        if (apiKey == null || apiKey.trim().isEmpty()) {
-            throw new RuntimeException("Gemini API key not configured");
-        }
-        
-        Map<String, Object> requestBody = Map.of(
-            "contents", List.of(Map.of("parts", List.of(Map.of("text", prompt)))),
-            "generationConfig", Map.of(
-                "temperature", 0.1,
-                "maxOutputTokens", 2048,
-                "topP", 0.8,
-                "topK", 10
-            )
-        );
-        
         try {
-            String url = apiEndpoint + "/" + model + ":generateContent?key=" + apiKey;
+            logger.debug("Calling Gemini API with prompt length: {}", prompt.length());
             
-            String response = webClient
-                .post()
-                .uri(url)
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(requestBody)
-                .retrieve()
-                .bodyToMono(String.class)
-                .block();
+            GenerateContentResponse response = geminiClient.models.generateContent(
+                model, 
+                prompt, 
+                null
+            );
             
-            return extractTextFromGeminiResponse(response);
+            String responseText = response.text();
+            logger.debug("Received response from Gemini API");
+            
+            return responseText;
             
         } catch (Exception e) {
             logger.error("Error calling Gemini API", e);
             throw new RuntimeException("Failed to call Gemini API: " + e.getMessage(), e);
-        }
-    }
-    
-    private String extractTextFromGeminiResponse(String responseBody) {
-        try {
-            Map<String, Object> responseMap = objectMapper.readValue(responseBody, Map.class);
-            
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> candidates = (List<Map<String, Object>>) responseMap.get("candidates");
-            
-            if (candidates != null && !candidates.isEmpty()) {
-                Map<String, Object> candidate = candidates.get(0);
-                
-                @SuppressWarnings("unchecked")
-                Map<String, Object> content = (Map<String, Object>) candidate.get("content");
-                
-                if (content != null) {
-                    @SuppressWarnings("unchecked")
-                    List<Map<String, Object>> parts = (List<Map<String, Object>>) content.get("parts");
-                    
-                    if (parts != null && !parts.isEmpty()) {
-                        return (String) parts.get(0).get("text");
-                    }
-                }
-            }
-            
-            throw new RuntimeException("No text found in Gemini response");
-            
-        } catch (Exception e) {
-            logger.error("Failed to parse Gemini response: {}", responseBody, e);
-            throw new RuntimeException("Failed to parse Gemini response", e);
         }
     }
     
@@ -437,6 +388,7 @@ public class GeminiProvider implements AIProvider {
         
         try {
             // Try to parse JSON response
+            @SuppressWarnings("unchecked")
             Map<String, Object> analysis = objectMapper.readValue(response, Map.class);
             
             String topic = (String) analysis.getOrDefault("topic", "General Discussion");

@@ -1,8 +1,11 @@
 package com.lucid.automation.airouting.model;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.LocalDateTime;
 import java.util.Map;
 
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class AIResponse {
     private String requestId;
     private AITaskType taskType;
@@ -11,7 +14,10 @@ public class AIResponse {
     private String providerId;
     private String errorMessage;
     private double confidence;
+    
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime processedAt;
+    
     private long processingTimeMs;
     private Map<String, Object> metadata;
     

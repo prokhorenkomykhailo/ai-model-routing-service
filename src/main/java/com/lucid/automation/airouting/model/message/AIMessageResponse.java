@@ -1,5 +1,6 @@
 package com.lucid.automation.airouting.model.message;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.lucid.automation.airouting.model.AITaskType;
 
@@ -36,6 +37,7 @@ public class AIMessageResponse {
     private double confidence;
     
     @JsonProperty("processedAt")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime processedAt;
     
     @JsonProperty("processingTimeMs")

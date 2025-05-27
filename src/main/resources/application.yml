@@ -9,6 +9,14 @@ spring:
   profiles:
     active: '@activatedProperties@'  # Replace or override this at runtime
   
+  # Jackson Configuration for LocalDateTime serialization
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+    default-property-inclusion: non_null
+  
   datasource:
     url: jdbc:h2:mem:aidb
     driver-class-name: org.h2.Driver
@@ -62,8 +70,8 @@ eureka:
 # Security Configuration
 security:
   jwt:
-    secret-key: ${JWT_SECRET_KEY:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
-    expiration-time: 86400000  # 24 hours in milliseconds
+    secret-key: M2NmYTc2ZWYxNDkzN2MxYzBlYTUxOWY4ZmMwNTdhODBmY2QwNGE3NDIwZjhlOGJjZDBhNzU2N2MyNzJlMDA3Yg==
+    expiration-time: 28800000  # 8 hours in milliseconds
 
 # AI Routing Configuration
 ai:
@@ -80,26 +88,6 @@ ai:
       extract_entities: langchain
       sentiment_analysis: openai
     
-  providers:
-    gemini:
-      type: gemini
-      api-key: ${GEMINI_API_KEY:your-gemini-key}
-      endpoint: https://generativelanguage.googleapis.com/v1/models
-      timeout: 30000
-      enabled: true
-    
-    openai:
-      type: openai
-      api-key: ${OPENAI_API_KEY:your-openai-key}
-      endpoint: https://api.openai.com/v1
-      timeout: 30000
-      enabled: true
-    
-    langchain:
-      type: langchain
-      endpoint: ${LANGCHAIN_SERVICE_URL:http://localhost:8000}
-      timeout: 60000
-      enabled: true
 
 # Logging Configuration
 logging:

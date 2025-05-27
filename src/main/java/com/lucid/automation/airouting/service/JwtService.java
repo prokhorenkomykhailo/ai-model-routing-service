@@ -76,7 +76,13 @@ public class JwtService {
      * @return the user ID extracted from the token
      */
     public String extractUserId(String token) {
-        return extractClaim(token, claims -> claims.get("userId", String.class));
+        return extractClaim(token, claims -> {
+            Object userId = claims.get("userId");
+            if (userId instanceof Integer) {
+                return String.valueOf(userId);
+            }
+            return claims.get("userId", String.class);
+        });
     }
 
     /**

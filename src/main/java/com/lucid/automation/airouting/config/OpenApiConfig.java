@@ -18,7 +18,7 @@ public class OpenApiConfig {
     @Value("${spring.application.name}")
     private String applicationName;
     
-    @Value("${server.port:8085}")
+    @Value("${server.port:8083}")
     private String serverPort;
     
     @Value("${springdoc.swagger-ui.gateway-uri:/}")

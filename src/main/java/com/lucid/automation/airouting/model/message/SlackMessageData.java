@@ -1,5 +1,6 @@
 package com.lucid.automation.airouting.model.message;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.LocalDateTime;
@@ -19,6 +20,7 @@ public class SlackMessageData {
     private String content;
     
     @JsonProperty("timestamp")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime timestamp;
     
     @JsonProperty("channelId")

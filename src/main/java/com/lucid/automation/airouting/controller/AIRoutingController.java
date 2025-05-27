@@ -5,6 +5,9 @@ import com.lucid.automation.airouting.model.request.*;
 import com.lucid.automation.airouting.model.response.*;
 import com.lucid.automation.airouting.security.CustomUserDetails;
 import com.lucid.automation.airouting.service.AIRoutingService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +22,7 @@ import java.util.concurrent.CompletableFuture;
 @RestController
 @RequestMapping("/ai")
 @CrossOrigin(origins = "*")
+@Tag(name = "AI Routing", description = "AI model routing and orchestration endpoints")
 public class AIRoutingController {
     
     private static final Logger logger = LoggerFactory.getLogger(AIRoutingController.class);
@@ -30,6 +34,9 @@ public class AIRoutingController {
     }
     
     @PostMapping("/categorize")
+    @Operation(summary = "Categorize content", 
+               description = "Categorizes the provided content using the configured AI provider")
+    @ApiResponse(responseCode = "200", description = "Content categorized successfully")
     public CompletableFuture<ResponseEntity<AIResponse>> categorize(@Valid @RequestBody CategoryRequest request) {
         String tenantInfo = getTenantInfoFromAuth();
         logger.info("Received categorization request for content length: {} from tenant: {}", 
@@ -43,6 +50,9 @@ public class AIRoutingController {
     }
     
     @PostMapping("/summarize")
+    @Operation(summary = "Summarize content", 
+               description = "Generates a summary of the provided content using the configured AI provider")
+    @ApiResponse(responseCode = "200", description = "Content summarized successfully")
     public CompletableFuture<ResponseEntity<AIResponse>> summarize(@Valid @RequestBody SummaryRequest request) {
         String tenantInfo = getTenantInfoFromAuth();
         logger.info("Received summarization request for content length: {} from tenant: {}", 
@@ -56,6 +66,9 @@ public class AIRoutingController {
     }
     
     @PostMapping("/enrich-conversation")
+    @Operation(summary = "Enrich conversation", 
+               description = "Enriches conversation data with additional insights using AI analysis")
+    @ApiResponse(responseCode = "200", description = "Conversation enriched successfully")
     public CompletableFuture<ResponseEntity<AIResponse>> enrichConversation(
             @Valid @RequestBody ConversationEnrichmentRequest request) {
         
@@ -75,6 +88,9 @@ public class AIRoutingController {
     }
     
     @PostMapping("/batch")
+    @Operation(summary = "Process batch requests", 
+               description = "Processes multiple AI requests in a single batch operation")
+    @ApiResponse(responseCode = "200", description = "Batch requests processed successfully")
     public CompletableFuture<ResponseEntity<List<AIResponse>>> processBatch(
             @Valid @RequestBody List<AIRequest> requests) {
         
@@ -106,6 +122,9 @@ public class AIRoutingController {
     }
     
     @GetMapping("/health")
+    @Operation(summary = "Check service health", 
+               description = "Returns the health status of the AI routing service and connected providers")
+    @ApiResponse(responseCode = "200", description = "Health status retrieved successfully")
     public ResponseEntity<HealthStatus> health() {
         HealthStatus status = new HealthStatus();
         status.setStatus("UP");
