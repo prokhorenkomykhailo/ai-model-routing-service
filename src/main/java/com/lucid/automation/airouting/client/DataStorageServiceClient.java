@@ -1,18 +1,24 @@
 package com.lucid.automation.airouting.client;
 
 import com.lucid.automation.airouting.dto.APIResponse;
+import com.lucid.automation.airouting.dto.EnrichedMessageDTO;
 import com.lucid.automation.airouting.dto.MessageWithContentDTO;
+import com.lucid.automation.airouting.dto.StoredDataDTO;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
+import java.util.Map;
 
 /**
- * Feign client for the data-storage-service's message endpoints
+ * Feign client for the data-storage-service endpoints
  */
-@FeignClient(name = "data-storage-service", path = "/messages", configuration = FeignClientConfig.class)
+@FeignClient(name = "data-storage-service", configuration = FeignClientConfig.class)
 public interface DataStorageServiceClient {
     
     /**
@@ -22,7 +28,7 @@ public interface DataStorageServiceClient {
      * @param tenantSchema the tenant schema for multi-tenancy support
      * @return APIResponse containing list of all group IDs
      */
-    @GetMapping("/group-ids")
+    @GetMapping("/messages/group-ids")
     APIResponse<List<String>> getAllGroupIds(
             @RequestHeader("X-Tenant-ID") String tenantId,
             @RequestHeader("X-Tenant-Schema") String tenantSchema
@@ -36,10 +42,27 @@ public interface DataStorageServiceClient {
      * @param tenantSchema the tenant schema for multi-tenancy support
      * @return APIResponse containing list of messages with content for the specified group
      */
-    @GetMapping("/group/{groupId}")
+    @GetMapping("/messages/group/{groupId}")
     APIResponse<List<MessageWithContentDTO>> getAllMessagesByGroupId(
             @PathVariable("groupId") String groupId,
             @RequestHeader("X-Tenant-ID") String tenantId,
             @RequestHeader("X-Tenant-Schema") String tenantSchema
+    );
+    
+    /**
+     * Save enriched message data
+     * 
+     * @param enrichedMessage the enriched message to save
+     * @param tenantId the tenant ID for multi-tenancy support
+     * @param tenantSchema the tenant schema for multi-tenancy support
+     * @param metadata optional additional metadata
+     * @return APIResponse containing the stored data
+     */
+    @PostMapping("/data/enriched-messages")
+    APIResponse<StoredDataDTO> saveEnrichedMessage(
+            @RequestBody EnrichedMessageDTO enrichedMessage,
+            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader("X-Tenant-Schema") String tenantSchema,
+            @RequestParam(required = false) Map<String, Object> metadata
     );
 }

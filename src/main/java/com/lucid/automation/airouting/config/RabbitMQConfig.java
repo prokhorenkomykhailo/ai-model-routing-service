@@ -41,6 +41,9 @@ public class RabbitMQConfig {
     @Value("${rabbitmq.queue.ai-responses:ai.responses.queue}")
     private String aiResponsesQueue;
     
+    @Value("${rabbitmq.queue.ai-enrich-conversation-response:ai.enrich.conversation.response.queue}")
+    private String aiEnrichConversationResponseQueue;
+    
     // Routing keys
     @Value("${rabbitmq.routing.categorize:ai.categorize}")
     private String categorizeRoutingKey;
@@ -53,6 +56,9 @@ public class RabbitMQConfig {
     
     @Value("${rabbitmq.routing.responses:ai.responses}")
     private String responsesRoutingKey;
+    
+    @Value("${rabbitmq.routing.enrich-conversation-response:ai.enrich.conversation.response}")
+    private String enrichConversationResponseRoutingKey;
     
     // Message converter
     @Bean
@@ -126,6 +132,11 @@ public class RabbitMQConfig {
         return QueueBuilder.durable(aiResponsesQueue).build();
     }
     
+    @Bean
+    public Queue aiEnrichConversationResponseQueue() {
+        return QueueBuilder.durable(aiEnrichConversationResponseQueue).build();
+    }
+    
     // Dead letter queue
     @Bean
     public Queue deadLetterQueue() {
@@ -167,6 +178,13 @@ public class RabbitMQConfig {
     }
     
     @Bean
+    public Binding enrichConversationResponseBinding() {
+        return BindingBuilder.bind(aiEnrichConversationResponseQueue())
+                .to(aiResponsesExchange())
+                .with(enrichConversationResponseRoutingKey);
+    }
+    
+    @Bean
     public Binding deadLetterBinding() {
         return BindingBuilder.bind(deadLetterQueue())
                 .to(deadLetterExchange())
@@ -178,6 +196,8 @@ public class RabbitMQConfig {
     public String getAiSummarizeQueue() { return aiSummarizeQueue; }
     public String getAiEnrichQueue() { return aiEnrichQueue; }
     public String getAiResponsesQueue() { return aiResponsesQueue; }
+    public String getAiEnrichConversationResponseQueue() { return aiEnrichConversationResponseQueue; }
     public String getAiResponsesExchange() { return aiResponsesExchange; }
     public String getResponsesRoutingKey() { return responsesRoutingKey; }
+    public String getEnrichConversationResponseRoutingKey() { return enrichConversationResponseRoutingKey; }
 }

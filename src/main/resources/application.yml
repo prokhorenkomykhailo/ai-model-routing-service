@@ -87,6 +87,14 @@ ai:
       generate_topic: gemini
       extract_entities: langchain
       sentiment_analysis: openai
+  enrichment:
+    scheduler:
+      cron: "${AI_ENRICHMENT_CRON:0 */5 * * * ?}"  # Every 5 minutes by default
+      enabled: "${AI_ENRICHMENT_ENABLED:true}"
+      batch-size: "${AI_ENRICHMENT_BATCH_SIZE:50}"
+      max-retries: "${AI_ENRICHMENT_MAX_RETRIES:3}"
+      default-tenant-id: "${DEFAULT_TENANT_ID:default-tenant}"
+      default-tenant-schema: "${DEFAULT_TENANT_SCHEMA:public}"
     
 
 # Logging Configuration

@@ -84,6 +84,20 @@ public class AIMessagePublisherService {
     }
     
     /**
+     * Publish a conversation enrichment request with context
+     */
+    public String publishConversationEnrichmentRequest(String conversationId, 
+                                                     List<SlackMessage> messages,
+                                                     List<SlackParticipant> participants,
+                                                     String tenantId, String userId,
+                                                     String preferredProvider, String replyTopic,
+                                                     Map<String, Object> context) {
+        return publishAIRequest(AITaskType.ENRICH_CONVERSATION, "", tenantId, userId,
+                              conversationId, messages, participants, context, 
+                              preferredProvider, replyTopic);
+    }
+    
+    /**
      * Publish a message enrichment request
      */
     public String publishMessageEnrichmentRequest(String content, Map<String, Object> context,
