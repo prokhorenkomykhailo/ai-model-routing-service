@@ -1,6 +1,7 @@
 package com.lucid.automation.airouting.service;
 
 import com.lucid.automation.airouting.config.RabbitMQConfig;
+import com.lucid.automation.airouting.model.request.ConversationEnrichmentRequest;
 import com.lucid.automation.airouting.model.AITaskType;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.SlackParticipant;
@@ -71,30 +72,56 @@ public class AIMessagePublisherService {
     }
     
     /**
-     * Publish a conversation enrichment request
+     * Publish a conversation enrichment request using a request object
      */
+    public String publishConversationEnrichmentRequest(ConversationEnrichmentRequest request, String userId) {
+        return publishAIRequest(AITaskType.ENRICH_CONVERSATION, "", request.getTenantId(), userId,
+                              request.getConversationId(), request.getMessages(), request.getParticipants(), 
+                              request.getContext(), request.getPreferredProvider(), request.getReplyTopic());
+    }
+    
+    /**
+     * Publish a conversation enrichment request
+     * @deprecated Use {@link #publishConversationEnrichmentRequest(ConversationEnrichmentRequest, String)} instead
+     */
+    @Deprecated(since = "1.0.0", forRemoval = true)
     public String publishConversationEnrichmentRequest(String conversationId, 
                                                      List<SlackMessage> messages,
                                                      List<SlackParticipant> participants,
                                                      String tenantId, String userId,
                                                      String preferredProvider, String replyTopic) {
-        return publishAIRequest(AITaskType.ENRICH_CONVERSATION, "", tenantId, userId,
-                              conversationId, messages, participants, null, 
-                              preferredProvider, replyTopic);
+        ConversationEnrichmentRequest request = new ConversationEnrichmentRequest();
+        request.setConversationId(conversationId);
+        request.setMessages(messages);
+        request.setParticipants(participants);
+        request.setTenantId(tenantId);
+        request.setPreferredProvider(preferredProvider);
+        request.setReplyTopic(replyTopic);
+        
+        return publishConversationEnrichmentRequest(request, userId);
     }
     
     /**
      * Publish a conversation enrichment request with context
+     * @deprecated Use {@link #publishConversationEnrichmentRequest(ConversationEnrichmentRequest, String)} instead
      */
+    @Deprecated(since = "1.0.0", forRemoval = true)
     public String publishConversationEnrichmentRequest(String conversationId, 
                                                      List<SlackMessage> messages,
                                                      List<SlackParticipant> participants,
                                                      String tenantId, String userId,
                                                      String preferredProvider, String replyTopic,
                                                      Map<String, Object> context) {
-        return publishAIRequest(AITaskType.ENRICH_CONVERSATION, "", tenantId, userId,
-                              conversationId, messages, participants, context, 
-                              preferredProvider, replyTopic);
+        ConversationEnrichmentRequest request = new ConversationEnrichmentRequest();
+        request.setConversationId(conversationId);
+        request.setMessages(messages);
+        request.setParticipants(participants);
+        request.setTenantId(tenantId);
+        request.setPreferredProvider(preferredProvider);
+        request.setReplyTopic(replyTopic);
+        request.setContext(context);
+        
+        return publishConversationEnrichmentRequest(request, userId);
     }
     
     /**

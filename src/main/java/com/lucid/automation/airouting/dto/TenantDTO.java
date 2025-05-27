@@ -8,6 +8,8 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 /**
  * DTO for Tenant information (matches the auth-service TenantDTO)
  */
@@ -15,6 +17,7 @@ import java.util.UUID;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class TenantDTO {
     private Long id;
     private UUID tenantId;
@@ -47,16 +50,93 @@ public class TenantDTO {
     }
     
     /**
-     * Tenant settings class
+     * Tenant settings class - matches auth-service TenantSettings
      */
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class TenantSettings {
-        private Boolean allowGuestAccess;
-        private Boolean enableSlackIntegration;
-        private Boolean enableEmailNotifications;
-        // Add more settings as needed
+        private String[] allowedDomains;
+        private String[] features;
+        private BrandingSettings branding;
+        private AuthSettings auth;
+        private SubscriptionSettings subscription;
+        private NotificationSettings notifications;
+        private DataRetentionSettings dataRetention;
+        private LocaleSettings locale;
+        private ApiSettings api;
+        
+        @Data
+        @Builder
+        @NoArgsConstructor
+        @AllArgsConstructor
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public static class BrandingSettings {
+            private String logoUrl;
+            private String primaryColor;
+        }
+        
+        @Data
+        @Builder
+        @NoArgsConstructor
+        @AllArgsConstructor
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public static class AuthSettings {
+            private boolean ssoEnabled;
+            private String samlProvider;
+            private boolean mfaRequired;
+        }
+        
+        @Data
+        @Builder
+        @NoArgsConstructor
+        @AllArgsConstructor
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public static class SubscriptionSettings {
+            private String plan;
+            private int userLimit;
+            private String renewalDate;
+        }
+        
+        @Data
+        @Builder
+        @NoArgsConstructor
+        @AllArgsConstructor
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public static class NotificationSettings {
+            private boolean emailEnabled;
+            private String webhookUrl;
+        }
+        
+        @Data
+        @Builder
+        @NoArgsConstructor
+        @AllArgsConstructor
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public static class DataRetentionSettings {
+            private int retentionDays;
+        }
+        
+        @Data
+        @Builder
+        @NoArgsConstructor
+        @AllArgsConstructor
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public static class LocaleSettings {
+            private String language;
+            private String timezone;
+        }
+        
+        @Data
+        @Builder
+        @NoArgsConstructor
+        @AllArgsConstructor
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public static class ApiSettings {
+            private int rateLimit;
+            private String[] allowedIps;
+        }
     }
 }

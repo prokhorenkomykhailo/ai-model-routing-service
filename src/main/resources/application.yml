@@ -148,11 +148,13 @@ rabbitmq:
     ai-summarize: ai.summarize.queue
     ai-enrich: ai.enrich.queue
     ai-responses: ai.responses.queue
+    ai-enrich-conversation-response: ai.enrich.conversation.response.queue
   routing:
     categorize: ai.categorize
     summarize: ai.summarize
     enrich: ai.enrich
     responses: ai.responses
+    enrich-conversation-response: ai.enrich.conversation.response
 
 # Data storage service configuration
 data-storage-service:

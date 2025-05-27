@@ -30,7 +30,7 @@ public interface DataStorageServiceClient {
      */
     @GetMapping("/messages/group-ids")
     APIResponse<List<String>> getAllGroupIds(
-            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestHeader("X-Tenant-Schema") String tenantSchema
     );
     
@@ -45,7 +45,7 @@ public interface DataStorageServiceClient {
     @GetMapping("/messages/group/{groupId}")
     APIResponse<List<MessageWithContentDTO>> getAllMessagesByGroupId(
             @PathVariable("groupId") String groupId,
-            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestHeader("X-Tenant-Schema") String tenantSchema
     );
     
@@ -61,7 +61,7 @@ public interface DataStorageServiceClient {
     @PostMapping("/data/enriched-messages")
     APIResponse<StoredDataDTO> saveEnrichedMessage(
             @RequestBody EnrichedMessageDTO enrichedMessage,
-            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestHeader("X-Tenant-Schema") String tenantSchema,
             @RequestParam(required = false) Map<String, Object> metadata
     );

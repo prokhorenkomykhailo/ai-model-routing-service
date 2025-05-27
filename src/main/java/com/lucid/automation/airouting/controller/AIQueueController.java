@@ -83,15 +83,7 @@ public class AIQueueController {
         logger.info("Queueing conversation enrichment request for {} messages, tenantId: {}", 
                    request.getMessages() != null ? request.getMessages().size() : 0, request.getTenantId());
         
-        String messageId = publisherService.publishConversationEnrichmentRequest(
-            request.getConversationId(),
-            request.getMessages(),
-            request.getParticipants(),
-            request.getTenantId(),
-            getCurrentUserId(),
-            request.getPreferredProvider(),
-            request.getReplyTopic()
-        );
+        String messageId = publisherService.publishConversationEnrichmentRequest(request, getCurrentUserId());
         
         return ResponseEntity.ok(Map.of(
             "messageId", messageId,

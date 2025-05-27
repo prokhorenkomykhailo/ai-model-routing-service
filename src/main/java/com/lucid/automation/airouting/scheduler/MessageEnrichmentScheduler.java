@@ -6,6 +6,7 @@ import com.lucid.automation.airouting.dto.MessageWithContentDTO;
 import com.lucid.automation.airouting.dto.TenantDTO;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.SlackParticipant;
+import com.lucid.automation.airouting.model.request.ConversationEnrichmentRequest;
 import com.lucid.automation.airouting.service.AIMessagePublisherService;
 import com.lucid.automation.airouting.service.TenantService;
 import lombok.RequiredArgsConstructor;
@@ -208,17 +209,18 @@ public class MessageEnrichmentScheduler {
             context.put("tenantId", tenantId);
             context.put("tenantSchema", tenantSchema);
 
-            // Publish conversation enrichment request using individual parameters
-            aiMessagePublisherService.publishConversationEnrichmentRequest(
-                    groupId, // conversationId
-                    slackMessages,
-                    participants,
-                    tenantId,
-                    userId,
-                    null, // preferredProvider - use default
-                    "ai.enrich.conversation.response", // replyTopic
-                    context // adding context with tenant info
-            );
+            // Create conversation enrichment request using the request object
+            ConversationEnrichmentRequest request = new ConversationEnrichmentRequest();
+            request.setConversationId(groupId);
+            request.setMessages(slackMessages);
+            request.setParticipants(participants);
+            request.setTenantId(tenantId);
+            request.setPreferredProvider(null); // use default
+            request.setReplyTopic("ai.enrich.conversation.response");
+            request.setContext(context);
+
+            // Publish conversation enrichment request using the request object
+            aiMessagePublisherService.publishConversationEnrichmentRequest(request, userId);
 
             log.info("Published conversation enrichment request for {} messages in group: {} for tenant: {}", 
                      unenrichedMessages.size(), groupId, tenantId);

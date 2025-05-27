@@ -36,7 +36,7 @@ public class DataStorageController {
      */
     @GetMapping("/group-ids")
     public ResponseEntity<List<String>> getAllGroupIds(
-            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestHeader("X-Tenant-Schema") String tenantSchema) {
         logger.info("Received request to get all group IDs for tenant: {}", tenantId);
         List<String> groupIds = dataStorageService.getAllGroupIds(tenantId, tenantSchema);
@@ -54,7 +54,7 @@ public class DataStorageController {
     @GetMapping("/messages/group/{groupId}")
     public ResponseEntity<List<MessageWithContentDTO>> getAllMessagesByGroupId(
             @PathVariable String groupId,
-            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestHeader("X-Tenant-Schema") String tenantSchema) {
         logger.info("Received request to get messages for group ID: {} for tenant: {}", groupId, tenantId);
         List<MessageWithContentDTO> messages = dataStorageService.getAllMessagesByGroupId(groupId, tenantId, tenantSchema);
