@@ -41,7 +41,11 @@ public class AIMessageConsumerService {
     /**
      * Listen for categorization requests
      */
-    @RabbitListener(queues = "#{rabbitMQConfig.getAiCategorizeQueue()}")
+    @RabbitListener(
+        queues = "#{rabbitMQConfig.getAiCategorizeQueue()}",
+        concurrency = "1",
+        containerFactory = "rabbitListenerContainerFactory"
+    )
     public void handleCategorizationRequest(AIMessage message) {
         logger.info("Received categorization request: messageId={}, tenantId={}", 
                    message.getMessageId(), message.getTenantId());
@@ -58,7 +62,11 @@ public class AIMessageConsumerService {
     /**
      * Listen for summarization requests
      */
-    @RabbitListener(queues = "#{rabbitMQConfig.getAiSummarizeQueue()}")
+    @RabbitListener(
+        queues = "#{rabbitMQConfig.getAiSummarizeQueue()}",
+        concurrency = "1", 
+        containerFactory = "rabbitListenerContainerFactory"
+    )
     public void handleSummarizationRequest(AIMessage message) {
         logger.info("Received summarization request: messageId={}, tenantId={}", 
                    message.getMessageId(), message.getTenantId());
@@ -72,23 +80,27 @@ public class AIMessageConsumerService {
         processAIRequest(message);
     }
     
-    // /**
-    //  * Listen for enrichment requests (conversation, message, participant analysis, etc.)
-    //  */
-    // @RabbitListener(queues = "#{rabbitMQConfig.getAiEnrichQueue()}")
-    // public void handleEnrichmentRequest(AIMessage message) {
-    //     logger.info("Received enrichment request: messageId={}, taskType={}, tenantId={}", 
-    //                message.getMessageId(), message.getTaskType(), message.getTenantId());
+    /**
+     * Listen for enrichment requests (conversation, message, participant analysis, etc.)
+     */
+    @RabbitListener(
+        queues = "#{rabbitMQConfig.getAiEnrichQueue()}",
+        concurrency = "1",
+        containerFactory = "rabbitListenerContainerFactory"
+    )
+    public void handleEnrichmentRequest(AIMessage message) {
+        logger.info("Received enrichment request: messageId={}, taskType={}, tenantId={}", 
+                   message.getMessageId(), message.getTaskType(), message.getTenantId());
         
-    //     // Validate that it's an enrichment-related task
-    //     if (!isEnrichmentTask(message.getTaskType())) {
-    //         logger.warn("Invalid task type for enrichment queue: {}", message.getTaskType());
-    //         sendErrorResponse(message, "Invalid task type for enrichment queue");
-    //         return;
-    //     }
+        // Validate that it's an enrichment-related task
+        if (!isEnrichmentTask(message.getTaskType())) {
+            logger.warn("Invalid task type for enrichment queue: {}", message.getTaskType());
+            sendErrorResponse(message, "Invalid task type for enrichment queue");
+            return;
+        }
         
-    //     processAIRequest(message);
-    // }
+        processAIRequest(message);
+    }
     
     /**
      * Process the AI request and send response back

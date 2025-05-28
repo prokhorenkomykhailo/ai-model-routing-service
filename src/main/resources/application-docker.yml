@@ -43,15 +43,9 @@ ai:
     openai:
       type: openai
       api-key: ${OPENAI_API_KEY:}
-      endpoint: https://api.openai.com/v1
+      endpoint: http://10.113.213.9:5003/v1/completions
       timeout: 45000
       enabled: ${OPENAI_ENABLED:true}
-    
-    langchain:
-      type: langchain
-      endpoint: ${LANGCHAIN_SERVICE_URL:http://langchain-service:8000}
-      timeout: 90000
-      enabled: ${LANGCHAIN_ENABLED:true}
 
 # Swagger configuration for Docker
 springdoc:

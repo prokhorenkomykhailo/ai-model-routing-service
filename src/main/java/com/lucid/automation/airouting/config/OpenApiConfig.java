@@ -33,7 +33,7 @@ public class OpenApiConfig {
             .info(new Info()
                     .title("Lucid AI Routing Service API")
                     .description("Spring Boot REST API for AI model routing and orchestration in the Lucid platform. " +
-                               "This service handles routing requests to various AI providers including OpenAI, Gemini, and LangChain " +
+                               "This service handles routing requests to various AI providers including OpenAI and Gemini " +
                                "for tasks such as summarization, categorization, conversation enrichment, and more.")
                     .version("1.0.0")
                     .contact(new Contact()

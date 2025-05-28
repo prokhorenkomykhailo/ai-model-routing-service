@@ -16,7 +16,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -261,33 +263,74 @@ public class MessageEnrichmentScheduler {
     }
 
     /**
-     * Converts a single MessageWithContentDTO to SlackMessage.
+     * Converts a single MessageWithContentDTO to SlackMessage with comprehensive field mapping.
      * 
      * @param messageDto the message DTO to convert
-     * @return SlackMessage object
+     * @return SlackMessage object with all relevant fields mapped
      */
     private SlackMessage convertToSlackMessage(MessageWithContentDTO messageDto) {
-        // Log the conversion for debugging
         log.debug("Converting message with ID {} to SlackMessage", messageDto.getMessageId());
-        log.debug("Message content: {}", messageDto.getContent());
-        log.debug("Message timestamp: {}", messageDto.getMessageTimestamp());
-        log.debug("Message sender ID: {}", messageDto.getSenderId());
-        log.debug("Message channel ID: {}", messageDto.getChannelId());
-        
 
         SlackMessage slackMessage = new SlackMessage();
-        slackMessage.setTs(messageDto.getMessageTimestamp() != null ? 
-                          messageDto.getMessageTimestamp().toString() : null);
-        slackMessage.setText(messageDto.getContent());
-        slackMessage.setUser(messageDto.getSenderId());
-        slackMessage.setChannel(messageDto.getChannelId());
-        slackMessage.setType("message");
         
-        // Convert timestamp to epoch seconds if available
-        if (messageDto.getMessageTimestamp() != null) {
-            long epochSeconds = messageDto.getMessageTimestamp().toEpochSecond(ZoneOffset.UTC);
-            slackMessage.setTs(String.valueOf(epochSeconds) + ".000000");
+        // Core identification fields
+        slackMessage.setId(messageDto.getMessageId());
+        
+        // Content mapping - Slack uses both 'content' and 'text'
+        String content = messageDto.getContent();
+        slackMessage.setContent(content);
+        slackMessage.setText(content);
+        
+        // User identification - map to both userId and user for compatibility
+        String senderId = messageDto.getSenderId();
+        slackMessage.setUserId(senderId);
+        slackMessage.setUser(senderId);
+        
+        // Username mapping with fallback
+        String username = messageDto.getSenderName() != null ? 
+                         messageDto.getSenderName() : messageDto.getUsername();
+        slackMessage.setUsername(username);
+        
+        // Channel mapping - map to both channelId and channel for compatibility
+        String channelId = messageDto.getChannelId();
+        slackMessage.setChannelId(channelId);
+        slackMessage.setChannel(channelId);
+        
+        // Thread information
+        String threadTs = messageDto.getThreadTs();
+        slackMessage.setThreadId(threadTs);
+        slackMessage.setThreadTs(threadTs);
+        
+        // Message type information
+        slackMessage.setType(messageDto.getType() != null ? messageDto.getType() : "message");
+        slackMessage.setSubtype(messageDto.getSubtype());
+        
+        // Timestamp mapping - convert to both LocalDateTime and Slack ts format
+        LocalDateTime messageTimestamp = messageDto.getMessageTimestamp();
+        if (messageTimestamp != null) {
+            slackMessage.setTimestamp(messageTimestamp);
+            
+            // Convert to Slack timestamp format (epoch seconds with microseconds)
+            long epochSeconds = messageTimestamp.toEpochSecond(ZoneOffset.UTC);
+            int nanos = messageTimestamp.getNano();
+            String microseconds = String.format("%06d", nanos / 1000);
+            slackMessage.setTs(epochSeconds + "." + microseconds);
         }
+        
+        // Initialize collections based on available data
+        if (messageDto.isHasAttachments()) {
+            // Initialize empty collections that could be populated with actual data
+            slackMessage.setAttachments(new ArrayList<>());
+            slackMessage.setFiles(new ArrayList<>());
+        }
+        
+        // Initialize other collections as empty (to be populated by external services if needed)
+        slackMessage.setReplies(new ArrayList<>());
+        slackMessage.setReactions(new ArrayList<>());
+        slackMessage.setReplyCount(0);
+        
+        log.debug("Successfully converted message {} with timestamp {} and user {}", 
+                 slackMessage.getId(), slackMessage.getTs(), slackMessage.getUser());
         
         return slackMessage;
     }

@@ -36,12 +36,6 @@ ai:
       endpoint: https://api.openai.com/v1
       timeout: 45000
       enabled: ${UAT_OPENAI_ENABLED:true}
-    
-    langchain:
-      type: langchain
-      endpoint: ${UAT_LANGCHAIN_SERVICE_URL:http://localhost:8002}
-      timeout: 90000
-      enabled: ${UAT_LANGCHAIN_ENABLED:true}
 
 # Swagger enabled for UAT testing
 springdoc:

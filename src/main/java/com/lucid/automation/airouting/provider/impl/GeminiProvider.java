@@ -187,6 +187,13 @@ public class GeminiProvider implements AIProvider {
     @Override
     public boolean isAvailable() {
         try {
+            // Check if GOOGLE_API_KEY environment variable is set
+            String googleApiKey = System.getenv("GOOGLE_API_KEY");
+            if (googleApiKey == null || googleApiKey.trim().isEmpty()) {
+                logger.warn("Gemini provider unavailable: GOOGLE_API_KEY environment variable not set");
+                return false;
+            }
+            
             // Simple test call to verify API availability
             String testPrompt = "Hello";
             callGeminiAPI(testPrompt);
@@ -257,9 +264,14 @@ public class GeminiProvider implements AIProvider {
     
     private String buildConversationEnrichmentPrompt(String conversationText, List<SlackParticipant> participants) {
         StringBuilder participantInfo = new StringBuilder();
+        List<String> participantNames = new ArrayList<>();
+        
         if (participants != null) {
             participantInfo.append("Participants: ");
-            participants.forEach(p -> participantInfo.append(p.getUsername()).append(" "));
+            participants.forEach(p -> {
+                participantInfo.append(p.getUsername()).append(" ");
+                participantNames.add(p.getUsername());
+            });
         }
         
         return String.format("""
@@ -269,16 +281,44 @@ public class GeminiProvider implements AIProvider {
             Conversation:
             %s
             
-            Provide analysis in JSON format with these fields:
+            Provide analysis in JSON format with these exact fields:
             {
-                "topic": "main discussion topic",
-                "summary": "comprehensive summary",
-                "urgency": "LOW|MEDIUM|HIGH|CRITICAL",
-                "sentiment": "overall conversation sentiment",
-                "actionItems": ["item1", "item2"],
-                "keyInsights": ["insight1", "insight2"]
+                "topic": {
+                    "name": "concise topic name",
+                    "summary": "detailed summary of the conversation",
+                    "category": ["primary category", "secondary category"],
+                    "sub-category": ["specific sub-category 1", "specific sub-category 2"],
+                    "keyPoints": [
+                        "most important point 1",
+                        "most important point 2",
+                        "most important point 3"
+                    ],
+                    "priority": "Low|Medium|High|Critical",
+                    "keywords": [
+                        "relevant keyword 1",
+                        "relevant keyword 2",
+                        "relevant keyword 3"
+                    ]
+                },
+                "conversations": [
+                    {
+                        "text": "actual message content from conversation",
+                        "relevance": "explanation of why this message is important to the topic"
+                    }
+                ],
+                "peopleInvolved": %s
             }
-            """, participantInfo.toString(), conversationText);
+            
+            Instructions:
+            - For topic.category: Use broad categories like "Technical", "Business", "Support", "Planning", etc.
+            - For topic.sub-category: Use specific categories like "Bug Fix", "Feature Request", "Payment Issues", etc.
+            - For conversations: Include 2-5 most relevant messages that capture the essence of the discussion
+            - For topic.priority: Base on urgency, impact, and time sensitivity
+            - For topic.keywords: Extract 3-7 key terms that best represent the conversation content
+            """, 
+            participantInfo.toString(), 
+            conversationText,
+            participantNames.isEmpty() ? "[]" : participantNames.toString());
     }
     
     private String buildMessageEnrichmentPrompt(String content, Map<String, Object> context) {
@@ -387,31 +427,23 @@ public class GeminiProvider implements AIProvider {
             List<SlackMessage> messages, List<SlackParticipant> participants) {
         
         try {
-            // Clean the response to handle markdown-wrapped JSON
             String cleanedResponse = cleanJsonResponse(response);
-            
-            // Try to parse JSON response
             @SuppressWarnings("unchecked")
             Map<String, Object> analysis = objectMapper.readValue(cleanedResponse, Map.class);
             
-            String topic = (String) analysis.getOrDefault("topic", "General Discussion");
-            String summary = (String) analysis.getOrDefault("summary", "No summary available");
-            String urgencyStr = (String) analysis.getOrDefault("urgency", "LOW");
-            UrgencyLevel urgency = UrgencyLevel.valueOf(urgencyStr);
+            TopicInfo topicInfo = extractTopicInfo(analysis);
             
-            // Create participant insights
             List<ParticipantInsight> participantInsights = participants != null ? 
                 participants.stream()
                     .map(p -> analyzeParticipant(p, messages))
-                    .collect(Collectors.toList()) : 
+                    .toList() : 
                 List.of();
             
-            // Create message enrichments
             List<MessageEnrichment> messageEnrichments = messages.stream()
                 .map(msg -> enrichMessage(msg.getContent(), Map.of()))
-                .collect(Collectors.toList());
+                .toList();
             
-            return new ConversationEnrichment(topic, summary, urgency, 
+            return new ConversationEnrichment(topicInfo.topic(), topicInfo.summary(), topicInfo.urgency(), 
                                             participantInsights, messageEnrichments, analysis);
                                             
         } catch (Exception e) {
@@ -419,6 +451,56 @@ public class GeminiProvider implements AIProvider {
             return getDefaultConversationEnrichment();
         }
     }
+    
+    private TopicInfo extractTopicInfo(Map<String, Object> analysis) {
+        String topic = "General Discussion";
+        String summary = "No summary available";
+        UrgencyLevel urgency = UrgencyLevel.LOW;
+        
+        if (analysis.containsKey("topic") && analysis.get("topic") instanceof Map<?, ?> topicMap) {
+            topic = extractStringValue(topicMap, "name", topic);
+            summary = extractStringValue(topicMap, "summary", summary);
+            urgency = extractUrgencyFromPriority(topicMap);
+        } else {
+            // Fallback to old format
+            topic = extractStringValue(analysis, "topic", topic);
+            summary = extractStringValue(analysis, "summary", summary);
+            urgency = extractUrgencyFromField(analysis);
+        }
+        
+        return new TopicInfo(topic, summary, urgency);
+    }
+    
+    private String extractStringValue(Map<?, ?> map, String key, String defaultValue) {
+        Object value = map.get(key);
+        return value instanceof String str ? str : defaultValue;
+    }
+    
+    private UrgencyLevel extractUrgencyFromPriority(Map<?, ?> topicMap) {
+        String priorityStr = extractStringValue(topicMap, "priority", "LOW").toUpperCase();
+        return mapPriorityToUrgency(priorityStr);
+    }
+    
+    private UrgencyLevel extractUrgencyFromField(Map<?, ?> analysis) {
+        String urgencyStr = extractStringValue(analysis, "urgency", "LOW").toUpperCase();
+        try {
+            return UrgencyLevel.valueOf(urgencyStr);
+        } catch (Exception e) {
+            logger.warn("Failed to parse urgency '{}', using LOW", urgencyStr);
+            return UrgencyLevel.LOW;
+        }
+    }
+    
+    private UrgencyLevel mapPriorityToUrgency(String priorityStr) {
+        return switch (priorityStr) {
+            case "CRITICAL" -> UrgencyLevel.CRITICAL;
+            case "HIGH" -> UrgencyLevel.HIGH;
+            case "MEDIUM" -> UrgencyLevel.MEDIUM;
+            default -> UrgencyLevel.LOW;
+        };
+    }
+    
+    private record TopicInfo(String topic, String summary, UrgencyLevel urgency) {}
     
     private MessageEnrichment parseMessageEnrichmentResponse(String response) {
         try {

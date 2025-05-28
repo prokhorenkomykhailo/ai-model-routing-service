@@ -26,47 +26,51 @@ public class EnrichmentResponseService {
     /**
      * Listener for conversation enrichment responses
      * 
-     * @param enrichedMessage the enriched message received from RabbitMQ
+     * @param messageMap the enriched message received from RabbitMQ
      */
-    @RabbitListener(queues = "${rabbitmq.queue.ai-enrich-conversation-response}")
-    public void handleConversationEnrichmentResponse(Map<String, Object> messageMap) {
-        try {
-            log.debug("Received enriched message response: {}", messageMap);
+    // @RabbitListener(
+    //     queues = "${rabbitmq.queue.ai-enrich-conversation-response}",
+    //     concurrency = "1",
+    //     containerFactory = "rabbitListenerContainerFactory"
+    // )
+    // public void handleConversationEnrichmentResponse(Map<String, Object> messageMap) {
+    //     try {
+    //         log.debug("Received enriched message response: {}", messageMap);
             
-            // Extract tenant info from the message
-            String tenantId = extractTenantId(messageMap);
-            String tenantSchema = extractTenantSchema(messageMap);
+    //         // Extract tenant info from the message
+    //         String tenantId = extractTenantId(messageMap);
+    //         String tenantSchema = extractTenantSchema(messageMap);
             
-            // Extract and convert the enriched message data
-            EnrichedMessageDTO enrichedMessage = convertToEnrichedMessageDTO(messageMap);
+    //         // Extract and convert the enriched message data
+    //         EnrichedMessageDTO enrichedMessage = convertToEnrichedMessageDTO(messageMap);
             
-            if (enrichedMessage == null || enrichedMessage.getGroupId() == null) {
-                log.error("Invalid enriched message format or missing group ID");
-                return;
-            }
+    //         if (enrichedMessage == null || enrichedMessage.getGroupId() == null) {
+    //             log.error("Invalid enriched message format or missing group ID");
+    //             return;
+    //         }
             
-            log.info("Processing enriched message for group ID: {}", enrichedMessage.getGroupId());
+    //         log.info("Processing enriched message for group ID: {}", enrichedMessage.getGroupId());
             
-            // Additional metadata 
-            Map<String, Object> metadata = new HashMap<>();
-            metadata.put("source", "ai-enrichment");
-            metadata.put("processingTimestamp", System.currentTimeMillis());
+    //         // Additional metadata 
+    //         Map<String, Object> metadata = new HashMap<>();
+    //         metadata.put("source", "ai-enrichment");
+    //         metadata.put("processingTimestamp", System.currentTimeMillis());
             
-            // Save the enriched message to data-storage-service
-            APIResponse<StoredDataDTO> response = dataStorageServiceClient.saveEnrichedMessage(
-                    enrichedMessage, tenantId, tenantSchema, metadata);
+    //         // Save the enriched message to data-storage-service
+    //         APIResponse<StoredDataDTO> response = dataStorageServiceClient.saveEnrichedMessage(
+    //                 enrichedMessage, tenantId, tenantSchema, metadata);
             
-            if (response.isSuccess()) {
-                log.info("Successfully saved enriched message for group ID: {}, stored data ID: {}", 
-                        enrichedMessage.getGroupId(), response.getData().getId());
-            } else {
-                log.error("Failed to save enriched message for group ID: {}, error: {}", 
-                        enrichedMessage.getGroupId(), response.getMessage());
-            }
-        } catch (Exception e) {
-            log.error("Error handling enriched message response: {}", e.getMessage(), e);
-        }
-    }
+    //         if (response.isSuccess()) {
+    //             log.info("Successfully saved enriched message for group ID: {}, stored data ID: {}", 
+    //                     enrichedMessage.getGroupId(), response.getData().getId());
+    //         } else {
+    //             log.error("Failed to save enriched message for group ID: {}, error: {}", 
+    //                     enrichedMessage.getGroupId(), response.getMessage());
+    //         }
+    //     } catch (Exception e) {
+    //         log.error("Error handling enriched message response: {}", e.getMessage(), e);
+    //     }
+    // }
     
     /**
      * Extract tenant ID from the message
@@ -96,6 +100,12 @@ public class EnrichmentResponseService {
         try {
             if (messageMap.containsKey("result")) {
                 Map<String, Object> result = (Map<String, Object>) messageMap.get("result");
+                
+                // Check if result is not null
+                if (result == null) {
+                    log.error("Result map is null in message: {}", messageMap);
+                    return null;
+                }
                 
                 // Build the EnrichedMessageDTO from the result map
                 EnrichedMessageDTO dto = new EnrichedMessageDTO();

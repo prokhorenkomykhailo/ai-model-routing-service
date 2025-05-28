@@ -35,12 +35,6 @@ ai:
       endpoint: https://api.openai.com/v1
       timeout: 30000
       enabled: true
-    
-    langchain:
-      type: langchain
-      endpoint: ${LANGCHAIN_SERVICE_URL:http://localhost:8000}
-      timeout: 60000
-      enabled: true
 
 # Swagger/OpenAPI Configuration for local development
 springdoc:

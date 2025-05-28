@@ -53,8 +53,9 @@ spring:
     listener:
       simple:
         acknowledge-mode: auto
-        concurrency: 3
-        max-concurrency: 10
+        concurrency: 1
+        max-concurrency: 1
+        prefetch: 1
         retry:
           enabled: true
           initial-interval: 1000
@@ -80,12 +81,12 @@ ai:
     task-providers:
       categorize: openai
       summarize: gemini
-      enrich_conversation: langchain
+      enrich_conversation: gemini
       enrich_message: openai
       analyze_participant: gemini
       assess_urgency: openai
       generate_topic: gemini
-      extract_entities: langchain
+      extract_entities: gemini
       sentiment_analysis: openai
   enrichment:
     scheduler:

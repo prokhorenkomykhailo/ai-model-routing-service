@@ -52,12 +52,6 @@ ai:
       endpoint: http://localhost:8080/mock/openai
       timeout: 5000
       enabled: false
-    
-    langchain:
-      type: langchain
-      endpoint: http://localhost:8080/mock/langchain
-      timeout: 5000
-      enabled: false
 
 # Disable Swagger in tests
 springdoc:

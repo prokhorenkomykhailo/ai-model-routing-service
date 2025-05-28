@@ -111,16 +111,64 @@ public class MessageConverterService {
     }
     
     /**
-     * Convert SlackMessage to SlackMessageData for lightweight transport
+     * Convert SlackMessage to SlackMessageData for lightweight transport.
+     * Maps all available fields from SlackMessage to SlackMessageData with enhanced field mapping,
+     * dual source support, and comprehensive null safety.
+     * 
+     * @param message the SlackMessage to convert
+     * @return SlackMessageData for RabbitMQ transport, or null if input message is null
      */
     public SlackMessageData convertToMessageData(SlackMessage message) {
+        if (message == null) {
+            logger.warn("Cannot convert null SlackMessage to SlackMessageData");
+            return null;
+        }
+        
+        logger.debug("Converting SlackMessage to SlackMessageData: id={}, userId={}", 
+                    message.getId(), message.getUserId());
+        
         SlackMessageData data = new SlackMessageData();
+        
+        // Core identity mapping - prioritize primary fields with fallback
         data.setId(message.getId());
-        data.setUserId(message.getUserId());
-        data.setContent(message.getContent());
+        
+        // User identification with dual source support
+        String userId = message.getUserId();
+        if (userId == null || userId.trim().isEmpty()) {
+            userId = message.getUser(); // Fallback to alternative user field
+        }
+        data.setUserId(userId);
+        
+        // Content mapping with dual source support  
+        String content = message.getContent();
+        if (content == null || content.trim().isEmpty()) {
+            content = message.getText(); // Fallback to alternative text field
+        }
+        data.setContent(content);
+        
+        // Timestamp mapping with null safety
         data.setTimestamp(message.getTimestamp());
-        data.setChannelId(message.getChannelId());
-        data.setThreadTs(message.getThreadTs());
+        
+        // Channel identification with dual source support
+        String channelId = message.getChannelId();
+        if (channelId == null || channelId.trim().isEmpty()) {
+            channelId = message.getChannel(); // Fallback to alternative channel field
+        }
+        data.setChannelId(channelId);
+        
+        // Thread information mapping with dual source support
+        String threadTs = message.getThreadTs();
+        if (threadTs == null || threadTs.trim().isEmpty()) {
+            threadTs = message.getThreadId(); // Fallback to alternative thread field
+        }
+        data.setThreadTs(threadTs);
+        
+        logger.debug("Successfully converted SlackMessage to SlackMessageData: " +
+                    "id={}, userId={}, channelId={}, hasContent={}, hasThread={}", 
+                    data.getId(), data.getUserId(), data.getChannelId(),
+                    data.getContent() != null && !data.getContent().trim().isEmpty(),
+                    data.getThreadTs() != null && !data.getThreadTs().trim().isEmpty());
+        
         return data;
     }
     

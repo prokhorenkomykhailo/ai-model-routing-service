@@ -4,7 +4,7 @@ This service provides AI model routing and orchestration capabilities for the Lu
 
 ## Features
 
-- Multi-provider AI routing (OpenAI, Gemini, LangChain)
+- Multi-provider AI routing (OpenAI, Gemini)
 - Conversation analysis and enrichment
 - Message categorization and sentiment analysis
 - Participant behavior insights
@@ -49,7 +49,6 @@ Supported Gemini models:
 ### Other Providers
 
 - **OpenAI**: Configure with `OPENAI_API_KEY` environment variable
-- **LangChain**: Configure according to LangChain documentation
 
 ## Development
 

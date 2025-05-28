@@ -53,12 +53,6 @@ ai:
       endpoint: https://api.openai.com/v1
       timeout: 60000
       enabled: ${PROD_OPENAI_ENABLED:true}
-    
-    langchain:
-      type: langchain
-      endpoint: ${PROD_LANGCHAIN_SERVICE_URL}
-      timeout: 120000
-      enabled: ${PROD_LANGCHAIN_ENABLED:true}
 
 # Swagger disabled in production
 springdoc:
