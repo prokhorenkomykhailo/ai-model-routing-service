@@ -125,6 +125,7 @@ public class AIMessageConsumerService {
                     messageResponse = AIMessageResponse.success(
                         aiMessage.getMessageId(),
                         aiMessage.getCorrelationId(),
+                        aiMessage.getConversationId(),
                         response.getTaskType(),
                         response.getResult(),
                         response.getProviderId(),
@@ -134,11 +135,11 @@ public class AIMessageConsumerService {
                     messageResponse = AIMessageResponse.error(
                         aiMessage.getMessageId(),
                         aiMessage.getCorrelationId(),
+                        aiMessage.getConversationId(),
                         response.getTaskType(),
                         response.getErrorMessage()
                     );
                 }
-                
                 messageResponse.setProcessingTimeMs(processingTime);
                 messageResponse.setMetadata(response.getMetadata());
                 
@@ -157,6 +158,7 @@ public class AIMessageConsumerService {
                 AIMessageResponse errorResponse = AIMessageResponse.error(
                     aiMessage.getMessageId(),
                     aiMessage.getCorrelationId(),
+                    aiMessage.getConversationId(),
                     aiMessage.getTaskType(),
                     "Processing failed: " + throwable.getMessage()
                 );
@@ -167,8 +169,6 @@ public class AIMessageConsumerService {
             });
             
         } catch (Exception e) {
-            long processingTime = System.currentTimeMillis() - startTime;
-            
             logger.error("Failed to convert or process AI message: messageId={}, error={}", 
                         aiMessage.getMessageId(), e.getMessage(), e);
             
@@ -183,6 +183,7 @@ public class AIMessageConsumerService {
         AIMessageResponse errorResponse = AIMessageResponse.error(
             aiMessage.getMessageId(),
             aiMessage.getCorrelationId(),
+            aiMessage.getConversationId(),
             aiMessage.getTaskType(),
             errorMessage
         );

@@ -77,17 +77,17 @@ security:
 # AI Routing Configuration
 ai:
   routing:
-    default-provider: gemini
+    default-provider: geminiProvider
     task-providers:
-      categorize: openai
-      summarize: gemini
-      enrich_conversation: gemini
-      enrich_message: openai
-      analyze_participant: gemini
-      assess_urgency: openai
-      generate_topic: gemini
-      extract_entities: gemini
-      sentiment_analysis: openai
+      categorize: geminiProvider
+      summarize: geminiProvider
+      enrich_conversation: geminiProvider
+      enrich_message: geminiProvider
+      analyze_participant: geminiProvider
+      assess_urgency: geminiProvider
+      generate_topic: geminiProvider
+      extract_entities: geminiProvider
+      sentiment_analysis: geminiProvider
   enrichment:
     scheduler:
       cron: "${AI_ENRICHMENT_CRON:0 */5 * * * ?}"  # Every 5 minutes by default

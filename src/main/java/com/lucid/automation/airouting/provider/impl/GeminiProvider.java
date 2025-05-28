@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 import java.util.*;
 import java.util.stream.Collectors;
 
-@Component("geminiProvider")
+@Component("gemini")
 public class GeminiProvider implements AIProvider {
     
     private static final Logger logger = LoggerFactory.getLogger(GeminiProvider.class);
@@ -31,31 +31,76 @@ public class GeminiProvider implements AIProvider {
     private final Client geminiClient;
     private final ObjectMapper objectMapper;
     private double lastConfidence = 0.0;
+    private final boolean isClientAvailable;
     
     public GeminiProvider(ObjectMapper objectMapper) {
-        // The client gets the API key from the environment variable `GOOGLE_API_KEY`
-        this.geminiClient = new Client();
         this.objectMapper = objectMapper;
+        
+        // Try to initialize the client, but handle gracefully if API key is not available
+        Client tempClient = null;
+        boolean clientAvailable = false;
+        
+        try {
+            // Check if GOOGLE_API_KEY environment variable is set before initializing client
+            String googleApiKey = System.getenv("GOOGLE_API_KEY");
+            if (googleApiKey != null && !googleApiKey.trim().isEmpty()) {
+                tempClient = new Client();
+                clientAvailable = true;
+                logger.info("Gemini client initialized successfully");
+            } else {
+                logger.warn("GOOGLE_API_KEY not set, Gemini provider will be unavailable");
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to initialize Gemini client: {}", e.getMessage());
+        }
+        
+        this.geminiClient = tempClient;
+        this.isClientAvailable = clientAvailable;
     }
     
     @Override
     public CategoryResult categorize(String content) {
+        String debugId = "CATEGORIZE-" + System.currentTimeMillis();
         try {
-            logger.debug("Categorizing content with Gemini: length={}", content.length());
+            logger.debug("GEMINI-DEBUG [{}]: Starting categorization - content length: {}", debugId, content != null ? content.length() : 0);
+            
+            // Input validation
+            if (content == null || content.trim().isEmpty()) {
+                logger.warn("GEMINI-DEBUG [{}]: Empty or null content provided for categorization", debugId);
+                this.lastConfidence = 0.0;
+                return new CategoryResult("Uncategorized", 0.0);
+            }
+            
+            if (!isClientAvailable) {
+                logger.warn("GEMINI-DEBUG [{}]: Client not available for categorization", debugId);
+                this.lastConfidence = 0.0;
+                return new CategoryResult("Uncategorized", 0.0);
+            }
             
             String prompt = buildCategorizationPrompt(content);
+            logger.debug("GEMINI-DEBUG [{}]: Built categorization prompt, length: {}", debugId, prompt.length());
+            
             String response = callGeminiAPI(prompt);
+            logger.debug("GEMINI-DEBUG [{}]: Received API response for categorization", debugId);
             
             CategoryResult result = parseCategorizationResponse(response);
             this.lastConfidence = result.confidence();
             
-            logger.debug("Categorization result: category={}, confidence={}", 
-                        result.category(), result.confidence());
+            logger.debug("GEMINI-DEBUG [{}]: Categorization successful - category: {}, confidence: {}", 
+                        debugId, result.category(), result.confidence());
             
             return result;
             
+        } catch (IllegalArgumentException e) {
+            logger.error("GEMINI-DEBUG [{}]: Invalid input for categorization: {}", debugId, e.getMessage(), e);
+            this.lastConfidence = 0.0;
+            return new CategoryResult("Uncategorized", 0.0);
+        } catch (RuntimeException e) {
+            logger.error("GEMINI-DEBUG [{}]: API error during categorization: {}", debugId, e.getMessage(), e);
+            this.lastConfidence = 0.0;
+            return new CategoryResult("Uncategorized", 0.0);
         } catch (Exception e) {
-            logger.error("Failed to categorize with Gemini", e);
+            logger.error("GEMINI-DEBUG [{}]: Unexpected error during categorization: {}", debugId, e.getMessage(), e);
             this.lastConfidence = 0.0;
             return new CategoryResult("Uncategorized", 0.0);
         }
@@ -63,118 +108,352 @@ public class GeminiProvider implements AIProvider {
     
     @Override
     public SummaryResult summarize(String content) {
+        String debugId = "SUMMARIZE-" + System.currentTimeMillis();
         try {
-            logger.debug("Summarizing content with Gemini: length={}", content.length());
+            logger.debug("GEMINI-DEBUG [{}]: Starting summarization - content length: {}", debugId, content != null ? content.length() : 0);
+            
+            // Input validation
+            if (content == null || content.trim().isEmpty()) {
+                logger.warn("GEMINI-DEBUG [{}]: Empty or null content provided for summarization", debugId);
+                return new SummaryResult("Summary unavailable", "No content provided");
+            }
+            
+            if (!isClientAvailable) {
+                logger.warn("GEMINI-DEBUG [{}]: Client not available for summarization", debugId);
+                return new SummaryResult("Summary unavailable", "AI service unavailable");
+            }
             
             String prompt = buildSummarizationPrompt(content);
+            logger.debug("GEMINI-DEBUG [{}]: Built summarization prompt, length: {}", debugId, prompt.length());
+            
             String response = callGeminiAPI(prompt);
+            logger.debug("GEMINI-DEBUG [{}]: Received API response for summarization", debugId);
             
-            return parseSummaryResponse(response);
+            SummaryResult result = parseSummaryResponse(response);
+            logger.debug("GEMINI-DEBUG [{}]: Summarization successful", debugId);
             
+            return result;
+            
+        } catch (IllegalArgumentException e) {
+            logger.error("GEMINI-DEBUG [{}]: Invalid input for summarization: {}", debugId, e.getMessage(), e);
+            return new SummaryResult("Summary unavailable", "Invalid input: " + e.getMessage());
+        } catch (RuntimeException e) {
+            logger.error("GEMINI-DEBUG [{}]: API error during summarization: {}", debugId, e.getMessage(), e);
+            return new SummaryResult("Summary unavailable", "Service error occurred");
         } catch (Exception e) {
-            logger.error("Failed to summarize with Gemini", e);
+            logger.error("GEMINI-DEBUG [{}]: Unexpected error during summarization: {}", debugId, e.getMessage(), e);
             return new SummaryResult("Summary unavailable", "Error occurred");
         }
     }
     
     @Override
     public ConversationEnrichment enrichConversation(List<SlackMessage> messages, List<SlackParticipant> participants) {
+        String debugId = "ENRICH-CONV-" + System.currentTimeMillis();
         try {
-            logger.info("Enriching conversation with Gemini: {} messages, {} participants", 
-                       messages.size(), participants != null ? participants.size() : 0);
+            int messagesCount = messages != null ? messages.size() : 0;
+            int participantsCount = participants != null ? participants.size() : 0;
+            logger.info("GEMINI-DEBUG [{}]: Starting conversation enrichment - {} messages, {} participants", 
+                       debugId, messagesCount, participantsCount);
+            
+            // Input validation
+            if (messages == null || messages.isEmpty()) {
+                logger.warn("GEMINI-DEBUG [{}]: No messages provided for conversation enrichment", debugId);
+                return getDefaultConversationEnrichment();
+            }
+            
+            if (!isClientAvailable) {
+                logger.warn("GEMINI-DEBUG [{}]: Client not available for conversation enrichment", debugId);
+                return getDefaultConversationEnrichment();
+            }
             
             String conversationText = formatConversationForAnalysis(messages);
+            logger.debug("GEMINI-DEBUG [{}]: Formatted conversation text, length: {}", debugId, conversationText.length());
+            
             String prompt = buildConversationEnrichmentPrompt(conversationText, participants);
+            logger.debug("GEMINI-DEBUG [{}]: Built enrichment prompt, length: {}", debugId, prompt.length());
+            
             String response = callGeminiAPI(prompt);
+            logger.debug("GEMINI-DEBUG [{}]: Received API response for conversation enrichment", debugId);
             
-            return parseConversationEnrichmentResponse(response, messages, participants);
+            ConversationEnrichment result = parseConversationEnrichmentResponse(response, messages, participants);
+            logger.info("GEMINI-DEBUG [{}]: Conversation enrichment successful", debugId);
             
+            return result;
+            
+        } catch (IllegalArgumentException e) {
+            logger.error("GEMINI-DEBUG [{}]: Invalid input for conversation enrichment: {}", debugId, e.getMessage(), e);
+            return getDefaultConversationEnrichment();
+        } catch (RuntimeException e) {
+            logger.error("GEMINI-DEBUG [{}]: API error during conversation enrichment: {}", debugId, e.getMessage(), e);
+            return getDefaultConversationEnrichment();
         } catch (Exception e) {
-            logger.error("Failed to enrich conversation with Gemini", e);
+            logger.error("GEMINI-DEBUG [{}]: Unexpected error during conversation enrichment: {}", debugId, e.getMessage(), e);
             return getDefaultConversationEnrichment();
         }
     }
     
     @Override
     public MessageEnrichment enrichMessage(String content, Map<String, Object> context) {
+        String debugId = "ENRICH-MSG-" + System.currentTimeMillis();
         try {
-            String prompt = buildMessageEnrichmentPrompt(content, context);
-            String response = callGeminiAPI(prompt);
-            return parseMessageEnrichmentResponse(response);
+            int contextSize = context != null ? context.size() : 0;
+            logger.debug("GEMINI-DEBUG [{}]: Starting message enrichment - content length: {}, context size: {}", 
+                        debugId, content != null ? content.length() : 0, contextSize);
             
+            // Input validation
+            if (content == null || content.trim().isEmpty()) {
+                logger.warn("GEMINI-DEBUG [{}]: Empty or null content provided for message enrichment", debugId);
+                return new MessageEnrichment("General", 0.0, "Unknown", List.of(), 0.0);
+            }
+            
+            if (!isClientAvailable) {
+                logger.warn("GEMINI-DEBUG [{}]: Client not available for message enrichment", debugId);
+                return new MessageEnrichment("General", 0.0, "Unknown", List.of(), 0.0);
+            }
+            
+            String prompt = buildMessageEnrichmentPrompt(content, context);
+            logger.debug("GEMINI-DEBUG [{}]: Built message enrichment prompt, length: {}", debugId, prompt.length());
+            
+            String response = callGeminiAPI(prompt);
+            logger.debug("GEMINI-DEBUG [{}]: Received API response for message enrichment", debugId);
+            
+            MessageEnrichment result = parseMessageEnrichmentResponse(response);
+            logger.debug("GEMINI-DEBUG [{}]: Message enrichment successful", debugId);
+            
+            return result;
+            
+        } catch (IllegalArgumentException e) {
+            logger.error("GEMINI-DEBUG [{}]: Invalid input for message enrichment: {}", debugId, e.getMessage(), e);
+            return new MessageEnrichment("General", 0.0, "Unknown", List.of(), 0.0);
+        } catch (RuntimeException e) {
+            logger.error("GEMINI-DEBUG [{}]: API error during message enrichment: {}", debugId, e.getMessage(), e);
+            return new MessageEnrichment("General", 0.0, "Unknown", List.of(), 0.0);
         } catch (Exception e) {
-            logger.error("Failed to enrich message with Gemini", e);
+            logger.error("GEMINI-DEBUG [{}]: Unexpected error during message enrichment: {}", debugId, e.getMessage(), e);
             return new MessageEnrichment("General", 0.0, "Unknown", List.of(), 0.0);
         }
     }
     
     @Override
     public ParticipantInsight analyzeParticipant(SlackParticipant participant, List<SlackMessage> messages) {
+        String debugId = "ANALYZE-PARTICIPANT-" + System.currentTimeMillis();
         try {
+            String participantId = participant != null ? participant.getId() : "null";
+            int messagesCount = messages != null ? messages.size() : 0;
+            logger.debug("GEMINI-DEBUG [{}]: Starting participant analysis - participant: {}, total messages: {}", 
+                        debugId, participantId, messagesCount);
+            
+            // Input validation
+            if (participant == null) {
+                logger.warn("GEMINI-DEBUG [{}]: Null participant provided for analysis", debugId);
+                return new ParticipantInsight("Unknown Participant", 0.0, "Neutral", 0);
+            }
+            
+            if (messages == null || messages.isEmpty()) {
+                logger.warn("GEMINI-DEBUG [{}]: No messages provided for participant analysis", debugId);
+                return new ParticipantInsight("Participant", 0.0, "Neutral", 0);
+            }
+            
+            if (!isClientAvailable) {
+                logger.warn("GEMINI-DEBUG [{}]: Client not available for participant analysis", debugId);
+                return new ParticipantInsight("Participant", 0.0, "Neutral", 0);
+            }
+            
             List<SlackMessage> userMessages = messages.stream()
                 .filter(msg -> participant.getId().equals(msg.getUserId()))
                 .collect(Collectors.toList());
                 
-            String prompt = buildParticipantAnalysisPrompt(participant, userMessages);
-            String response = callGeminiAPI(prompt);
-            return parseParticipantAnalysisResponse(response);
+            logger.debug("GEMINI-DEBUG [{}]: Filtered to {} messages from participant {}", 
+                        debugId, userMessages.size(), participantId);
             
+            String prompt = buildParticipantAnalysisPrompt(participant, userMessages);
+            logger.debug("GEMINI-DEBUG [{}]: Built participant analysis prompt, length: {}", debugId, prompt.length());
+            
+            String response = callGeminiAPI(prompt);
+            logger.debug("GEMINI-DEBUG [{}]: Received API response for participant analysis", debugId);
+            
+            ParticipantInsight result = parseParticipantAnalysisResponse(response);
+            logger.debug("GEMINI-DEBUG [{}]: Participant analysis successful", debugId);
+            
+            return result;
+            
+        } catch (IllegalArgumentException e) {
+            logger.error("GEMINI-DEBUG [{}]: Invalid input for participant analysis: {}", debugId, e.getMessage(), e);
+            return new ParticipantInsight("Participant", 0.0, "Neutral", 0);
+        } catch (RuntimeException e) {
+            logger.error("GEMINI-DEBUG [{}]: API error during participant analysis: {}", debugId, e.getMessage(), e);
+            return new ParticipantInsight("Participant", 0.0, "Neutral", 0);
         } catch (Exception e) {
-            logger.error("Failed to analyze participant with Gemini", e);
+            logger.error("GEMINI-DEBUG [{}]: Unexpected error during participant analysis: {}", debugId, e.getMessage(), e);
             return new ParticipantInsight("Participant", 0.0, "Neutral", 0);
         }
     }
     
     @Override
     public UrgencyLevel assessUrgency(List<SlackMessage> messages) {
+        String debugId = "ASSESS-URGENCY-" + System.currentTimeMillis();
         try {
-            String conversationText = formatConversationForAnalysis(messages);
-            String prompt = buildUrgencyAssessmentPrompt(conversationText);
-            String response = callGeminiAPI(prompt);
-            return parseUrgencyResponse(response);
+            int messagesCount = messages != null ? messages.size() : 0;
+            logger.debug("GEMINI-DEBUG [{}]: Starting urgency assessment - {} messages", debugId, messagesCount);
             
+            // Input validation
+            if (messages == null || messages.isEmpty()) {
+                logger.warn("GEMINI-DEBUG [{}]: No messages provided for urgency assessment", debugId);
+                return UrgencyLevel.LOW;
+            }
+            
+            if (!isClientAvailable) {
+                logger.warn("GEMINI-DEBUG [{}]: Client not available for urgency assessment", debugId);
+                return UrgencyLevel.LOW;
+            }
+            
+            String conversationText = formatConversationForAnalysis(messages);
+            logger.debug("GEMINI-DEBUG [{}]: Formatted conversation for urgency analysis, length: {}", debugId, conversationText.length());
+            
+            String prompt = buildUrgencyAssessmentPrompt(conversationText);
+            logger.debug("GEMINI-DEBUG [{}]: Built urgency assessment prompt, length: {}", debugId, prompt.length());
+            
+            String response = callGeminiAPI(prompt);
+            logger.debug("GEMINI-DEBUG [{}]: Received API response for urgency assessment", debugId);
+            
+            UrgencyLevel result = parseUrgencyResponse(response);
+            logger.debug("GEMINI-DEBUG [{}]: Urgency assessment successful - level: {}", debugId, result);
+            
+            return result;
+            
+        } catch (IllegalArgumentException e) {
+            logger.error("GEMINI-DEBUG [{}]: Invalid input for urgency assessment: {}", debugId, e.getMessage(), e);
+            return UrgencyLevel.LOW;
+        } catch (RuntimeException e) {
+            logger.error("GEMINI-DEBUG [{}]: API error during urgency assessment: {}", debugId, e.getMessage(), e);
+            return UrgencyLevel.LOW;
         } catch (Exception e) {
-            logger.error("Failed to assess urgency with Gemini", e);
+            logger.error("GEMINI-DEBUG [{}]: Unexpected error during urgency assessment: {}", debugId, e.getMessage(), e);
             return UrgencyLevel.LOW;
         }
     }
     
     @Override
     public String generateTopic(List<SlackMessage> messages) {
+        String debugId = "GENERATE-TOPIC-" + System.currentTimeMillis();
         try {
-            String conversationText = formatConversationForAnalysis(messages.stream().limit(10).collect(Collectors.toList()));
-            String prompt = buildTopicGenerationPrompt(conversationText);
-            String response = callGeminiAPI(prompt);
-            return parseTopicResponse(response);
+            int messagesCount = messages != null ? messages.size() : 0;
+            logger.debug("GEMINI-DEBUG [{}]: Starting topic generation - {} messages", debugId, messagesCount);
             
+            // Input validation
+            if (messages == null || messages.isEmpty()) {
+                logger.warn("GEMINI-DEBUG [{}]: No messages provided for topic generation", debugId);
+                return "General Discussion";
+            }
+            
+            if (!isClientAvailable) {
+                logger.warn("GEMINI-DEBUG [{}]: Client not available for topic generation", debugId);
+                return "General Discussion";
+            }
+            
+            String conversationText = formatConversationForAnalysis(messages.stream().limit(10).collect(Collectors.toList()));
+            logger.debug("GEMINI-DEBUG [{}]: Formatted conversation for topic generation, length: {}", debugId, conversationText.length());
+            
+            String prompt = buildTopicGenerationPrompt(conversationText);
+            logger.debug("GEMINI-DEBUG [{}]: Built topic generation prompt, length: {}", debugId, prompt.length());
+            
+            String response = callGeminiAPI(prompt);
+            logger.debug("GEMINI-DEBUG [{}]: Received API response for topic generation", debugId);
+            
+            String result = parseTopicResponse(response);
+            logger.debug("GEMINI-DEBUG [{}]: Topic generation successful - topic: {}", debugId, result);
+            
+            return result;
+            
+        } catch (IllegalArgumentException e) {
+            logger.error("GEMINI-DEBUG [{}]: Invalid input for topic generation: {}", debugId, e.getMessage(), e);
+            return "General Discussion";
+        } catch (RuntimeException e) {
+            logger.error("GEMINI-DEBUG [{}]: API error during topic generation: {}", debugId, e.getMessage(), e);
+            return "General Discussion";
         } catch (Exception e) {
-            logger.error("Failed to generate topic with Gemini", e);
+            logger.error("GEMINI-DEBUG [{}]: Unexpected error during topic generation: {}", debugId, e.getMessage(), e);
             return "General Discussion";
         }
     }
     
     @Override
     public List<String> extractEntities(String content) {
+        String debugId = "EXTRACT-ENTITIES-" + System.currentTimeMillis();
         try {
-            String prompt = buildEntityExtractionPrompt(content);
-            String response = callGeminiAPI(prompt);
-            return parseEntitiesResponse(response);
+            logger.debug("GEMINI-DEBUG [{}]: Starting entity extraction - content length: {}", debugId, content != null ? content.length() : 0);
             
+            // Input validation
+            if (content == null || content.trim().isEmpty()) {
+                logger.warn("GEMINI-DEBUG [{}]: Empty or null content provided for entity extraction", debugId);
+                return List.of();
+            }
+            
+            if (!isClientAvailable) {
+                logger.warn("GEMINI-DEBUG [{}]: Client not available for entity extraction", debugId);
+                return List.of();
+            }
+            
+            String prompt = buildEntityExtractionPrompt(content);
+            logger.debug("GEMINI-DEBUG [{}]: Built entity extraction prompt, length: {}", debugId, prompt.length());
+            
+            String response = callGeminiAPI(prompt);
+            logger.debug("GEMINI-DEBUG [{}]: Received API response for entity extraction", debugId);
+            
+            List<String> result = parseEntitiesResponse(response);
+            logger.debug("GEMINI-DEBUG [{}]: Entity extraction successful - found {} entities", debugId, result.size());
+            
+            return result;
+            
+        } catch (IllegalArgumentException e) {
+            logger.error("GEMINI-DEBUG [{}]: Invalid input for entity extraction: {}", debugId, e.getMessage(), e);
+            return List.of();
+        } catch (RuntimeException e) {
+            logger.error("GEMINI-DEBUG [{}]: API error during entity extraction: {}", debugId, e.getMessage(), e);
+            return List.of();
         } catch (Exception e) {
-            logger.error("Failed to extract entities with Gemini", e);
+            logger.error("GEMINI-DEBUG [{}]: Unexpected error during entity extraction: {}", debugId, e.getMessage(), e);
             return List.of();
         }
     }
     
     @Override
     public SentimentResult analyzeSentiment(String content) {
+        String debugId = "ANALYZE-SENTIMENT-" + System.currentTimeMillis();
         try {
-            String prompt = buildSentimentAnalysisPrompt(content);
-            String response = callGeminiAPI(prompt);
-            return parseSentimentResponse(response);
+            logger.debug("GEMINI-DEBUG [{}]: Starting sentiment analysis - content length: {}", debugId, content != null ? content.length() : 0);
             
+            // Input validation
+            if (content == null || content.trim().isEmpty()) {
+                logger.warn("GEMINI-DEBUG [{}]: Empty or null content provided for sentiment analysis", debugId);
+                return new SentimentResult("Neutral", 0.0, 0.0);
+            }
+            
+            if (!isClientAvailable) {
+                logger.warn("GEMINI-DEBUG [{}]: Client not available for sentiment analysis", debugId);
+                return new SentimentResult("Neutral", 0.0, 0.0);
+            }
+            
+            String prompt = buildSentimentAnalysisPrompt(content);
+            logger.debug("GEMINI-DEBUG [{}]: Built sentiment analysis prompt, length: {}", debugId, prompt.length());
+            
+            String response = callGeminiAPI(prompt);
+            logger.debug("GEMINI-DEBUG [{}]: Received API response for sentiment analysis", debugId);
+            
+            SentimentResult result = parseSentimentResponse(response);
+            logger.debug("GEMINI-DEBUG [{}]: Sentiment analysis successful - sentiment: {}, confidence: {}", 
+                        debugId, result.sentiment(), result.confidence());
+            
+            return result;
+            
+        } catch (IllegalArgumentException e) {
+            logger.error("GEMINI-DEBUG [{}]: Invalid input for sentiment analysis: {}", debugId, e.getMessage(), e);
+            return new SentimentResult("Neutral", 0.0, 0.0);
+        } catch (RuntimeException e) {
+            logger.error("GEMINI-DEBUG [{}]: API error during sentiment analysis: {}", debugId, e.getMessage(), e);
+            return new SentimentResult("Neutral", 0.0, 0.0);
         } catch (Exception e) {
-            logger.error("Failed to analyze sentiment with Gemini", e);
+            logger.error("GEMINI-DEBUG [{}]: Unexpected error during sentiment analysis: {}", debugId, e.getMessage(), e);
             return new SentimentResult("Neutral", 0.0, 0.0);
         }
     }
@@ -186,27 +465,7 @@ public class GeminiProvider implements AIProvider {
     
     @Override
     public boolean isAvailable() {
-        try {
-            // Check if GOOGLE_API_KEY environment variable is set
-            String googleApiKey = System.getenv("GOOGLE_API_KEY");
-            if (googleApiKey == null || googleApiKey.trim().isEmpty()) {
-                logger.warn("Gemini provider unavailable: GOOGLE_API_KEY environment variable not set");
-                return false;
-            }
-            
-            // Check if the client is properly initialized
-            if (geminiClient == null) {
-                logger.warn("Gemini provider unavailable: client not initialized");
-                return false;
-            }
-            
-            logger.debug("Gemini provider available: API key configured and client initialized");
-            return true;
-            
-        } catch (Exception e) {
-            logger.warn("Gemini provider unavailable: {}", e.getMessage());
-            return false;
-        }
+        return isClientAvailable;
     }
     
     @Override
@@ -217,6 +476,10 @@ public class GeminiProvider implements AIProvider {
     // Private helper methods
     private String callGeminiAPI(String prompt) {
         try {
+            if (geminiClient == null) {
+                throw new RuntimeException("Gemini client is not available - API key not configured");
+            }
+            
             logger.debug("Calling Gemini API with prompt length: {}", prompt.length());
             
             GenerateContentResponse response = geminiClient.models.generateContent(
@@ -412,7 +675,7 @@ public class GeminiProvider implements AIProvider {
             String[] parts = response.trim().split("\\|");
             if (parts.length >= 2) {
                 String category = parts[0].trim();
-                double confidence = Double.parseDouble(parts[1].trim());
+                double confidence = parseNumericValue(parts[1].trim(), 0.8);
                 return new CategoryResult(category, confidence);
             } else {
                 return new CategoryResult(response.trim(), 0.8);
@@ -519,14 +782,14 @@ public class GeminiProvider implements AIProvider {
                 if (line.startsWith("Category:")) {
                     category = line.substring(9).trim();
                 } else if (line.startsWith("Sentiment:")) {
-                    sentiment = Double.parseDouble(line.substring(10).trim());
+                    sentiment = parseNumericValue(line.substring(10).trim(), 0.0);
                 } else if (line.startsWith("Intent:")) {
                     intent = line.substring(7).trim();
                 } else if (line.startsWith("Entities:")) {
                     String entitiesStr = line.substring(9).trim();
                     entities = Arrays.asList(entitiesStr.split(",\\s*"));
                 } else if (line.startsWith("Confidence:")) {
-                    confidence = Double.parseDouble(line.substring(11).trim());
+                    confidence = parseNumericValue(line.substring(11).trim(), 0.5);
                 }
             }
             
@@ -549,7 +812,8 @@ public class GeminiProvider implements AIProvider {
                 if (line.startsWith("Role:")) {
                     role = line.substring(5).trim();
                 } else if (line.startsWith("Engagement:")) {
-                    engagement = Double.parseDouble(line.substring(11).trim());
+                    String engagementStr = line.substring(11).trim();
+                    engagement = parseEngagementValue(engagementStr);
                 } else if (line.startsWith("Sentiment:")) {
                     sentiment = line.substring(10).trim();
                 }
@@ -560,6 +824,71 @@ public class GeminiProvider implements AIProvider {
         } catch (Exception e) {
             logger.warn("Failed to parse participant analysis response: {}", response, e);
             return new ParticipantInsight("Participant", 0.5, "Neutral", 0);
+        }
+    }
+    
+    /**
+     * Extracts numeric engagement value from a string that may contain descriptive text.
+     * Handles formats like:
+     * - "0.2"
+     * - "0.2 (Very low. One message only...)"
+     * - "0.8 - High engagement"
+     */
+    private double parseEngagementValue(String engagementStr) {
+        try {
+            // First, try to parse directly in case it's just a number
+            return Double.parseDouble(engagementStr);
+        } catch (NumberFormatException e) {
+            // If that fails, extract the first numeric value from the string
+            try {
+                // Use regex to find first decimal number (including integers)
+                java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("([0-9]*\\.?[0-9]+)");
+                java.util.regex.Matcher matcher = pattern.matcher(engagementStr);
+                
+                if (matcher.find()) {
+                    double value = Double.parseDouble(matcher.group(1));
+                    // Ensure the value is within valid range [0.0, 1.0]
+                    return Math.max(0.0, Math.min(1.0, value));
+                } else {
+                    logger.warn("No numeric value found in engagement string: {}", engagementStr);
+                    return 0.5; // Default fallback
+                }
+            } catch (Exception parseException) {
+                logger.warn("Failed to extract numeric value from engagement string: {}", engagementStr, parseException);
+                return 0.5; // Default fallback
+            }
+        }
+    }
+    
+    /**
+     * Extracts numeric value from a string that may contain descriptive text.
+     * Handles formats like:
+     * - "0.8"
+     * - "0.8 (High confidence)"
+     * - "0.2 - Low value with description"
+     */
+    private double parseNumericValue(String valueStr, double defaultValue) {
+        try {
+            // First, try to parse directly in case it's just a number
+            return Double.parseDouble(valueStr);
+        } catch (NumberFormatException e) {
+            // If that fails, extract the first numeric value from the string
+            try {
+                // Use regex to find first decimal number (including integers)
+                java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("([0-9]*\\.?[0-9]+)");
+                java.util.regex.Matcher matcher = pattern.matcher(valueStr);
+                
+                if (matcher.find()) {
+                    double value = Double.parseDouble(matcher.group(1));
+                    return value;
+                } else {
+                    logger.warn("No numeric value found in string: {}", valueStr);
+                    return defaultValue; // Default fallback
+                }
+            } catch (Exception parseException) {
+                logger.warn("Failed to extract numeric value from string: {}", valueStr, parseException);
+                return defaultValue; // Default fallback
+            }
         }
     }
     
@@ -597,9 +926,9 @@ public class GeminiProvider implements AIProvider {
                 if (line.startsWith("Sentiment:")) {
                     sentiment = line.substring(10).trim();
                 } else if (line.startsWith("Score:")) {
-                    score = Double.parseDouble(line.substring(6).trim());
+                    score = parseNumericValue(line.substring(6).trim(), 0.0);
                 } else if (line.startsWith("Confidence:")) {
-                    confidence = Double.parseDouble(line.substring(11).trim());
+                    confidence = parseNumericValue(line.substring(11).trim(), 0.5);
                 }
             }
             

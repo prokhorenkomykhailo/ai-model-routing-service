@@ -12,7 +12,7 @@ import java.util.HashMap;
 public class RoutingConfig {
     
     private Map<String, String> taskProviders = new HashMap<>();
-    private String defaultProvider = "gemini";
+    private String defaultProvider = "geminiProvider"; // Default provider ID, can be overridden in properties
     private Map<String, ProviderConfig> providers = new HashMap<>();
     
     public String getProviderForTask(AITaskType taskType) {

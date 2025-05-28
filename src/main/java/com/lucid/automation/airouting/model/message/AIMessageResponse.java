@@ -18,6 +18,9 @@ public class AIMessageResponse {
     @JsonProperty("correlationId")
     private String correlationId;
     
+    @JsonProperty("conversationId")
+    private String conversationId;
+    
     @JsonProperty("taskType")
     private AITaskType taskType;
     
@@ -51,12 +54,13 @@ public class AIMessageResponse {
         this.processedAt = LocalDateTime.now();
     }
     
-    public static AIMessageResponse success(String messageId, String correlationId, 
+    public static AIMessageResponse success(String messageId, String correlationId, String conversationId,
                                           AITaskType taskType, Object result, 
                                           String providerId, double confidence) {
         AIMessageResponse response = new AIMessageResponse();
         response.messageId = messageId;
         response.correlationId = correlationId;
+        response.conversationId = conversationId;
         response.taskType = taskType;
         response.success = true;
         response.result = result;
@@ -65,11 +69,12 @@ public class AIMessageResponse {
         return response;
     }
     
-    public static AIMessageResponse error(String messageId, String correlationId, 
+    public static AIMessageResponse error(String messageId, String correlationId, String conversationId,
                                         AITaskType taskType, String errorMessage) {
         AIMessageResponse response = new AIMessageResponse();
         response.messageId = messageId;
         response.correlationId = correlationId;
+        response.conversationId = conversationId;
         response.taskType = taskType;
         response.success = false;
         response.errorMessage = errorMessage;
@@ -83,6 +88,9 @@ public class AIMessageResponse {
     
     public String getCorrelationId() { return correlationId; }
     public void setCorrelationId(String correlationId) { this.correlationId = correlationId; }
+    
+    public String getConversationId() { return conversationId; }
+    public void setConversationId(String conversationId) { this.conversationId = conversationId; }
     
     public AITaskType getTaskType() { return taskType; }
     public void setTaskType(AITaskType taskType) { this.taskType = taskType; }

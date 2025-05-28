@@ -14,13 +14,14 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class EnrichedMessageDTO {
     
     @NotBlank(message = "Group ID is required")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private String groupId;
     
     @NotNull(message = "Topic is required")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private TopicDTO topic;
     
     @NotNull(message = "Conversations are required")
