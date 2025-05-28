@@ -387,9 +387,12 @@ public class GeminiProvider implements AIProvider {
             List<SlackMessage> messages, List<SlackParticipant> participants) {
         
         try {
+            // Clean the response to handle markdown-wrapped JSON
+            String cleanedResponse = cleanJsonResponse(response);
+            
             // Try to parse JSON response
             @SuppressWarnings("unchecked")
-            Map<String, Object> analysis = objectMapper.readValue(response, Map.class);
+            Map<String, Object> analysis = objectMapper.readValue(cleanedResponse, Map.class);
             
             String topic = (String) analysis.getOrDefault("topic", "General Discussion");
             String summary = (String) analysis.getOrDefault("summary", "No summary available");
@@ -539,5 +542,34 @@ public class GeminiProvider implements AIProvider {
             List.of(),
             Map.of("error", "Failed to analyze conversation")
         );
+    }
+    
+    /**
+     * Cleans JSON response by removing markdown code block formatting if present.
+     * Handles responses that start with ```json or ``` and end with ```
+     */
+    private String cleanJsonResponse(String response) {
+        if (response == null || response.trim().isEmpty()) {
+            return response;
+        }
+        
+        String trimmed = response.trim();
+        
+        // Check if response is wrapped in markdown code blocks
+        if (trimmed.startsWith("```")) {
+            // Find the first newline after the opening ```
+            int firstNewline = trimmed.indexOf('\n');
+            if (firstNewline > 0) {
+                // Remove the opening ``` line
+                trimmed = trimmed.substring(firstNewline + 1);
+            }
+            
+            // Remove closing ``` if present
+            if (trimmed.endsWith("```")) {
+                trimmed = trimmed.substring(0, trimmed.length() - 3).trim();
+            }
+        }
+        
+        return trimmed.trim();
     }
 }

@@ -267,6 +267,14 @@ public class MessageEnrichmentScheduler {
      * @return SlackMessage object
      */
     private SlackMessage convertToSlackMessage(MessageWithContentDTO messageDto) {
+        // Log the conversion for debugging
+        log.debug("Converting message with ID {} to SlackMessage", messageDto.getMessageId());
+        log.debug("Message content: {}", messageDto.getContent());
+        log.debug("Message timestamp: {}", messageDto.getMessageTimestamp());
+        log.debug("Message sender ID: {}", messageDto.getSenderId());
+        log.debug("Message channel ID: {}", messageDto.getChannelId());
+        
+
         SlackMessage slackMessage = new SlackMessage();
         slackMessage.setTs(messageDto.getMessageTimestamp() != null ? 
                           messageDto.getMessageTimestamp().toString() : null);

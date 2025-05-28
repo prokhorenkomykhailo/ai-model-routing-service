@@ -1,11 +1,13 @@
 package com.lucid.automation.airouting.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -16,6 +18,7 @@ import java.util.UUID;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class MessageWithContentDTO {
     private UUID id;
     private String messageId;
@@ -27,18 +30,28 @@ public class MessageWithContentDTO {
     private String type;
     private String subtype;
     private String username;
-    private UUID topicId;
+    private String topicId; // Changed from UUID to String to match data storage service
+    private String topicName;
     private String purpose;
     private String clientMsgId;
     private LocalDateTime messageTimestamp;
-    private String groupId;
-    private String content;
-    private Map<String, Object> metadata;
     private String contentUrl;
-    private Boolean isDeleted;
+    private String category;
+    private List<String> tags;
+    private Map<String, Object> participants;
+    private Map<String, Object> additionalMetadata;
+    private boolean hasAttachments;
+    private boolean isEnriched;
+    private boolean isEncrypted;
+    private String threadTs;
+    private String groupId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
-    private String category;
+    private String content;
+    
+    // Additional fields for AI processing (may not be present in data storage responses)
+    private Map<String, Object> metadata;
+    private Boolean isDeleted;
     private String sentiment;
     private Double confidenceScore;
     private Map<String, Object> enrichmentData;
