@@ -194,9 +194,13 @@ public class GeminiProvider implements AIProvider {
                 return false;
             }
             
-            // Simple test call to verify API availability
-            String testPrompt = "Hello";
-            callGeminiAPI(testPrompt);
+            // Check if the client is properly initialized
+            if (geminiClient == null) {
+                logger.warn("Gemini provider unavailable: client not initialized");
+                return false;
+            }
+            
+            logger.debug("Gemini provider available: API key configured and client initialized");
             return true;
             
         } catch (Exception e) {
