@@ -3,6 +3,7 @@ package com.lucid.automation.airouting.service;
 import com.lucid.automation.airouting.client.DataStorageServiceClient;
 import com.lucid.automation.airouting.dto.APIResponse;
 import com.lucid.automation.airouting.dto.MessageWithContentDTO;
+import com.lucid.automation.airouting.dto.TopicDTO;
 import feign.FeignException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,6 +76,57 @@ public class DataStorageService {
         } catch (FeignException e) {
             logger.error("Error fetching messages for group ID {} from data-storage-service: {}", groupId, e.getMessage(), e);
             return Collections.emptyList();
+        }
+    }
+    
+    /**
+     * Get all topics from the data-storage-service
+     * 
+     * @param tenantId the tenant ID for multi-tenancy support
+     * @param tenantSchema the tenant schema for multi-tenancy support
+     * @return list of all topics, or empty list if an error occurs
+     */
+    public List<TopicDTO> getAllTopics(String tenantId, String tenantSchema) {
+        try {
+            logger.info("Fetching all topics from data-storage-service for tenant: {}", tenantId);
+            List<TopicDTO> topics = dataStorageServiceClient.getAllTopics(tenantId, tenantSchema);
+            
+            if (topics != null) {
+                logger.info("Successfully fetched {} topics", topics.size());
+                return topics;
+            } else {
+                logger.warn("Received null response when fetching topics");
+                return Collections.emptyList();
+            }
+        } catch (FeignException e) {
+            logger.error("Error fetching topics from data-storage-service: {}", e.getMessage(), e);
+            return Collections.emptyList();
+        }
+    }
+    
+    /**
+     * Create a new topic in the data-storage-service
+     * 
+     * @param topicDTO the topic data to create
+     * @param tenantId the tenant ID for multi-tenancy support
+     * @param tenantSchema the tenant schema for multi-tenancy support
+     * @return the created topic, or null if an error occurs
+     */
+    public TopicDTO createTopic(TopicDTO topicDTO, String tenantId, String tenantSchema) {
+        try {
+            logger.info("Creating new topic: {} for tenant: {}", topicDTO.getName(), tenantId);
+            APIResponse<TopicDTO> response = dataStorageServiceClient.createTopic(topicDTO, tenantId, tenantSchema);
+            
+            if (response.isSuccess() && response.getData() != null) {
+                logger.info("Successfully created topic with ID: {}", response.getData().getId());
+                return response.getData();
+            } else {
+                logger.warn("Failed to create topic: {}", response.getError());
+                return null;
+            }
+        } catch (FeignException e) {
+            logger.error("Error creating topic in data-storage-service: {}", e.getMessage(), e);
+            return null;
         }
     }
 }

@@ -4,6 +4,7 @@ import com.lucid.automation.airouting.dto.APIResponse;
 import com.lucid.automation.airouting.dto.EnrichedMessageDTO;
 import com.lucid.automation.airouting.dto.MessageWithContentDTO;
 import com.lucid.automation.airouting.dto.StoredDataDTO;
+import com.lucid.automation.airouting.dto.TopicDTO;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -64,5 +65,33 @@ public interface DataStorageServiceClient {
             @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestHeader("X-Tenant-Schema") String tenantSchema,
             @RequestParam(required = false) Map<String, Object> metadata
+    );
+    
+    /**
+     * Get all topics
+     * 
+     * @param tenantId the tenant ID for multi-tenancy support
+     * @param tenantSchema the tenant schema for multi-tenancy support
+     * @return List of all topics
+     */
+    @GetMapping("/topics")
+    List<TopicDTO> getAllTopics(
+            @RequestHeader("X-Tenant-Id") String tenantId,
+            @RequestHeader("X-Tenant-Schema") String tenantSchema
+    );
+    
+    /**
+     * Create a new topic
+     * 
+     * @param topicDTO the topic data to create
+     * @param tenantId the tenant ID for multi-tenancy support
+     * @param tenantSchema the tenant schema for multi-tenancy support
+     * @return APIResponse containing the created topic
+     */
+    @PostMapping("/topics")
+    APIResponse<TopicDTO> createTopic(
+            @RequestBody TopicDTO topicDTO,
+            @RequestHeader("X-Tenant-Id") String tenantId,
+            @RequestHeader("X-Tenant-Schema") String tenantSchema
     );
 }

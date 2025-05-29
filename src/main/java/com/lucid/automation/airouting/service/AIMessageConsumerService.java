@@ -12,8 +12,6 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.concurrent.CompletableFuture;
-
 /**
  * Service that listens to RabbitMQ messages and routes them to appropriate AI operations
  */
@@ -102,83 +100,78 @@ public class AIMessageConsumerService {
         processAIRequest(message);
     }
     
-    /**
-     * Process the AI request and send response back
-     */
     private void processAIRequest(AIMessage aiMessage) {
         long startTime = System.currentTimeMillis();
         
         try {
-            // Convert to AIRequest
             var aiRequest = messageConverter.convertToAIRequest(aiMessage);
+            AIResponse response = aiRoutingService.processRequest(aiRequest);
             
-            // Process the request asynchronously
-            CompletableFuture<AIResponse> futureResponse = aiRoutingService.processRequest(aiRequest);
-            
-            // Handle the response
-            futureResponse.thenAccept(response -> {
-                long processingTime = System.currentTimeMillis() - startTime;
-                
-                // Convert to message response
-                AIMessageResponse messageResponse;
-                if (response.isSuccess()) {
-                    messageResponse = AIMessageResponse.success(
-                        aiMessage.getMessageId(),
-                        aiMessage.getCorrelationId(),
-                        aiMessage.getConversationId(),
-                        response.getTaskType(),
-                        response.getResult(),
-                        response.getProviderId(),
-                        response.getConfidence()
-                    );
-                } else {
-                    messageResponse = AIMessageResponse.error(
-                        aiMessage.getMessageId(),
-                        aiMessage.getCorrelationId(),
-                        aiMessage.getConversationId(),
-                        response.getTaskType(),
-                        response.getErrorMessage()
-                    );
-                }
-                messageResponse.setProcessingTimeMs(processingTime);
-                messageResponse.setMetadata(response.getMetadata());
-                
-                // Send response
-                sendResponse(messageResponse, aiMessage.getReplyTopic());
-                
-                logger.info("Successfully processed AI request: messageId={}, taskType={}, time={}ms", 
-                           aiMessage.getMessageId(), aiMessage.getTaskType(), processingTime);
-                
-            }).exceptionally(throwable -> {
-                long processingTime = System.currentTimeMillis() - startTime;
-                
-                logger.error("Failed to process AI request: messageId={}, taskType={}, error={}", 
-                           aiMessage.getMessageId(), aiMessage.getTaskType(), throwable.getMessage(), throwable);
-                
-                AIMessageResponse errorResponse = AIMessageResponse.error(
-                    aiMessage.getMessageId(),
-                    aiMessage.getCorrelationId(),
-                    aiMessage.getConversationId(),
-                    aiMessage.getTaskType(),
-                    "Processing failed: " + throwable.getMessage()
-                );
-                errorResponse.setProcessingTimeMs(processingTime);
-                
-                sendResponse(errorResponse, aiMessage.getReplyTopic());
-                return null;
-            });
+            handleSuccessfulResponse(aiMessage, response, startTime);
             
         } catch (Exception e) {
             logger.error("Failed to convert or process AI message: messageId={}, error={}", 
                         aiMessage.getMessageId(), e.getMessage(), e);
-            
-            sendErrorResponse(aiMessage, "Message processing failed: " + e.getMessage());
+            handleFailedResponse(aiMessage, e, startTime);
         }
     }
+
+    private void handleSuccessfulResponse(AIMessage aiMessage, AIResponse response, long startTime) {
+        long processingTime = System.currentTimeMillis() - startTime;
+        
+        AIMessageResponse messageResponse = response.isSuccess() 
+            ? createSuccessResponse(aiMessage, response)
+            : createErrorResponse(aiMessage, response);
+            
+        messageResponse.setProcessingTimeMs(processingTime);
+        messageResponse.setMetadata(response.getMetadata());
+        
+        sendResponse(messageResponse, aiMessage.getReplyTopic());
+        
+        logger.info("Successfully processed AI request: messageId={}, taskType={}, time={}ms", 
+                   aiMessage.getMessageId(), aiMessage.getTaskType(), processingTime);
+    }
+
+    private void handleFailedResponse(AIMessage aiMessage, Exception exception, long startTime) {
+        long processingTime = System.currentTimeMillis() - startTime;
+        
+        logger.error("Failed to process AI request: messageId={}, taskType={}, error={}", 
+                   aiMessage.getMessageId(), aiMessage.getTaskType(), exception.getMessage(), exception);
+        
+        AIMessageResponse errorResponse = AIMessageResponse.error(
+            aiMessage.getMessageId(),
+            aiMessage.getCorrelationId(),
+            aiMessage.getConversationId(),
+            aiMessage.getTaskType(),
+            "Processing failed: " + exception.getMessage()
+        );
+        errorResponse.setProcessingTimeMs(processingTime);
+        
+        sendResponse(errorResponse, aiMessage.getReplyTopic());
+    }
+
+    private AIMessageResponse createSuccessResponse(AIMessage aiMessage, AIResponse response) {
+        return AIMessageResponse.success(
+            aiMessage.getMessageId(),
+            aiMessage.getCorrelationId(),
+            aiMessage.getConversationId(),
+            response.getTaskType(),
+            response.getResult(),
+            response.getProviderId(),
+            response.getConfidence()
+        );
+    }
+
+    private AIMessageResponse createErrorResponse(AIMessage aiMessage, AIResponse response) {
+        return AIMessageResponse.error(
+            aiMessage.getMessageId(),
+            aiMessage.getCorrelationId(),
+            aiMessage.getConversationId(),
+            response.getTaskType(),
+            response.getErrorMessage()
+        );
+    }
     
-    /**
-     * Send error response
-     */
     private void sendErrorResponse(AIMessage aiMessage, String errorMessage) {
         AIMessageResponse errorResponse = AIMessageResponse.error(
             aiMessage.getMessageId(),
@@ -191,9 +184,6 @@ public class AIMessageConsumerService {
         sendResponse(errorResponse, aiMessage.getReplyTopic());
     }
     
-    /**
-     * Send response to the appropriate topic
-     */
     private void sendResponse(AIMessageResponse response, String replyTopic) {
         try {
             String targetTopic = replyTopic != null ? replyTopic : rabbitMQConfig.getResponsesRoutingKey();
@@ -213,9 +203,6 @@ public class AIMessageConsumerService {
         }
     }
     
-    /**
-     * Check if the task type is related to enrichment
-     */
     private boolean isEnrichmentTask(AITaskType taskType) {
         return taskType == AITaskType.ENRICH_CONVERSATION ||
                taskType == AITaskType.ENRICH_MESSAGE ||

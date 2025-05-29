@@ -10,8 +10,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
 
 @Service
 public class AIRoutingService {
@@ -21,77 +19,83 @@ public class AIRoutingService {
     private final AIProviderFactory providerFactory;
     private final RoutingConfig routingConfig;
     private final AIRequestAuditService auditService;
-    private final Executor taskExecutor;
     
     public AIRoutingService(AIProviderFactory providerFactory, 
                           RoutingConfig routingConfig,
-                          AIRequestAuditService auditService,
-                          Executor taskExecutor) {
+                          AIRequestAuditService auditService) {
         this.providerFactory = providerFactory;
         this.routingConfig = routingConfig;
         this.auditService = auditService;
-        this.taskExecutor = taskExecutor;
     }
     
-    public CompletableFuture<AIResponse> processRequest(AIRequest request) {
-        String requestId = UUID.randomUUID().toString();
+    public AIResponse processRequest(AIRequest request) {
+        String requestId = generateRequestId();
         long startTime = System.currentTimeMillis();
         
-        logger.info("Processing AI request: id={}, taskType={}, provider={}", 
-                   requestId, request.getTaskType(), request.getPreferredProvider());
+        logRequestStart(requestId, request);
+        auditService.logRequestStart(requestId, request);
         
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // Audit request start
-                auditService.logRequestStart(requestId, request);
-                
-                // Select provider
-                AIProvider provider = selectProvider(request);
-                
-                // Process the request based on task type
-                Object result = processRequestByType(request, provider);
-                
-                long processingTime = System.currentTimeMillis() - startTime;
-                
-                // Create success response
-                AIResponse response = AIResponse.success(
-                    requestId, 
-                    request.getTaskType(), 
-                    result, 
-                    provider.getProviderId(),
-                    provider.getLastConfidence()
-                );
-                response.setProcessingTimeMs(processingTime);
-                
-                // Audit success
-                auditService.logRequestSuccess(requestId, response);
-                
-                logger.info("AI request completed: id={}, provider={}, time={}ms", 
-                           requestId, provider.getProviderId(), processingTime);
-                
-                return response;
-                
-            } catch (Exception e) {
-                long processingTime = System.currentTimeMillis() - startTime;
-                
-                logger.error("AI request failed: id={}, error={}", requestId, e.getMessage(), e);
-                
-                // Create error response
-                AIResponse response = AIResponse.error(
-                    requestId, 
-                    request.getTaskType(), 
-                    e.getMessage()
-                );
-                response.setProcessingTimeMs(processingTime);
-                
-                // Audit failure
-                auditService.logRequestFailure(requestId, response, e);
-                
-                return response;
-            }
-        }, taskExecutor);
+        try {
+            AIProvider selectedProvider = selectProvider(request);
+            Object processingResult = processRequestByType(request, selectedProvider);
+            
+            return buildSuccessResponse(requestId, request, processingResult, selectedProvider, startTime);
+            
+        } catch (Exception processingError) {
+            return buildErrorResponse(requestId, request, processingError, startTime);
+        }
     }
     
+    private String generateRequestId() {
+        return UUID.randomUUID().toString();
+    }
+    
+    private void logRequestStart(String requestId, AIRequest request) {
+        logger.info("Processing AI request: id={}, taskType={}, provider={}", 
+                   requestId, request.getTaskType(), request.getPreferredProvider());
+    }
+    
+    private AIResponse buildSuccessResponse(String requestId, AIRequest request, Object result, 
+                                          AIProvider provider, long startTime) {
+        long processingTime = calculateProcessingTime(startTime);
+        
+        AIResponse response = AIResponse.success(
+            requestId, 
+            request.getTaskType(), 
+            result, 
+            provider.getProviderId(),
+            provider.getLastConfidence()
+        );
+        response.setProcessingTimeMs(processingTime);
+        
+        auditService.logRequestSuccess(requestId, response);
+        logRequestCompletion(requestId, provider, processingTime);
+        
+        return response;
+    }
+    
+    private AIResponse buildErrorResponse(String requestId, AIRequest request, Exception error, long startTime) {
+        long processingTime = calculateProcessingTime(startTime);
+        
+        logger.error("AI request failed: id={}, error={}", requestId, error.getMessage(), error);
+        
+        AIResponse response = AIResponse.error(requestId, request.getTaskType(), error.getMessage());
+        response.setProcessingTimeMs(processingTime);
+        
+        auditService.logRequestFailure(requestId, response, error);
+        
+        return response;
+    }
+    
+    private long calculateProcessingTime(long startTime) {
+        return System.currentTimeMillis() - startTime;
+    }
+    
+    private void logRequestCompletion(String requestId, AIProvider provider, long processingTime) {
+        logger.info("AI request completed: id={}, provider={}, time={}ms", 
+                   requestId, provider.getProviderId(), processingTime);
+    }
+
     private AIProvider selectProvider(AIRequest request) {
         // If a preferred provider is specified, try to use it
         if (request.getPreferredProvider() != null && !request.getPreferredProvider().trim().isEmpty()) {

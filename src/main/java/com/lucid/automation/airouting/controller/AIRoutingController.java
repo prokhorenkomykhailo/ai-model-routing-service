@@ -17,7 +17,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/ai")
@@ -37,7 +36,7 @@ public class AIRoutingController {
     @Operation(summary = "Categorize content", 
                description = "Categorizes the provided content using the configured AI provider")
     @ApiResponse(responseCode = "200", description = "Content categorized successfully")
-    public CompletableFuture<ResponseEntity<AIResponse>> categorize(@Valid @RequestBody CategoryRequest request) {
+    public ResponseEntity<AIResponse> categorize(@Valid @RequestBody CategoryRequest request) {
         String tenantInfo = getTenantInfoFromAuth();
         logger.info("Received categorization request for content length: {} from tenant: {}", 
                    request.getContent().length(), tenantInfo);
@@ -45,15 +44,15 @@ public class AIRoutingController {
         AIRequest aiRequest = new AIRequest(AITaskType.CATEGORIZE, request.getContent());
         enrichRequestWithAuthInfo(aiRequest, request.getTenantId(), request.getPreferredProvider());
         
-        return routingService.processRequest(aiRequest)
-                .thenApply(ResponseEntity::ok);
+        AIResponse response = routingService.processRequest(aiRequest);
+        return ResponseEntity.ok(response);
     }
     
     @PostMapping("/summarize")
     @Operation(summary = "Summarize content", 
                description = "Generates a summary of the provided content using the configured AI provider")
     @ApiResponse(responseCode = "200", description = "Content summarized successfully")
-    public CompletableFuture<ResponseEntity<AIResponse>> summarize(@Valid @RequestBody SummaryRequest request) {
+    public ResponseEntity<AIResponse> summarize(@Valid @RequestBody SummaryRequest request) {
         String tenantInfo = getTenantInfoFromAuth();
         logger.info("Received summarization request for content length: {} from tenant: {}", 
                    request.getContent().length(), tenantInfo);
@@ -61,15 +60,15 @@ public class AIRoutingController {
         AIRequest aiRequest = new AIRequest(AITaskType.SUMMARIZE, request.getContent());
         enrichRequestWithAuthInfo(aiRequest, request.getTenantId(), request.getPreferredProvider());
         
-        return routingService.processRequest(aiRequest)
-                .thenApply(ResponseEntity::ok);
+        AIResponse response = routingService.processRequest(aiRequest);
+        return ResponseEntity.ok(response);
     }
     
     @PostMapping("/enrich-conversation")
     @Operation(summary = "Enrich conversation", 
                description = "Enriches conversation data with additional insights using AI analysis")
     @ApiResponse(responseCode = "200", description = "Conversation enriched successfully")
-    public CompletableFuture<ResponseEntity<AIResponse>> enrichConversation(
+    public ResponseEntity<AIResponse> enrichConversation(
             @Valid @RequestBody ConversationEnrichmentRequest request) {
         
         String tenantInfo = getTenantInfoFromAuth();
@@ -83,15 +82,15 @@ public class AIRoutingController {
         aiRequest.setContext(request.getContext());
         enrichRequestWithAuthInfo(aiRequest, request.getTenantId(), request.getPreferredProvider());
         
-        return routingService.processRequest(aiRequest)
-                .thenApply(ResponseEntity::ok);
+        AIResponse response = routingService.processRequest(aiRequest);
+        return ResponseEntity.ok(response);
     }
     
     @PostMapping("/batch")
     @Operation(summary = "Process batch requests", 
                description = "Processes multiple AI requests in a single batch operation")
     @ApiResponse(responseCode = "200", description = "Batch requests processed successfully")
-    public CompletableFuture<ResponseEntity<List<AIResponse>>> processBatch(
+    public ResponseEntity<List<AIResponse>> processBatch(
             @Valid @RequestBody List<AIRequest> requests) {
         
         String tenantInfo = getTenantInfoFromAuth();
@@ -110,15 +109,11 @@ public class AIRoutingController {
             });
         }
         
-        List<CompletableFuture<AIResponse>> futures = requests.stream()
+        List<AIResponse> responses = requests.stream()
                 .map(routingService::processRequest)
                 .toList();
         
-        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                .thenApply(v -> futures.stream()
-                        .map(CompletableFuture::join)
-                        .toList())
-                .thenApply(ResponseEntity::ok);
+        return ResponseEntity.ok(responses);
     }
     
     @GetMapping("/health")
