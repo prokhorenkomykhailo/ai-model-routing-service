@@ -54,7 +54,7 @@ public class MessageEnrichmentScheduler {
      * Scheduled method that runs based on the cron expression in application.yml.
      * First gets all tenants from auth-service, then processes messages for each tenant.
      */
-    @Scheduled(cron = "${ai.enrichment.scheduler.cron:0 */5 * * * ?}")
+    @Scheduled(cron = "${ai.enrichment.scheduler.cron:0 0 */2 * * ?}")
     public void processMessageEnrichment() {
         log.info("Starting scheduled message enrichment process");
         
