@@ -67,7 +67,10 @@ public class AIRoutingService {
             provider.getLastConfidence()
         );
         response.setProcessingTimeMs(processingTime);
-        
+        response.getMetadata().put("topicId", request.getConversationId());
+        response.getMetadata().put("tenantId", request.getTenantId());
+        response.getMetadata().put("userId", request.getUserId());
+
         auditService.logRequestSuccess(requestId, response);
         logRequestCompletion(requestId, provider, processingTime);
         

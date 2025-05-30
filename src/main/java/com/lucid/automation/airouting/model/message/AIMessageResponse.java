@@ -66,6 +66,9 @@ public class AIMessageResponse {
         response.result = result;
         response.providerId = providerId;
         response.confidence = confidence;
+        response.metadata = Map.of(); // Initialize with empty metadata
+        response.processedAt = LocalDateTime.now();
+        response.processingTimeMs = 0; // Default to 0, can be set later
         return response;
     }
     
@@ -79,6 +82,7 @@ public class AIMessageResponse {
         response.success = false;
         response.errorMessage = errorMessage;
         response.confidence = 0.0;
+    
         return response;
     }
     

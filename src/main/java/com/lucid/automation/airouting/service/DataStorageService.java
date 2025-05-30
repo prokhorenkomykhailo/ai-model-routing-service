@@ -113,10 +113,14 @@ public class DataStorageService {
      * @return the created topic, or null if an error occurs
      */
     public TopicDTO createTopic(TopicDTO topicDTO, String tenantId, String tenantSchema) {
+        if (topicDTO == null || topicDTO.getId() == null || topicDTO.getName() == null) {
+            logger.warn("TopicDTO, topicId, or topicName is null. Skipping topic creation.");
+            return null;
+        }
         try {
             logger.info("Creating new topic: {} for tenant: {}", topicDTO.getName(), tenantId);
             APIResponse<TopicDTO> response = dataStorageServiceClient.createTopic(topicDTO, tenantId, tenantSchema);
-            
+
             if (response.isSuccess() && response.getData() != null) {
                 logger.info("Successfully created topic with ID: {}", response.getData().getId());
                 return response.getData();

@@ -2,7 +2,9 @@ package com.lucid.automation.airouting.model;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.lucid.automation.airouting.provider.AIProvider;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.Map;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -26,7 +28,7 @@ public class AIResponse {
         this.processedAt = LocalDateTime.now();
     }
     
-    public static AIResponse success(String requestId, AITaskType taskType, Object result, 
+    public static AIResponse success(String requestId, AITaskType taskType, Object result,
                                    String providerId, double confidence) {
         AIResponse response = new AIResponse();
         response.requestId = requestId;
@@ -35,6 +37,19 @@ public class AIResponse {
         response.result = result;
         response.providerId = providerId;
         response.confidence = confidence;
+        
+        // Extract metadata from ConversationEnrichment if present
+        if (result instanceof AIProvider.ConversationEnrichment enrichment) {
+            if (enrichment.metadata() != null && !enrichment.metadata().isEmpty()) {
+                response.metadata = new HashMap<>(enrichment.metadata());
+            }
+            // Add topic info to metadata
+            if (response.metadata == null) {
+                response.metadata = new HashMap<>();
+            }
+            response.metadata.put("topic", enrichment.topic());
+        }
+
         return response;
     }
     

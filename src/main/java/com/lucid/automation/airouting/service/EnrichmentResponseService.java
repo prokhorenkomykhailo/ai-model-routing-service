@@ -1,16 +1,19 @@
 package com.lucid.automation.airouting.service;
 
+import java.util.HashMap;
+import java.util.Map;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.stereotype.Service;
+
 import com.lucid.automation.airouting.client.DataStorageServiceClient;
 import com.lucid.automation.airouting.dto.APIResponse;
 import com.lucid.automation.airouting.dto.EnrichedMessageDTO;
 import com.lucid.automation.airouting.dto.StoredDataDTO;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.stereotype.Service;
-
-import java.util.HashMap;
-import java.util.Map;
+import com.lucid.automation.airouting.dto.TopicDTO;
 
 /**
  * Service for handling enrichment responses from RabbitMQ and storing them using the
@@ -37,68 +40,130 @@ public class EnrichmentResponseService {
         try {
             log.info("Received enriched message response: {}", messageMap);
             log.debug("Message map keys: {}", messageMap.keySet());
-            
-            // Extract tenant info from the message
+
             String tenantId = extractTenantId(messageMap);
             String tenantSchema = extractTenantSchema(messageMap);
-            
-            // Extract and convert the enriched message data
+
             EnrichedMessageDTO enrichedMessage = convertToEnrichedMessageDTO(messageMap);
-            
-            if (enrichedMessage == null || enrichedMessage.getGroupId() == null) {
-                log.error("Invalid enriched message format or missing group ID");
-                return;
-            }
-            
-            // Validate required fields before sending to data-storage-service
-            if (!validateEnrichedMessage(enrichedMessage)) {
-                log.error("Enriched message validation failed for group ID: {}", enrichedMessage.getGroupId());
-                return;
-            }
-            
-            log.info("DEBUG-ENRICHMENT: Processing enriched message for group ID: {}", enrichedMessage.getGroupId());
-            log.debug("DEBUG-ENRICHMENT: Enriched message details - conversations: {}, peopleInvolved: {}, topic: {}", 
-                    enrichedMessage.getConversations() != null ? enrichedMessage.getConversations().size() : "null",
-                    enrichedMessage.getPeopleInvolved() != null ? enrichedMessage.getPeopleInvolved().size() : "null",
-                    enrichedMessage.getTopic() != null ? enrichedMessage.getTopic().getName() : "null");
-            
-            // Additional metadata 
-            Map<String, Object> metadata = new HashMap<>();
-            metadata.put("source", "ai-enrichment");
-            metadata.put("processingTimestamp", System.currentTimeMillis());
-            
-            log.debug("DEBUG-ENRICHMENT: Calling data-storage-service with tenantId: {}, tenantSchema: {}, metadata keys: {}", 
+            if (!isValidEnrichedMessage(enrichedMessage)) return;
+
+            Map<String, Object> metadata = extractAndPrepareMetadata(messageMap);
+            log.debug("DEBUG-ENRICHMENT: Calling data-storage-service with tenantId: {}, tenantSchema: {}, metadata keys: {}",
                     tenantId, tenantSchema, metadata.keySet());
-            
-            // Save the enriched message to data-storage-service
-            APIResponse<StoredDataDTO> response;
-            try {
-                response = dataStorageServiceClient.saveEnrichedMessage(
-                        enrichedMessage, tenantId, tenantSchema, metadata);
-                log.debug("DEBUG-ENRICHMENT: Received response from data-storage-service - success: {}, message: {}", 
-                        response.isSuccess(), response.getMessage());
-            } catch (Exception clientException) {
-                log.error("DEBUG-ENRICHMENT: Exception calling data-storage-service client for group ID: {} - Exception type: {}, Message: {}", 
-                        enrichedMessage.getGroupId(), clientException.getClass().getSimpleName(), clientException.getMessage(), clientException);
-                throw clientException;
-            }
-            
-            if (response.isSuccess()) {
-                log.info("DEBUG-ENRICHMENT: Successfully saved enriched message for group ID: {}, stored data ID: {}", 
-                        enrichedMessage.getGroupId(), response.getData().getId());
-            } else {
-                log.error("DEBUG-ENRICHMENT: Failed to save enriched message for group ID: {}, error: {}. " +
-                        "This might be due to validation issues. Check the enriched message format.",
-                        enrichedMessage.getGroupId(), response.getMessage());
-                
-                // Log the enriched message details for debugging
-                log.debug("DEBUG-ENRICHMENT: Failed enriched message details: conversations={}, peopleInvolved={}, topic={}",
-                        enrichedMessage.getConversations(),
-                        enrichedMessage.getPeopleInvolved(),
-                        enrichedMessage.getTopic());
-            }
+
+            APIResponse<StoredDataDTO> response = saveEnrichedMessage(enrichedMessage, tenantId, tenantSchema, metadata);
+            handlePersistenceResult(response, enrichedMessage, metadata, tenantId, tenantSchema);
         } catch (Exception e) {
             log.error("Error handling enriched message response: {}", e.getMessage(), e);
+        }
+    }
+
+    private boolean isValidEnrichedMessage(EnrichedMessageDTO enrichedMessage) {
+        if (enrichedMessage == null || enrichedMessage.getGroupId() == null) {
+            log.error("Invalid enriched message format or missing group ID");
+            return false;
+        }
+        if (!validateEnrichedMessage(enrichedMessage)) {
+            log.error("Enriched message validation failed for group ID: {}", enrichedMessage.getGroupId());
+            return false;
+        }
+        log.info("DEBUG-ENRICHMENT: Processing enriched message for group ID: {}", enrichedMessage.getGroupId());
+        log.debug("DEBUG-ENRICHMENT: Enriched message details - conversations: {}, peopleInvolved: {}, topic: {}",
+                enrichedMessage.getConversations() != null ? enrichedMessage.getConversations().size() : "null",
+                enrichedMessage.getPeopleInvolved() != null ? enrichedMessage.getPeopleInvolved().size() : "null",
+                enrichedMessage.getTopic() != null ? enrichedMessage.getTopic().getName() : "null");
+        return true;
+    }
+
+    private Map<String, Object> extractAndPrepareMetadata(Map<String, Object> messageMap) {
+        Map<String, Object> metadata;
+        Object metadataObj = messageMap.get("metadata");
+        if (metadataObj instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> metadataMap = (Map<String, Object>) metadataObj;
+            metadata = new HashMap<>(metadataMap);
+        } else {
+            metadata = new HashMap<>();
+        }
+        metadata.putIfAbsent("source", "ai-enrichment");
+        metadata.putIfAbsent("processingTimestamp", System.currentTimeMillis());
+        return metadata;
+    }
+
+    private APIResponse<StoredDataDTO> saveEnrichedMessage(
+            EnrichedMessageDTO enrichedMessage,
+            String tenantId,
+            String tenantSchema,
+            Map<String, Object> metadata
+    ) {
+        try {
+            APIResponse<StoredDataDTO> response = dataStorageServiceClient.saveEnrichedMessage(
+                    enrichedMessage, tenantId, tenantSchema, metadata);
+            log.debug("DEBUG-ENRICHMENT: Received response from data-storage-service - success: {}, message: {}",
+                    response.isSuccess(), response.getMessage());
+            return response;
+        } catch (Exception clientException) {
+            log.error("DEBUG-ENRICHMENT: Exception calling data-storage-service client for group ID: {} - Exception type: {}, Message: {}",
+                    enrichedMessage.getGroupId(), clientException.getClass().getSimpleName(), clientException.getMessage(), clientException);
+            throw clientException;
+        }
+    }
+
+    private void handlePersistenceResult(
+            APIResponse<StoredDataDTO> response,
+            EnrichedMessageDTO enrichedMessage,
+            Map<String, Object> metadata,
+            String tenantId,
+            String tenantSchema
+    ) {
+        if (response.isSuccess()) {
+            log.info("DEBUG-ENRICHMENT: Successfully saved enriched message for group ID: {}, stored data ID: {}",
+                    enrichedMessage.getGroupId(), response.getData().getId());
+            persistTopic(metadata, enrichedMessage, tenantId, tenantSchema);
+        } else {
+            log.error("DEBUG-ENRICHMENT: Failed to save enriched message for group ID: {}, error: {}. " +
+                            "This might be due to validation issues. Check the enriched message format.",
+                    enrichedMessage.getGroupId(), response.getMessage());
+            log.debug("DEBUG-ENRICHMENT: Failed enriched message details: conversations={}, peopleInvolved={}, topic={}",
+                    enrichedMessage.getConversations(),
+                    enrichedMessage.getPeopleInvolved(),
+                    enrichedMessage.getTopic());
+        }
+    }
+
+    private void persistTopic(
+            Map<String, Object> metadata,
+            EnrichedMessageDTO enrichedMessage,
+            String tenantId,
+            String tenantSchema
+    ) {
+        try {
+            String topicId = null;
+            String topicName = null;
+            if (metadata.containsKey("topicId")) {
+                topicId = metadata.get("topicId").toString();
+            }
+            if (metadata.containsKey("topic")) {
+                topicName = metadata.get("topic").toString();
+            }
+            if (topicId == null && enrichedMessage.getTopic() != null && enrichedMessage.getTopic().getName() != null) {
+                topicId = enrichedMessage.getTopic().getName();
+            }
+            if (topicName == null && enrichedMessage.getTopic() != null && enrichedMessage.getTopic().getName() != null) {
+                topicName = enrichedMessage.getTopic().getName();
+            }
+            if (topicId != null && topicName != null) {
+                TopicDTO topicDTO = TopicDTO.builder()
+                                        .id(topicId)
+                                        .name(topicName)
+                                        .build();
+                    dataStorageServiceClient.createTopic(topicDTO, tenantId, tenantSchema);
+                    log.info("Persisted topic to datastorage-service: topicId={}, topic={}", topicId, topicName);
+            } else {
+                log.warn("Could not persist topic: topicId or topic name missing (topicId={}, topic={})", topicId, topicName);
+            }
+        } catch (Exception ex) {
+            log.error("Failed to persist topic to datastorage-service", ex);
         }
     }
     
