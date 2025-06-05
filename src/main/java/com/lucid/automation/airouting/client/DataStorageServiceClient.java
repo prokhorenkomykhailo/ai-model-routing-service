@@ -68,19 +68,6 @@ public interface DataStorageServiceClient {
     );
     
     /**
-     * Get all topics
-     * 
-     * @param tenantId the tenant ID for multi-tenancy support
-     * @param tenantSchema the tenant schema for multi-tenancy support
-     * @return List of all topics
-     */
-    @GetMapping("/topics")
-    List<TopicDTO> getAllTopics(
-            @RequestHeader("X-Tenant-Id") String tenantId,
-            @RequestHeader("X-Tenant-Schema") String tenantSchema
-    );
-    
-    /**
      * Create a new topic
      * 
      * @param topicDTO the topic data to create

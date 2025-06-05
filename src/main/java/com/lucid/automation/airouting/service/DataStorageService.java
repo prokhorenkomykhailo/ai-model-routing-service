@@ -80,31 +80,6 @@ public class DataStorageService {
     }
     
     /**
-     * Get all topics from the data-storage-service
-     * 
-     * @param tenantId the tenant ID for multi-tenancy support
-     * @param tenantSchema the tenant schema for multi-tenancy support
-     * @return list of all topics, or empty list if an error occurs
-     */
-    public List<TopicDTO> getAllTopics(String tenantId, String tenantSchema) {
-        try {
-            logger.info("Fetching all topics from data-storage-service for tenant: {}", tenantId);
-            List<TopicDTO> topics = dataStorageServiceClient.getAllTopics(tenantId, tenantSchema);
-            
-            if (topics != null) {
-                logger.info("Successfully fetched {} topics", topics.size());
-                return topics;
-            } else {
-                logger.warn("Received null response when fetching topics");
-                return Collections.emptyList();
-            }
-        } catch (FeignException e) {
-            logger.error("Error fetching topics from data-storage-service: {}", e.getMessage(), e);
-            return Collections.emptyList();
-        }
-    }
-    
-    /**
      * Create a new topic in the data-storage-service
      * 
      * @param topicDTO the topic data to create
