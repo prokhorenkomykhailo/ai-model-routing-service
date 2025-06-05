@@ -15,7 +15,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import java.util.*;
 import java.util.stream.Collectors;
 
-@Component("openai")
+@Component("openaiProvider")
 public class OpenAIProvider implements AIProvider {
     
     private static final Logger logger = LoggerFactory.getLogger(OpenAIProvider.class);

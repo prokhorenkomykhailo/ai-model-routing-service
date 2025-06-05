@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 import java.util.*;
 import java.util.stream.Collectors;
 
-@Component("gemini")
+@Component("geminiProvider")
 public class GeminiProvider implements AIProvider {
     
     private static final Logger logger = LoggerFactory.getLogger(GeminiProvider.class);
