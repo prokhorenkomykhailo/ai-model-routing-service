@@ -1,8 +1,14 @@
 package com.lucid.automation.airouting.service;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -25,6 +31,7 @@ import com.lucid.automation.airouting.dto.TopicDTO;
 public class EnrichmentResponseService {
 
     private final DataStorageServiceClient dataStorageServiceClient;
+    private final ObjectMapper objectMapper;
 
     /**
      * Listener for conversation enrichment responses
@@ -129,20 +136,18 @@ public class EnrichmentResponseService {
                     enrichedMessage.getPeopleInvolved(),
                     enrichedMessage.getTopic());
         }
-    }
-
-    private void persistTopic(
+    }    private void persistTopic(
             Map<String, Object> metadata,
             EnrichedMessageDTO enrichedMessage,
             String tenantId,
-            String tenantSchema
-    ) {
+            String tenantSchema) {
         try {
             String topicId = null;
             String topicName = null;
             if (metadata.containsKey("topicId")) {
                 topicId = metadata.get("topicId").toString();
             }
+            
             if (metadata.containsKey("topic")) {
                 topicName = metadata.get("topic").toString();
             }
@@ -152,13 +157,101 @@ public class EnrichmentResponseService {
             if (topicName == null && enrichedMessage.getTopic() != null && enrichedMessage.getTopic().getName() != null) {
                 topicName = enrichedMessage.getTopic().getName();
             }
+            
             if (topicId != null && topicName != null) {
-                TopicDTO topicDTO = TopicDTO.builder()
-                                        .id(topicId)
-                                        .name(topicName)
-                                        .build();
-                    dataStorageServiceClient.createTopic(topicDTO, tenantId, tenantSchema);
-                    log.info("Persisted topic to datastorage-service: topicId={}, topic={}", topicId, topicName);
+                TopicDTO.TopicDTOBuilder topicBuilder = TopicDTO.builder()
+                        .id(topicId)
+                        .name(topicName);
+                
+                // Populate enrichment fields from EnrichedMessageDTO.TopicDTO
+                if (enrichedMessage.getTopic() != null) {
+                    EnrichedMessageDTO.TopicDTO enrichedTopic = enrichedMessage.getTopic();
+                    
+                    // Set summary
+                    if (enrichedTopic.getSummary() != null && !enrichedTopic.getSummary().trim().isEmpty()) {
+                        topicBuilder.summary(enrichedTopic.getSummary());
+                    }
+                    
+                    // Convert List<String> category to single String (use first category or join with comma)
+                    if (enrichedTopic.getCategory() != null && !enrichedTopic.getCategory().isEmpty()) {
+                        String categoryStr = enrichedTopic.getCategory().stream()
+                                .filter(cat -> cat != null && !cat.trim().isEmpty())
+                                .collect(Collectors.joining(", "));
+                        if (!categoryStr.isEmpty()) {
+                            topicBuilder.category(categoryStr);
+                        }
+                    }
+                    
+                    // Combine keyPoints and keywords for suggested actions
+                    StringBuilder suggestedActions = new StringBuilder();
+                    if (enrichedTopic.getKeyPoints() != null && !enrichedTopic.getKeyPoints().isEmpty()) {
+                        suggestedActions.append("Key Points: ")
+                                .append(enrichedTopic.getKeyPoints().stream()
+                                        .filter(point -> point != null && !point.trim().isEmpty())
+                                        .collect(Collectors.joining("; ")));
+                    }
+                    if (enrichedTopic.getKeywords() != null && !enrichedTopic.getKeywords().isEmpty()) {
+                        if (suggestedActions.length() > 0) {
+                            suggestedActions.append(" | ");
+                        }
+                        suggestedActions.append("Keywords: ")
+                                .append(enrichedTopic.getKeywords().stream()
+                                        .filter(keyword -> keyword != null && !keyword.trim().isEmpty())
+                                        .collect(Collectors.joining(", ")));
+                    }
+                    if (suggestedActions.length() > 0) {
+                        topicBuilder.suggestedActions(suggestedActions.toString());
+                    }
+                }
+                
+                // Map peopleInvolved to participants JSON string
+                if (enrichedMessage.getPeopleInvolved() != null && !enrichedMessage.getPeopleInvolved().isEmpty()) {
+                    try {
+                        String participantsJson = objectMapper.writeValueAsString(enrichedMessage.getPeopleInvolved());
+                        topicBuilder.participants(participantsJson);
+                    } catch (JsonProcessingException e) {
+                        log.warn("Failed to serialize participants to JSON for topic: {}", topicId, e);
+                        // Fallback to simple string join
+                        String participantsStr = enrichedMessage.getPeopleInvolved().stream()
+                                .filter(person -> person != null && !person.trim().isEmpty())
+                                .collect(Collectors.joining(", "));
+                        topicBuilder.participants(participantsStr);
+                    }
+                }
+                
+                // Derive start and end times from metadata timestamps
+                if (metadata.containsKey("processingTimestamp")) {
+                    try {
+                        Object timestamp = metadata.get("processingTimestamp");
+                        LocalDateTime dateTime = null;
+                        
+                        if (timestamp instanceof Long) {
+                            dateTime = LocalDateTime.ofInstant(Instant.ofEpochMilli((Long) timestamp), ZoneId.systemDefault());
+                        } else if (timestamp instanceof String) {
+                            // Try to parse as milliseconds
+                            try {
+                                long timestampLong = Long.parseLong((String) timestamp);
+                                dateTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(timestampLong), ZoneId.systemDefault());
+                            } catch (NumberFormatException e) {
+                                log.debug("Could not parse timestamp as long: {}", timestamp);
+                            }
+                        }
+                        
+                        if (dateTime != null) {
+                            // Use processing timestamp as both start and end time (can be refined later)
+                            topicBuilder.startTime(dateTime);
+                            topicBuilder.endTime(dateTime);
+                        }
+                    } catch (Exception e) {
+                        log.debug("Failed to parse processingTimestamp for topic: {}", topicId, e);
+                    }
+                }
+                
+                TopicDTO topicDTO = topicBuilder.build();
+                dataStorageServiceClient.createTopic(topicDTO, tenantId, tenantSchema);
+                log.info("Persisted enriched topic to datastorage-service: topicId={}, topic={}, summary={}, category={}, participants={}", 
+                        topicId, topicName, topicDTO.getSummary(), topicDTO.getCategory(), 
+                        topicDTO.getParticipants() != null ? topicDTO.getParticipants().length() + " chars" : "null");
             } else {
                 log.warn("Could not persist topic: topicId or topic name missing (topicId={}, topic={})", topicId, topicName);
             }

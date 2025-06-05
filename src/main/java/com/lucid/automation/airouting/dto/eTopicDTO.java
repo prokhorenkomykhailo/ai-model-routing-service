@@ -18,7 +18,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class TopicDTO {
+public class eTopicDTO {
     
     @JsonProperty("topic_id")
     private String id;
@@ -29,30 +29,10 @@ public class TopicDTO {
     @JsonProperty("description")
     private String description;
     
-    @JsonProperty("summary")
-    private String summary;
-    
-    @JsonProperty("category")
-    private String category;
-    
-    @JsonProperty("suggested_actions")
-    private String suggestedActions;
-    
-    @JsonProperty("participants")
-    private String participants;
-    
-    @JsonProperty("start_time")
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
-    private LocalDateTime startTime;
-    
-    @JsonProperty("end_time")
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
-    private LocalDateTime endTime;
-    
     @JsonProperty("message_count")
     private Integer messageCount;
     
     @JsonProperty("last_updated")
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss'Z'")
     private LocalDateTime updatedAt;
 }
