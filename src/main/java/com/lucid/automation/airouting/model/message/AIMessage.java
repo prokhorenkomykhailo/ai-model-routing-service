@@ -29,6 +29,9 @@ public class AIMessage {
     @JsonProperty("tenantId")
     private String tenantId;
     
+    @JsonProperty("tenantSchema")
+    private String tenantSchema;
+    
     @JsonProperty("conversationId")
     private String conversationId;
     
@@ -87,6 +90,9 @@ public class AIMessage {
     
     public String getTenantId() { return tenantId; }
     public void setTenantId(String tenantId) { this.tenantId = tenantId; }
+    
+    public String getTenantSchema() { return tenantSchema; }
+    public void setTenantSchema(String tenantSchema) { this.tenantSchema = tenantSchema; }
     
     public String getConversationId() { return conversationId; }
     public void setConversationId(String conversationId) { this.conversationId = conversationId; }

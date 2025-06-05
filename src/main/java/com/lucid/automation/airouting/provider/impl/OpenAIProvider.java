@@ -90,10 +90,13 @@ public class OpenAIProvider implements AIProvider {
     }
     
     @Override
-    public ConversationEnrichment enrichConversation(List<SlackMessage> messages, List<SlackParticipant> participants) {
+    public ConversationEnrichment enrichConversation(List<SlackMessage> messages, 
+                                                   List<SlackParticipant> participants, 
+                                                   List<String> availableCategories) {
         try {
-            logger.info("Enriching conversation with OpenAI: {} messages, {} participants", 
-                       messages.size(), participants != null ? participants.size() : 0);
+            logger.info("Enriching conversation with OpenAI: {} messages, {} participants, {} categories", 
+                       messages.size(), participants != null ? participants.size() : 0,
+                       availableCategories != null ? availableCategories.size() : 0);
             
             String conversationText = formatConversationForAnalysis(messages);
             String prompt = buildConversationEnrichmentPrompt(conversationText, participants);

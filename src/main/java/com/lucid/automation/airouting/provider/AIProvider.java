@@ -19,9 +19,17 @@ public interface AIProvider {
     SummaryResult summarize(String content);
     
     /**
-     * Enrich an entire conversation
+     * Enrich an entire conversation with dynamic categories
+     * 
+     * @param messages The list of Slack messages to analyze
+     * @param participants The list of participants in the conversation
+     * @param availableCategories The list of available categories to use for categorization.
+     *                           If null or empty, implementations should use their default behavior.
+     * @return ConversationEnrichment object containing the analysis results
      */
-    ConversationEnrichment enrichConversation(List<SlackMessage> messages, List<SlackParticipant> participants);
+    ConversationEnrichment enrichConversation(List<SlackMessage> messages, 
+                                             List<SlackParticipant> participants, 
+                                             List<String> availableCategories);
     
     /**
      * Enrich a single message

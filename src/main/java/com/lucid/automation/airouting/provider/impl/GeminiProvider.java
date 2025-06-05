@@ -3,6 +3,9 @@ package com.lucid.automation.airouting.provider.impl;
 import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.SlackParticipant;
+import com.lucid.automation.airouting.client.DataStorageServiceClient;
+import com.lucid.automation.airouting.dto.CategoryDTO;
+import com.lucid.automation.airouting.dto.APIResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.genai.Client;
 import com.google.genai.types.GenerateContentResponse;
@@ -28,13 +31,21 @@ public class GeminiProvider implements AIProvider {
     @Value("${ai.providers.gemini.model:gemini-2.0-flash}")
     private String model;
     
+    @Value("${app.tenant.default-id:default}")
+    private String defaultTenantId;
+    
+    @Value("${app.tenant.default-schema:public}")
+    private String defaultTenantSchema;
+    
     private final Client geminiClient;
     private final ObjectMapper objectMapper;
+    private final DataStorageServiceClient dataStorageServiceClient;
     private double lastConfidence = 0.0;
     private final boolean isClientAvailable;
     
-    public GeminiProvider(ObjectMapper objectMapper) {
+    public GeminiProvider(ObjectMapper objectMapper, DataStorageServiceClient dataStorageServiceClient) {
         this.objectMapper = objectMapper;
+        this.dataStorageServiceClient = dataStorageServiceClient;
         
         // Try to initialize the client, but handle gracefully if API key is not available
         Client tempClient = null;
@@ -146,14 +157,27 @@ public class GeminiProvider implements AIProvider {
         }
     }
     
+    /**
+     * Enhanced enrichConversation method that accepts available categories as input parameter
+     * 
+     * @param messages The list of Slack messages to analyze
+     * @param participants The list of participants in the conversation
+     * @param availableCategories The list of available categories to use for categorization.
+     *                           If null or empty, will attempt to fetch from data storage service,
+     *                           and fallback to default categories if that fails.
+     * @return ConversationEnrichment object containing the analysis results
+     */
     @Override
-    public ConversationEnrichment enrichConversation(List<SlackMessage> messages, List<SlackParticipant> participants) {
+    public ConversationEnrichment enrichConversation(List<SlackMessage> messages, 
+                                                   List<SlackParticipant> participants, 
+                                                   List<String> availableCategories) {
         String debugId = "ENRICH-CONV-" + System.currentTimeMillis();
         try {
             int messagesCount = messages != null ? messages.size() : 0;
             int participantsCount = participants != null ? participants.size() : 0;
-            logger.info("GEMINI-DEBUG [{}]: Starting conversation enrichment - {} messages, {} participants", 
-                       debugId, messagesCount, participantsCount);
+            int categoriesCount = availableCategories != null ? availableCategories.size() : 0;
+            logger.info("GEMINI-DEBUG [{}]: Starting conversation enrichment - {} messages, {} participants, {} categories provided", 
+                       debugId, messagesCount, participantsCount, categoriesCount);
             
             // Input validation
             if (messages == null || messages.isEmpty()) {
@@ -169,7 +193,12 @@ public class GeminiProvider implements AIProvider {
             String conversationText = formatConversationForAnalysis(messages);
             logger.debug("GEMINI-DEBUG [{}]: Formatted conversation text, length: {}", debugId, conversationText.length());
             
-            String prompt = buildConversationEnrichmentPrompt(conversationText, participants);
+            // Use provided categories or fetch from data storage service if none provided
+            List<String> categoriesToUse = (availableCategories != null && !availableCategories.isEmpty()) 
+                ? availableCategories 
+                : fetchAvailableCategories(debugId);
+            
+            String prompt = buildConversationEnrichmentPrompt(conversationText, participants, categoriesToUse);
             logger.debug("GEMINI-DEBUG [{}]: Built enrichment prompt, length: {}", debugId, prompt.length());
             
             String response = callGeminiAPI(prompt);
@@ -473,6 +502,35 @@ public class GeminiProvider implements AIProvider {
         return lastConfidence;
     }
     
+    /**
+     * Fetches available categories from the data storage service with error handling
+     */
+    private List<String> fetchAvailableCategories(String debugId) {
+        try {
+            logger.debug("GEMINI-DEBUG [{}]: Fetching categories from data storage service", debugId);
+            APIResponse<List<CategoryDTO>> response = dataStorageServiceClient.getAllCategories(
+                defaultTenantId, defaultTenantSchema);
+            
+            if (response != null && response.getData() != null && !response.getData().isEmpty()) {
+                List<String> categoryNames = response.getData().stream()
+                    .map(CategoryDTO::getName)
+                    .filter(name -> name != null && !name.trim().isEmpty())
+                    .toList();
+                
+                logger.debug("GEMINI-DEBUG [{}]: Successfully fetched {} categories", debugId, categoryNames.size());
+                return categoryNames;
+            } else {
+                logger.warn("GEMINI-DEBUG [{}]: No categories returned from data storage service", debugId);
+                return List.of();
+            }
+            
+        } catch (Exception e) {
+            logger.warn("GEMINI-DEBUG [{}]: Failed to fetch categories from data storage service: {}", 
+                       debugId, e.getMessage(), e);
+            return List.of(); // Return empty list to trigger fallback categories
+        }
+    }
+    
     // Private helper methods
     private String callGeminiAPI(String prompt) {
         try {
@@ -529,7 +587,9 @@ public class GeminiProvider implements AIProvider {
             """, content);
     }
     
-    private String buildConversationEnrichmentPrompt(String conversationText, List<SlackParticipant> participants) {
+    private String buildConversationEnrichmentPrompt(String conversationText, 
+                                                    List<SlackParticipant> participants, 
+                                                    List<String> availableCategories) {
         StringBuilder participantInfo = new StringBuilder();
         List<String> participantNames = new ArrayList<>();
         
@@ -540,6 +600,9 @@ public class GeminiProvider implements AIProvider {
                 participantNames.add(p.getUsername());
             });
         }
+        
+        // Build available categories string for the prompt
+        String categoriesInstruction = buildCategoriesInstruction(availableCategories);
         
         return String.format("""
             Analyze this Slack conversation and provide comprehensive enrichment.
@@ -577,15 +640,34 @@ public class GeminiProvider implements AIProvider {
             }
             
             Instructions:
-            - For topic.category: Use broad categories like "Technical", "Business", "Support", "Planning", etc.
-            - For topic.sub-category: Use specific categories like "Bug Fix", "Feature Request", "Payment Issues", etc.
+            %s
+            - For topic.sub-category: Use specific sub-categories that are more detailed than the main categories
             - For conversations: Include 2-5 most relevant messages that capture the essence of the discussion
             - For topic.priority: Base on urgency, impact, and time sensitivity
             - For topic.keywords: Extract 3-7 key terms that best represent the conversation content
             """, 
             participantInfo.toString(), 
             conversationText,
-            participantNames.isEmpty() ? "[]" : participantNames.toString());
+            participantNames.isEmpty() ? "[]" : participantNames.toString(),
+            categoriesInstruction);
+    }
+    
+    /**
+     * Builds the categories instruction for the prompt based on available categories
+     */
+    private String buildCategoriesInstruction(List<String> availableCategories) {
+        if (availableCategories == null || availableCategories.isEmpty()) {
+            return "- For topic.category: Use broad categories like \"Technical\", \"Business\", \"Support\", \"Planning\", etc.";
+        }
+        
+        StringBuilder instruction = new StringBuilder();
+        instruction.append("- For topic.category: Choose from these available categories: ");
+        instruction.append(String.join(", ", availableCategories.stream()
+            .map(cat -> "\"" + cat + "\"")
+            .toList()));
+        instruction.append(". If none fit perfectly, choose the closest match or use a general category.");
+        
+        return instruction.toString();
     }
     
     private String buildMessageEnrichmentPrompt(String content, Map<String, Object> context) {

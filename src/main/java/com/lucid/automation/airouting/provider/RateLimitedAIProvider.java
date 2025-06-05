@@ -123,10 +123,10 @@ public class RateLimitedAIProvider implements AIProvider {
     }
     
     @Override
-    public ConversationEnrichment enrichConversation(List<SlackMessage> messages, List<SlackParticipant> participants) {
+    public ConversationEnrichment enrichConversation(List<SlackMessage> messages, List<SlackParticipant> participants, List<String> availableCategories) {
         return executeWithRateLimit("enrichConversation",
-            () -> primaryProvider.enrichConversation(messages, participants),
-            fallbackProvider != null ? () -> fallbackProvider.enrichConversation(messages, participants) : null
+            () -> primaryProvider.enrichConversation(messages, participants, availableCategories),
+            fallbackProvider != null ? () -> fallbackProvider.enrichConversation(messages, participants, availableCategories) : null
         );
     }
     

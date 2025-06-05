@@ -1,6 +1,7 @@
 package com.lucid.automation.airouting.client;
 
 import com.lucid.automation.airouting.dto.APIResponse;
+import com.lucid.automation.airouting.dto.CategoryDTO;
 import com.lucid.automation.airouting.dto.EnrichedMessageDTO;
 import com.lucid.automation.airouting.dto.MessageWithContentDTO;
 import com.lucid.automation.airouting.dto.StoredDataDTO;
@@ -78,6 +79,19 @@ public interface DataStorageServiceClient {
     @PostMapping("/topics")
     APIResponse<TopicDTO> createTopic(
             @RequestBody TopicDTO topicDTO,
+            @RequestHeader("X-Tenant-Id") String tenantId,
+            @RequestHeader("X-Tenant-Schema") String tenantSchema
+    );
+    
+    /**
+     * Get all categories
+     * 
+     * @param tenantId the tenant ID for multi-tenancy support
+     * @param tenantSchema the tenant schema for multi-tenancy support
+     * @return APIResponse containing list of all categories
+     */
+    @GetMapping("/categories")
+    APIResponse<List<CategoryDTO>> getAllCategories(
             @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestHeader("X-Tenant-Schema") String tenantSchema
     );

@@ -210,6 +210,8 @@ public class MessageEnrichmentScheduler {
             Map<String, Object> context = new HashMap<>();
             context.put("tenantId", tenantId);
             context.put("tenantSchema", tenantSchema);
+            context.put("groupId", groupId);
+            context.put("userId", userId);
 
             // Create conversation enrichment request using the request object
             ConversationEnrichmentRequest request = new ConversationEnrichmentRequest();
@@ -217,6 +219,7 @@ public class MessageEnrichmentScheduler {
             request.setMessages(slackMessages);
             request.setParticipants(participants);
             request.setTenantId(tenantId);
+            request.setTenantSchema(tenantSchema);
             request.setPreferredProvider(null); // use default
             request.setReplyTopic("ai.enrich.conversation.response");
             request.setContext(context);

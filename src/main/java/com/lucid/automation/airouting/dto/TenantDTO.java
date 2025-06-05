@@ -26,7 +26,7 @@ public class TenantDTO {
     private String description;
     private String domainUrl;
     private String schemaName;
-    private TenantStatus status;
+    private String status;  // Changed from TenantStatus enum to String to match JSON
     private TenantSettings settings;
     private LocalDateTime createdAt;
     private String workspaceName;

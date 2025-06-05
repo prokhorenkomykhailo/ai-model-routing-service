@@ -27,7 +27,6 @@ public class AIQueueController {
     
     private final AIMessagePublisherService publisherService;
     
-    @Autowired
     public AIQueueController(AIMessagePublisherService publisherService) {
         this.publisherService = publisherService;
     }
@@ -35,13 +34,17 @@ public class AIQueueController {
     @PostMapping("/categorize")
     @Operation(summary = "Queue categorization request", description = "Publish a categorization request to the message queue")
     @ApiResponse(responseCode = "200", description = "Request queued successfully")
-    public ResponseEntity<Map<String, String>> queueCategorization(@Valid @RequestBody CategoryRequest request) {
+    public ResponseEntity<Map<String, String>> queueCategorization(
+            @Valid @RequestBody CategoryRequest request,
+            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader("X-Tenant-Schema") String tenantSchema) {
         logger.info("Queueing categorization request for content length: {}, tenantId: {}", 
-                   request.getContent().length(), request.getTenantId());
+                   request.getContent().length(), tenantId);
         
         String messageId = publisherService.publishCategorizationRequest(
             request.getContent(),
-            request.getTenantId(),
+            tenantId,
+            tenantSchema,
             getCurrentUserId(),
             request.getPreferredProvider(),
             request.getReplyTopic()
@@ -57,13 +60,17 @@ public class AIQueueController {
     @PostMapping("/summarize")
     @Operation(summary = "Queue summarization request", description = "Publish a summarization request to the message queue")
     @ApiResponse(responseCode = "200", description = "Request queued successfully")
-    public ResponseEntity<Map<String, String>> queueSummarization(@Valid @RequestBody SummaryRequest request) {
+    public ResponseEntity<Map<String, String>> queueSummarization(
+            @Valid @RequestBody SummaryRequest request,
+            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader("X-Tenant-Schema") String tenantSchema) {
         logger.info("Queueing summarization request for content length: {}, tenantId: {}", 
-                   request.getContent().length(), request.getTenantId());
+                   request.getContent().length(), tenantId);
         
         String messageId = publisherService.publishSummarizationRequest(
             request.getContent(),
-            request.getTenantId(),
+            tenantId,
+            tenantSchema,
             getCurrentUserId(),
             request.getPreferredProvider(),
             request.getReplyTopic()
@@ -79,9 +86,16 @@ public class AIQueueController {
     @PostMapping("/enrich-conversation")
     @Operation(summary = "Queue conversation enrichment request", description = "Publish a conversation enrichment request to the message queue")
     @ApiResponse(responseCode = "200", description = "Request queued successfully")
-    public ResponseEntity<Map<String, String>> queueConversationEnrichment(@Valid @RequestBody ConversationEnrichmentRequest request) {
+    public ResponseEntity<Map<String, String>> queueConversationEnrichment(
+            @Valid @RequestBody ConversationEnrichmentRequest request,
+            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader("X-Tenant-Schema") String tenantSchema) {
         logger.info("Queueing conversation enrichment request for {} messages, tenantId: {}", 
-                   request.getMessages() != null ? request.getMessages().size() : 0, request.getTenantId());
+                   request.getMessages() != null ? request.getMessages().size() : 0, tenantId);
+        
+        // Update the request object with header values
+        request.setTenantId(tenantId);
+        request.setTenantSchema(tenantSchema);
         
         String messageId = publisherService.publishConversationEnrichmentRequest(request, getCurrentUserId());
         
@@ -95,14 +109,18 @@ public class AIQueueController {
     @PostMapping("/enrich-message")
     @Operation(summary = "Queue message enrichment request", description = "Publish a message enrichment request to the message queue")
     @ApiResponse(responseCode = "200", description = "Request queued successfully")
-    public ResponseEntity<Map<String, String>> queueMessageEnrichment(@Valid @RequestBody MessageEnrichmentRequest request) {
+    public ResponseEntity<Map<String, String>> queueMessageEnrichment(
+            @Valid @RequestBody MessageEnrichmentRequest request,
+            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader("X-Tenant-Schema") String tenantSchema) {
         logger.info("Queueing message enrichment request for content length: {}, tenantId: {}", 
-                   request.getContent().length(), request.getTenantId());
+                   request.getContent().length(), tenantId);
         
         String messageId = publisherService.publishMessageEnrichmentRequest(
             request.getContent(),
             request.getContext(),
-            request.getTenantId(),
+            tenantId,
+            tenantSchema,
             getCurrentUserId(),
             request.getPreferredProvider(),
             request.getReplyTopic()
@@ -118,15 +136,19 @@ public class AIQueueController {
     @PostMapping("/analyze-participant")
     @Operation(summary = "Queue participant analysis request", description = "Publish a participant analysis request to the message queue")
     @ApiResponse(responseCode = "200", description = "Request queued successfully")
-    public ResponseEntity<Map<String, String>> queueParticipantAnalysis(@Valid @RequestBody ParticipantAnalysisRequest request) {
+    public ResponseEntity<Map<String, String>> queueParticipantAnalysis(
+            @Valid @RequestBody ParticipantAnalysisRequest request,
+            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader("X-Tenant-Schema") String tenantSchema) {
         logger.info("Queueing participant analysis request for participant: {}, tenantId: {}", 
                    request.getParticipant() != null ? request.getParticipant().getId() : "unknown", 
-                   request.getTenantId());
+                   tenantId);
         
         String messageId = publisherService.publishParticipantAnalysisRequest(
             request.getParticipant(),
             request.getMessages(),
-            request.getTenantId(),
+            tenantId,
+            tenantSchema,
             getCurrentUserId(),
             request.getPreferredProvider(),
             request.getReplyTopic()
@@ -142,13 +164,17 @@ public class AIQueueController {
     @PostMapping("/assess-urgency")
     @Operation(summary = "Queue urgency assessment request", description = "Publish an urgency assessment request to the message queue")
     @ApiResponse(responseCode = "200", description = "Request queued successfully")
-    public ResponseEntity<Map<String, String>> queueUrgencyAssessment(@Valid @RequestBody UrgencyAssessmentRequest request) {
+    public ResponseEntity<Map<String, String>> queueUrgencyAssessment(
+            @Valid @RequestBody UrgencyAssessmentRequest request,
+            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader("X-Tenant-Schema") String tenantSchema) {
         logger.info("Queueing urgency assessment request for {} messages, tenantId: {}", 
-                   request.getMessages() != null ? request.getMessages().size() : 0, request.getTenantId());
+                   request.getMessages() != null ? request.getMessages().size() : 0, tenantId);
         
         String messageId = publisherService.publishUrgencyAssessmentRequest(
             request.getMessages(),
-            request.getTenantId(),
+            tenantId,
+            tenantSchema,
             getCurrentUserId(),
             request.getPreferredProvider(),
             request.getReplyTopic()
@@ -164,13 +190,17 @@ public class AIQueueController {
     @PostMapping("/generate-topic")
     @Operation(summary = "Queue topic generation request", description = "Publish a topic generation request to the message queue")
     @ApiResponse(responseCode = "200", description = "Request queued successfully")
-    public ResponseEntity<Map<String, String>> queueTopicGeneration(@Valid @RequestBody TopicGenerationRequest request) {
+    public ResponseEntity<Map<String, String>> queueTopicGeneration(
+            @Valid @RequestBody TopicGenerationRequest request,
+            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader("X-Tenant-Schema") String tenantSchema) {
         logger.info("Queueing topic generation request for {} messages, tenantId: {}", 
-                   request.getMessages() != null ? request.getMessages().size() : 0, request.getTenantId());
+                   request.getMessages() != null ? request.getMessages().size() : 0, tenantId);
         
         String messageId = publisherService.publishTopicGenerationRequest(
             request.getMessages(),
-            request.getTenantId(),
+            tenantId,
+            tenantSchema,
             getCurrentUserId(),
             request.getPreferredProvider(),
             request.getReplyTopic()
@@ -186,13 +216,17 @@ public class AIQueueController {
     @PostMapping("/extract-entities")
     @Operation(summary = "Queue entity extraction request", description = "Publish an entity extraction request to the message queue")
     @ApiResponse(responseCode = "200", description = "Request queued successfully")
-    public ResponseEntity<Map<String, String>> queueEntityExtraction(@Valid @RequestBody EntityExtractionRequest request) {
+    public ResponseEntity<Map<String, String>> queueEntityExtraction(
+            @Valid @RequestBody EntityExtractionRequest request,
+            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader("X-Tenant-Schema") String tenantSchema) {
         logger.info("Queueing entity extraction request for content length: {}, tenantId: {}", 
-                   request.getContent().length(), request.getTenantId());
+                   request.getContent().length(), tenantId);
         
         String messageId = publisherService.publishEntityExtractionRequest(
             request.getContent(),
-            request.getTenantId(),
+            tenantId,
+            tenantSchema,
             getCurrentUserId(),
             request.getPreferredProvider(),
             request.getReplyTopic()
@@ -208,13 +242,17 @@ public class AIQueueController {
     @PostMapping("/sentiment-analysis")
     @Operation(summary = "Queue sentiment analysis request", description = "Publish a sentiment analysis request to the message queue")
     @ApiResponse(responseCode = "200", description = "Request queued successfully")
-    public ResponseEntity<Map<String, String>> queueSentimentAnalysis(@Valid @RequestBody SentimentAnalysisRequest request) {
+    public ResponseEntity<Map<String, String>> queueSentimentAnalysis(
+            @Valid @RequestBody SentimentAnalysisRequest request,
+            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader("X-Tenant-Schema") String tenantSchema) {
         logger.info("Queueing sentiment analysis request for content length: {}, tenantId: {}", 
-                   request.getContent().length(), request.getTenantId());
+                   request.getContent().length(), tenantId);
         
         String messageId = publisherService.publishSentimentAnalysisRequest(
             request.getContent(),
-            request.getTenantId(),
+            tenantId,
+            tenantSchema,
             getCurrentUserId(),
             request.getPreferredProvider(),
             request.getReplyTopic()

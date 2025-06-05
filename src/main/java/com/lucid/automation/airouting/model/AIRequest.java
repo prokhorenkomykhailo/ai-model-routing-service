@@ -19,6 +19,7 @@ public class AIRequest {
     private String tenantId;
     private String preferredProvider;
     private String userId;
+    private List<String> availableCategories;
     
     // Constructors
     public AIRequest() {}
@@ -55,4 +56,7 @@ public class AIRequest {
     
     public String getUserId() { return userId; }
     public void setUserId(String userId) { this.userId = userId; }
+    
+    public List<String> getAvailableCategories() { return availableCategories; }
+    public void setAvailableCategories(List<String> availableCategories) { this.availableCategories = availableCategories; }
 }

@@ -11,7 +11,6 @@ import com.lucid.automation.airouting.model.message.SlackParticipantData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -44,7 +43,6 @@ public class AIMessagePublisherService {
     @Value("${rabbitmq.routing.enrich:ai.enrich}")
     private String enrichRoutingKey;
     
-    @Autowired
     public AIMessagePublisherService(RabbitTemplate rabbitTemplate,
                                    MessageConverterService messageConverter,
                                    RabbitMQConfig rabbitMQConfig) {
@@ -56,18 +54,18 @@ public class AIMessagePublisherService {
     /**
      * Publish a categorization request
      */
-    public String publishCategorizationRequest(String content, String tenantId, String userId, 
-                                             String preferredProvider, String replyTopic) {
-        return publishAIRequest(AITaskType.CATEGORIZE, content, tenantId, userId, 
+    public String publishCategorizationRequest(String content, String tenantId, String tenantSchema,
+                                             String userId, String preferredProvider, String replyTopic) {
+        return publishAIRequest(AITaskType.CATEGORIZE, content, tenantId, tenantSchema, userId, 
                               null, null, null, null, preferredProvider, replyTopic);
     }
     
     /**
      * Publish a summarization request
      */
-    public String publishSummarizationRequest(String content, String tenantId, String userId,
-                                            String preferredProvider, String replyTopic) {
-        return publishAIRequest(AITaskType.SUMMARIZE, content, tenantId, userId,
+    public String publishSummarizationRequest(String content, String tenantId, String tenantSchema,
+                                            String userId, String preferredProvider, String replyTopic) {
+        return publishAIRequest(AITaskType.SUMMARIZE, content, tenantId, tenantSchema, userId,
                               null, null, null, null, preferredProvider, replyTopic);
     }
     
@@ -75,62 +73,19 @@ public class AIMessagePublisherService {
      * Publish a conversation enrichment request using a request object
      */
     public String publishConversationEnrichmentRequest(ConversationEnrichmentRequest request, String userId) {
-        return publishAIRequest(AITaskType.ENRICH_CONVERSATION, "", request.getTenantId(), userId,
-                              request.getConversationId(), request.getMessages(), request.getParticipants(), 
+        return publishAIRequest(AITaskType.ENRICH_CONVERSATION, "", request.getTenantId(), request.getTenantSchema(),
+                              userId, request.getConversationId(), request.getMessages(), request.getParticipants(), 
                               request.getContext(), request.getPreferredProvider(), request.getReplyTopic());
     }
     
-    /**
-     * Publish a conversation enrichment request
-     * @deprecated Use {@link #publishConversationEnrichmentRequest(ConversationEnrichmentRequest, String)} instead
-     */
-    @Deprecated(since = "1.0.0", forRemoval = true)
-    public String publishConversationEnrichmentRequest(String conversationId, 
-                                                     List<SlackMessage> messages,
-                                                     List<SlackParticipant> participants,
-                                                     String tenantId, String userId,
-                                                     String preferredProvider, String replyTopic) {
-        ConversationEnrichmentRequest request = new ConversationEnrichmentRequest();
-        request.setConversationId(conversationId);
-        request.setMessages(messages);
-        request.setParticipants(participants);
-        request.setTenantId(tenantId);
-        request.setPreferredProvider(preferredProvider);
-        request.setReplyTopic(replyTopic);
-        
-        return publishConversationEnrichmentRequest(request, userId);
-    }
-    
-    /**
-     * Publish a conversation enrichment request with context
-     * @deprecated Use {@link #publishConversationEnrichmentRequest(ConversationEnrichmentRequest, String)} instead
-     */
-    @Deprecated(since = "1.0.0", forRemoval = true)
-    public String publishConversationEnrichmentRequest(String conversationId, 
-                                                     List<SlackMessage> messages,
-                                                     List<SlackParticipant> participants,
-                                                     String tenantId, String userId,
-                                                     String preferredProvider, String replyTopic,
-                                                     Map<String, Object> context) {
-        ConversationEnrichmentRequest request = new ConversationEnrichmentRequest();
-        request.setConversationId(conversationId);
-        request.setMessages(messages);
-        request.setParticipants(participants);
-        request.setTenantId(tenantId);
-        request.setPreferredProvider(preferredProvider);
-        request.setReplyTopic(replyTopic);
-        request.setContext(context);
-        
-        return publishConversationEnrichmentRequest(request, userId);
-    }
     
     /**
      * Publish a message enrichment request
      */
     public String publishMessageEnrichmentRequest(String content, Map<String, Object> context,
-                                                String tenantId, String userId,
+                                                String tenantId, String tenantSchema, String userId,
                                                 String preferredProvider, String replyTopic) {
-        return publishAIRequest(AITaskType.ENRICH_MESSAGE, content, tenantId, userId,
+        return publishAIRequest(AITaskType.ENRICH_MESSAGE, content, tenantId, tenantSchema, userId,
                               null, null, null, context, preferredProvider, replyTopic);
     }
     
@@ -139,9 +94,9 @@ public class AIMessagePublisherService {
      */
     public String publishParticipantAnalysisRequest(SlackParticipant participant,
                                                   List<SlackMessage> messages,
-                                                  String tenantId, String userId,
+                                                  String tenantId, String tenantSchema, String userId,
                                                   String preferredProvider, String replyTopic) {
-        return publishAIRequest(AITaskType.ANALYZE_PARTICIPANT, "", tenantId, userId,
+        return publishAIRequest(AITaskType.ANALYZE_PARTICIPANT, "", tenantId, tenantSchema, userId,
                               null, messages, List.of(participant), null,
                               preferredProvider, replyTopic);
     }
@@ -150,9 +105,9 @@ public class AIMessagePublisherService {
      * Publish an urgency assessment request
      */
     public String publishUrgencyAssessmentRequest(List<SlackMessage> messages,
-                                                String tenantId, String userId,
+                                                String tenantId, String tenantSchema, String userId,
                                                 String preferredProvider, String replyTopic) {
-        return publishAIRequest(AITaskType.ASSESS_URGENCY, "", tenantId, userId,
+        return publishAIRequest(AITaskType.ASSESS_URGENCY, "", tenantId, tenantSchema, userId,
                               null, messages, null, null, preferredProvider, replyTopic);
     }
     
@@ -160,35 +115,35 @@ public class AIMessagePublisherService {
      * Publish a topic generation request
      */
     public String publishTopicGenerationRequest(List<SlackMessage> messages,
-                                              String tenantId, String userId,
+                                              String tenantId, String tenantSchema, String userId,
                                               String preferredProvider, String replyTopic) {
-        return publishAIRequest(AITaskType.GENERATE_TOPIC, "", tenantId, userId,
+        return publishAIRequest(AITaskType.GENERATE_TOPIC, "", tenantId, tenantSchema, userId,
                               null, messages, null, null, preferredProvider, replyTopic);
     }
     
     /**
      * Publish an entity extraction request
      */
-    public String publishEntityExtractionRequest(String content, String tenantId, String userId,
+    public String publishEntityExtractionRequest(String content, String tenantId, String tenantSchema, String userId,
                                                String preferredProvider, String replyTopic) {
-        return publishAIRequest(AITaskType.EXTRACT_ENTITIES, content, tenantId, userId,
+        return publishAIRequest(AITaskType.EXTRACT_ENTITIES, content, tenantId, tenantSchema, userId,
                               null, null, null, null, preferredProvider, replyTopic);
     }
     
     /**
      * Publish a sentiment analysis request
      */
-    public String publishSentimentAnalysisRequest(String content, String tenantId, String userId,
+    public String publishSentimentAnalysisRequest(String content, String tenantId, String tenantSchema, String userId,
                                                 String preferredProvider, String replyTopic) {
-        return publishAIRequest(AITaskType.SENTIMENT_ANALYSIS, content, tenantId, userId,
+        return publishAIRequest(AITaskType.SENTIMENT_ANALYSIS, content, tenantId, tenantSchema, userId,
                               null, null, null, null, preferredProvider, replyTopic);
     }
     
     /**
      * Generic method to publish AI requests
      */
-    public String publishAIRequest(AITaskType taskType, String content, String tenantId, String userId,
-                                 String conversationId, List<SlackMessage> messages, 
+    public String publishAIRequest(AITaskType taskType, String content, String tenantId, String tenantSchema,
+                                 String userId, String conversationId, List<SlackMessage> messages, 
                                  List<SlackParticipant> participants, Map<String, Object> context,
                                  String preferredProvider, String replyTopic) {
         
@@ -199,6 +154,7 @@ public class AIMessagePublisherService {
             // Create AI message
             AIMessage aiMessage = new AIMessage(messageId, taskType, content != null ? content : "");
             aiMessage.setTenantId(tenantId);
+            aiMessage.setTenantSchema(tenantSchema);
             aiMessage.setUserId(userId);
             aiMessage.setConversationId(conversationId);
             aiMessage.setContext(context);
