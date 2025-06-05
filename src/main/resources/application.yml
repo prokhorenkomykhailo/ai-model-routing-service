@@ -98,7 +98,7 @@ ai:
       sentiment_analysis: geminiProvider
   enrichment:
     scheduler:
-      cron: "${AI_ENRICHMENT_CRON:0 0 */2 * * ?}"  # Every 2 hours by default
+      cron: "${AI_ENRICHMENT_CRON:0 */5 * * * ?}"  # Every 5 minutes by default
       enabled: "${AI_ENRICHMENT_ENABLED:true}"
       batch-size: "${AI_ENRICHMENT_BATCH_SIZE:50}"
       max-retries: "${AI_ENRICHMENT_MAX_RETRIES:3}"

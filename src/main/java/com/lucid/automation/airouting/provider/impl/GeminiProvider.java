@@ -460,7 +460,7 @@ public class GeminiProvider implements AIProvider {
     
     @Override
     public String getProviderId() {
-        return "gemini";
+        return "geminiProvider";
     }
     
     @Override

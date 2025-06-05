@@ -21,7 +21,7 @@ public class OpenAIProvider implements AIProvider {
     private static final Logger logger = LoggerFactory.getLogger(OpenAIProvider.class);
     
     // Constants
-    private static final String PROVIDER_ID = "openai";
+    private static final String PROVIDER_ID = "openaiProvider";
     private static final String GENERAL_CATEGORY = "General";
     private static final String UNKNOWN_INTENT = "Unknown";
     private static final String NEUTRAL_SENTIMENT = "Neutral";
