@@ -1,6 +1,5 @@
 package com.lucid.automation.airouting.service;
 
-import com.lucid.automation.airouting.config.RabbitMQConfig;
 import com.lucid.automation.airouting.model.request.ConversationEnrichmentRequest;
 import com.lucid.automation.airouting.model.AITaskType;
 import com.lucid.automation.airouting.model.SlackMessage;
@@ -29,7 +28,6 @@ public class AIMessagePublisherService {
     
     private final RabbitTemplate rabbitTemplate;
     private final MessageConverterService messageConverter;
-    private final RabbitMQConfig rabbitMQConfig;
     
     @Value("${rabbitmq.exchange.ai-requests:ai.requests}")
     private String aiRequestsExchange;
@@ -44,11 +42,9 @@ public class AIMessagePublisherService {
     private String enrichRoutingKey;
     
     public AIMessagePublisherService(RabbitTemplate rabbitTemplate,
-                                   MessageConverterService messageConverter,
-                                   RabbitMQConfig rabbitMQConfig) {
+                                   MessageConverterService messageConverter) {
         this.rabbitTemplate = rabbitTemplate;
         this.messageConverter = messageConverter;
-        this.rabbitMQConfig = rabbitMQConfig;
     }
     
     /**
@@ -87,56 +83,6 @@ public class AIMessagePublisherService {
                                                 String preferredProvider, String replyTopic) {
         return publishAIRequest(AITaskType.ENRICH_MESSAGE, content, tenantId, tenantSchema, userId,
                               null, null, null, context, preferredProvider, replyTopic);
-    }
-    
-    /**
-     * Publish a participant analysis request
-     */
-    public String publishParticipantAnalysisRequest(SlackParticipant participant,
-                                                  List<SlackMessage> messages,
-                                                  String tenantId, String tenantSchema, String userId,
-                                                  String preferredProvider, String replyTopic) {
-        return publishAIRequest(AITaskType.ANALYZE_PARTICIPANT, "", tenantId, tenantSchema, userId,
-                              null, messages, List.of(participant), null,
-                              preferredProvider, replyTopic);
-    }
-    
-    /**
-     * Publish an urgency assessment request
-     */
-    public String publishUrgencyAssessmentRequest(List<SlackMessage> messages,
-                                                String tenantId, String tenantSchema, String userId,
-                                                String preferredProvider, String replyTopic) {
-        return publishAIRequest(AITaskType.ASSESS_URGENCY, "", tenantId, tenantSchema, userId,
-                              null, messages, null, null, preferredProvider, replyTopic);
-    }
-    
-    /**
-     * Publish a topic generation request
-     */
-    public String publishTopicGenerationRequest(List<SlackMessage> messages,
-                                              String tenantId, String tenantSchema, String userId,
-                                              String preferredProvider, String replyTopic) {
-        return publishAIRequest(AITaskType.GENERATE_TOPIC, "", tenantId, tenantSchema, userId,
-                              null, messages, null, null, preferredProvider, replyTopic);
-    }
-    
-    /**
-     * Publish an entity extraction request
-     */
-    public String publishEntityExtractionRequest(String content, String tenantId, String tenantSchema, String userId,
-                                               String preferredProvider, String replyTopic) {
-        return publishAIRequest(AITaskType.EXTRACT_ENTITIES, content, tenantId, tenantSchema, userId,
-                              null, null, null, null, preferredProvider, replyTopic);
-    }
-    
-    /**
-     * Publish a sentiment analysis request
-     */
-    public String publishSentimentAnalysisRequest(String content, String tenantId, String tenantSchema, String userId,
-                                                String preferredProvider, String replyTopic) {
-        return publishAIRequest(AITaskType.SENTIMENT_ANALYSIS, content, tenantId, tenantSchema, userId,
-                              null, null, null, null, preferredProvider, replyTopic);
     }
     
     /**

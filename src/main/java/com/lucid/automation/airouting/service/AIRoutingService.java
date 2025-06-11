@@ -8,7 +8,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -186,18 +185,5 @@ public class AIRoutingService {
             
             default -> throw new UnsupportedOperationException("Task type not supported: " + request.getTaskType());
         };
-    }
-    
-    public Map<String, Boolean> getProviderHealthStatus() {
-        return providerFactory.getAllProviders().entrySet().stream()
-                .collect(java.util.stream.Collectors.toMap(
-                    Map.Entry::getKey,
-                    entry -> entry.getValue().isAvailable()
-                ));
-    }
-    
-    public boolean isServiceHealthy() {
-        return providerFactory.getAllProviders().values().stream()
-                .anyMatch(AIProvider::isAvailable);
     }
 }
