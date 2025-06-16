@@ -1,30 +1,26 @@
-# Local development profile
 spring:
+  application:
+    name: ai-routing-service
   datasource:
-    url: jdbc:h2:file:./data/aidb-local
-    driver-class-name: org.h2.Driver
-    username: sa
-    password: local123
+    url: jdbc:postgresql://${DB_HOST:database-1.co5mcmkmyz7i.us-east-1.rds.amazonaws.com}:${DB_PORT:5432}/${DB_NAME:ai_routing_db}
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USERNAME:admin}
+    password: ${DB_PASSWORD:1234566}
 
   jpa:
     hibernate:
-      ddl-auto: create-drop
-    show-sql: true
+      ddl-auto: validate
+    show-sql: false
     properties:
       hibernate:
-        format_sql: true
-
-  h2:
-    console:
-      enabled: true
-      path: /h2-console
+        dialect: org.hibernate.dialect.PostgreSQLDialect
 
 # Local AI provider configurations with mock/test keys
 ai:
   providers:
     gemini:
       type: gemini
-      api-key: ${GEMINI_API_KEY:test-gemini-key}
+      api-key: ${GEMINI_API_KEY:}
       endpoint: https://generativelanguage.googleapis.com/v1/models
       timeout: 30000
       enabled: true
@@ -61,3 +57,11 @@ logging:
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# Data storage service configuration
+data-storage-service:
+  url: ${DATA_STORAGE_SERVICE_URL:http://localhost:8082}
+
+# auth service configuration
+auth-service:
+  url: ${AUTH_SERVICE_URL:http://localhost:8088}

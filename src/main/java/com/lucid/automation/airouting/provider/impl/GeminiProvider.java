@@ -605,47 +605,114 @@ public class GeminiProvider implements AIProvider {
         String categoriesInstruction = buildCategoriesInstruction(availableCategories);
         
         return String.format("""
-            Analyze this Slack conversation and provide comprehensive enrichment.
-            %s
-            
-            Conversation:
-            %s
-            
-            Provide analysis in JSON format with these exact fields:
-            {
-                "topic": {
-                    "name": "concise topic name",
-                    "summary": "detailed summary of the conversation",
-                    "category": ["primary category", "secondary category"],
-                    "sub-category": ["specific sub-category 1", "specific sub-category 2"],
-                    "keyPoints": [
-                        "most important point 1",
-                        "most important point 2",
-                        "most important point 3"
-                    ],
-                    "priority": "Low|Medium|High|Critical",
-                    "keywords": [
-                        "relevant keyword 1",
-                        "relevant keyword 2",
-                        "relevant keyword 3"
-                    ]
-                },
-                "conversations": [
-                    {
-                        "text": "actual message content from conversation",
-                        "relevance": "explanation of why this message is important to the topic"
-                    }
-                ],
-                "peopleInvolved": %s
-            }
-            
-            Instructions:
-            %s
-            - For topic.sub-category: Use specific sub-categories that are more detailed than the main categories
-            - For conversations: Include 2-5 most relevant messages that capture the essence of the discussion
-            - For topic.priority: Base on urgency, impact, and time sensitivity
-            - For topic.keywords: Extract 3-7 key terms that best represent the conversation content
-            """, 
+            ## ROLE
+You are a highly skilled AI operations assistant.
+Your task is to analyze Slack or email conversations and extract distinct, well-structured business topics. Each topic must represent a single actionable issue, not a general summary or thread-level grouping.
+## OBJECTIVE
+- Analyze the entire thread or message set
+- Detect and extract all distinct topics being discussed — even if they’re in the same Slack thread or email chain
+- For each topic, generate one complete output entry using the schema and rules below
+## WHAT IS A TOPIC?
+A topic is a focused, coherent unit of discussion that revolves around a single actionable issue, decision, task, request, or problem.
+# A valid topic MUST:
+- Be narrow and specific (not a general summary or vague update)
+- Include a clear action, outcome, or pending decision
+- Actionable — with someone responsible or waiting
+- Standalone, not mixed with other unrelated items in the same thread
+# A topic is NOT:
+- A full thread or conversation (a single thread may contain multiple topics)
+- A vague reflection of general discussion
+- A mix of multiple tasks, side remarks, or status updates
+# Examples of valid topics:
+- “Send final invoice to Glow Agency for March services”
+- “Awaiting design approval from Zuno’s CMO”
+- “Confirm updated shipping timeline with warehouse team”
+## PROCESS RULES
+- Extract all valid topics per thread. Return them as separate objects in a JSON list
+- Ignore side chatter, jokes, greetings, emojis, and non-actionable comments
+- Return valid JSON only — cleanly formatted
+- Set fields to null if missing (e.g. no deadline)
+## INPUT MESSAGE:
+%s
+## PEOPLE INVOLVED:
+%s
+## OUTPUT FORMAT:
+Always return a JSON array called topics, like so:
+{
+  "topics": [
+    {
+      "topic": {
+        "title": Short, clear title that includes any client/supplier name and describes the core subject,
+                  Example: Confirm Asset Delivery for Glow Agency
+        "shortSummary": 1–2 sentence abstract,
+                  Example: Final delivery date still unconfirmed by Glow’s marketing lead.
+        "summary": 3–5 sentence detailed explanation of what was said, who’s waiting, what’s unclear, etc.
+        "suggestedAction": 3–5 sentence detailed explanation of what was said, who’s waiting, what’s unclear, etc.
+        "clientOrSupplier": Name of external party, or null if internal-only,
+                  Example: Arvia
+        "deadline": Extract YYYY-MM-DD date if explicitly mentioned, else null
+        "category": "Sales",
+        "urgency": "High",
+        "keywords": ["proposal", "pricing", "client follow-up"],
+        "peopleInvolved": Names or handles of all participants in the thread or email
+                Example: ["Alex Smith", "Jamie Lee", "arvia@client.com"],
+        "summaryPerPerson": For each speaker, 1–2 sentence summary of their contribution
+        Example:
+          {
+            "Alex Smith": "Finalized revised proposal and offered to send it to client.",
+            "Jamie Lee": "Suggested pricing adjustments based on Arvia's feedback."
+          },
+        "replyAction": {
+          "type": "slack",
+          "to": "@arvia",
+          "channel": "#sales-deals",
+          "threadId": "16892111234.056700",
+          "subject": null,
+          "mode": "reply"
+        }
+      },
+      "conversations": [
+        {
+          "text": "Let’s apply a 10% discount for Arvia — they pushed back on pricing.",
+          "relevance": "Establishes the need for proposal revision due to client concern."
+        },
+        {
+          "text": "I’ll finalize the document and send it by EOD.",
+          "relevance": "Marks the commitment to send the revised proposal and next step."
+        }
+      ]
+    }
+  ]
+}
+## POST-PROCESSING LOGIC: TOPIC DEDUPLICATION & MERGING
+If run across multiple threads:
+- Compare each extracted topic with others.
+- If same external party, same people, and similar short summary or subject, and dates within 14 days, → merge
+- When merging:
+    Combine all conversations
+    Unify summary, suggestedAction, peopleInvolved
+    Prefer earlier deadline if available
+- Never merge topics:
+    From different clients/suppliers
+    With unrelated actions or issues
+    Just because they were in the same Slack thread
+## RULES:
+- Extract **multiple topics** if needed from the same thread. Each topic must be independent.
+- Prioritize topics with business impact or unresolved actions.
+- Each topic must be cleanly separated and standalone
+- Fill every field based on what is explicitly or implicitly stated
+- Use "null" for missing values (e.g. if deadline or clientOrSupplier isn't mentioned)
+- Each `conversation` must include 2–5 critical messages showing issue origin, decisions, blockers, or resolutions.
+- Use specific `category` and `sub-category` (not general terms like “misc” or “update”).
+- Assign `priority` based on urgency, deadlines, and tone.
+- Use `null` for any fields that are unknown.
+- Ensure all output is valid JSON with correct formatting and types
+## DO NOT:
+- Generate vague summaries like “this was a general discussion”
+- Skip or merge unrelated topics
+- Omit suggested actions — these must be actionable
+Think like an analyst. Read the conversation, extract what matters, and structure it for a user who needs to take action now.
+""", 
             participantInfo.toString(), 
             conversationText,
             participantNames.isEmpty() ? "[]" : participantNames.toString(),

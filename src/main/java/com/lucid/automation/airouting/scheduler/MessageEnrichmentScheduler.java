@@ -75,7 +75,7 @@ public class MessageEnrichmentScheduler {
             // Step 2: Process each tenant
             for (TenantDTO tenant : tenants) {
                 try {
-                    log.info("Processing tenant: {} ({})", tenant.getName(), tenant.getTenantId());
+                    log.info("Processing tenant: {} ({}) - {}", tenant.getName(), tenant.getTenantId(), tenant.getSchemaName());
                     int[] results = processTenant(tenant);
                     int tenantGroups = results[0];
                     int tenantMessages = results[1];
@@ -129,13 +129,14 @@ public class MessageEnrichmentScheduler {
                 return new int[]{0, 0};
             }
 
-            log.debug("Found {} groups for tenant: {}", groupIds.size(), tenant.getName());
+            log.info("Found {} groups for tenant: {}", groupIds.size(), tenant.getName());
 
             int totalMessages = 0;
             int processedGroups = 0;
 
             // Process each group
             for (String groupId : groupIds) {
+                log.info("Processing group ID: {} in tenant: {}", groupId, tenant.getName());
                 try {
                     int messagesProcessed = processMessagesForGroup(groupId, tenantId, tenantSchema);
                     totalMessages += messagesProcessed;
@@ -177,25 +178,26 @@ public class MessageEnrichmentScheduler {
             List<MessageWithContentDTO> messages = messagesResponse.getData();
             
             if (messages.isEmpty()) {
-                log.debug("No messages found for group ID: {} in tenant: {}", groupId, tenantId);
+                log.info("No messages found for group ID: {} in tenant: {}", groupId, tenantId);
                 return 0;
             }
 
-            log.debug("Found {} messages for group ID: {} in tenant: {}", messages.size(), groupId, tenantId);
+            log.info("Found {} messages for group ID: {} in tenant: {}", messages.size(), groupId, tenantId);
 
             // Filter out messages that already have enrichment data
-            List<MessageWithContentDTO> unenrichedMessages = messages.stream()
-                    .filter(message -> !hasEnrichmentData(message))
-                    .toList();
+            // List<MessageWithContentDTO> unenrichedMessages = messages.stream()
+            //         .filter(message -> !hasEnrichmentData(message))
+            //         .toList();
 
-            if (unenrichedMessages.isEmpty()) {
-                log.debug("All messages in group {} already have enrichment data, skipping", groupId);
-                return 0;
-            }
+            // if (unenrichedMessages.isEmpty()) {
+            //     log.debug("All messages in group {} already have enrichment data, skipping", groupId);
+            //     return 0;
+            // }
 
-            log.debug("Processing {} unenriched messages for group ID: {} in tenant: {}", 
-                     unenrichedMessages.size(), groupId, tenantId);
+            // log.debug("Processing {} unenriched messages for group ID: {} in tenant: {}", 
+            //          unenrichedMessages.size(), groupId, tenantId);
 
+            List<MessageWithContentDTO> unenrichedMessages = messages;
             // Convert messages to SlackMessage objects
             List<SlackMessage> slackMessages = convertToSlackMessages(unenrichedMessages);
 
