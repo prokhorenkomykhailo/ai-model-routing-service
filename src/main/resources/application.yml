@@ -9,6 +9,15 @@ spring:
   profiles:
     active: '@activatedProperties@'  # Replace or override this at runtime
 
+  # Redis Configuration
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000
+      database: 0
+    
   jackson:
     serialization:
       write-dates-as-timestamps: false
@@ -156,4 +165,10 @@ rabbitmq:
     responses: ai.responses
     enrich-conversation-response: ai.enrich.conversation.response
     ingestion-messages: ${RABBITMQ_ROUTING_INGESTION_MESSAGES:ingestion.messages}
+
+# Redis Conversation Configuration
+redis:
+  conversation:
+    max-messages: ${REDIS_MAX_MESSAGES:100}
+    ttl-seconds: ${REDIS_TTL_SECONDS:604800} # 7 days (604800 seconds)
 
