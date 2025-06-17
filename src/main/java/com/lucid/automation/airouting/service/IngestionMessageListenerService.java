@@ -20,12 +20,12 @@ public class IngestionMessageListenerService {
     private static final Logger logger = LoggerFactory.getLogger(IngestionMessageListenerService.class);
     
     private final AIRoutingService aiRoutingService;
-    private final ConversationHistoryManager conversationHistoryManager;
+    private final MessageService messageService;
     
     public IngestionMessageListenerService(AIRoutingService aiRoutingService,
-                                        ConversationHistoryManager conversationHistoryManager) {
+                                        MessageService messageService) {
         this.aiRoutingService = aiRoutingService;
-        this.conversationHistoryManager = conversationHistoryManager;
+        this.messageService = messageService;
     }
     
     /**
@@ -55,7 +55,7 @@ public class IngestionMessageListenerService {
         
         try {
             // Save message to Redis for conversation history
-            boolean stored = conversationHistoryManager.storeMessage(message);
+            boolean stored = messageService.storeMessage(message);
             if (stored) {
                 logger.debug("Saved message to Redis: {}", message.getMessageId());
             }
