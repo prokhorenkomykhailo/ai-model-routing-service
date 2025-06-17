@@ -1,14 +1,13 @@
 package com.lucid.automation.airouting.scheduler;
 
-import com.lucid.automation.airouting.client.DataStorageServiceClient;
-import com.lucid.automation.airouting.dto.APIResponse;
-import com.lucid.automation.airouting.dto.MessageWithContentDTO;
-import com.lucid.automation.airouting.dto.TenantDTO;
+import com.lucid.automation.airouting.model.AITaskType;
+import com.lucid.automation.airouting.model.Message;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.SlackParticipant;
-import com.lucid.automation.airouting.model.request.ConversationEnrichmentRequest;
+import com.lucid.automation.airouting.model.Workspace;
 import com.lucid.automation.airouting.service.AIMessagePublisherService;
-import com.lucid.automation.airouting.service.TenantService;
+import com.lucid.automation.airouting.service.SlidingWindowService;
+import com.lucid.automation.airouting.service.WorkspaceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,6 +21,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 /**
  * Scheduler for enriching messages from data storage service.
@@ -34,9 +35,9 @@ import java.util.Map;
 @ConditionalOnProperty(value = "ai.enrichment.scheduler.enabled", havingValue = "true", matchIfMissing = true)
 public class MessageEnrichmentScheduler {
 
-    private final DataStorageServiceClient dataStorageServiceClient;
     private final AIMessagePublisherService aiMessagePublisherService;
-    private final TenantService tenantService;
+    private final WorkspaceService workspaceService;
+    private final SlidingWindowService slidingWindowService;
 
     @Value("${ai.enrichment.scheduler.batch-size:50}")
     private int batchSize;
@@ -52,50 +53,52 @@ public class MessageEnrichmentScheduler {
 
     /**
      * Scheduled method that runs based on the cron expression in application.yml.
-     * First gets all tenants from auth-service, then processes messages for each tenant.
+     * Gets all workspaces from Redis and processes messages for each workspace.
      */
     @Scheduled(cron = "${ai.enrichment.scheduler.cron:0 */5 * * * ?}")
     public void processMessageEnrichment() {
         log.info("Starting scheduled message enrichment process");
         
         try {
-            // Step 1: Get all tenants from auth-service
-            List<TenantDTO> tenants = tenantService.getAllTenants();
-            log.info("Found {} tenants to process for enrichment", tenants.size());
+            // Step 1: Get all workspaces from Redis
+            List<Workspace> workspaces = workspaceService.getAllWorkspaces();
+            log.info("Found {} workspaces to process for enrichment", workspaces.size());
 
-            if (tenants.isEmpty()) {
-                log.info("No tenants found, skipping enrichment cycle");
+            if (workspaces.isEmpty()) {
+                log.info("No workspaces found, skipping enrichment cycle");
                 return;
             }
 
-            int processedTenants = 0;
-            int totalGroups = 0;
+            int processedWorkspaces = 0;
+            int totalBatches = 0;
             int totalMessages = 0;
 
-            // Step 2: Process each tenant
-            for (TenantDTO tenant : tenants) {
+            // Step 2: Process each workspace using SlidingWindowService
+            for (Workspace workspace : workspaces) {
                 try {
-                    log.info("Processing tenant: {} ({}) - {}", tenant.getName(), tenant.getTenantId(), tenant.getSchemaName());
-                    int[] results = processTenant(tenant);
-                    int tenantGroups = results[0];
-                    int tenantMessages = results[1];
+                    log.info("Processing workspace: {} (ID: {}) - tenant: {} schema: {}", 
+                            workspace.getName(), workspace.getId(), workspace.getTenantId(), workspace.getTenantSchema());
                     
-                    totalGroups += tenantGroups;
-                    totalMessages += tenantMessages;
-                    processedTenants++;
+                    int[] results = processWorkspace(workspace);
+                    int workspaceBatches = results[0];
+                    int workspaceMessages = results[1];
                     
-                    log.debug("Processed {} groups with {} messages for tenant: {}", 
-                             tenantGroups, tenantMessages, tenant.getName());
+                    totalBatches += workspaceBatches;
+                    totalMessages += workspaceMessages;
+                    processedWorkspaces++;
+                    
+                    log.debug("Processed {} batches with {} messages for workspace: {}", 
+                             workspaceBatches, workspaceMessages, workspace.getName());
                 } catch (Exception e) {
-                    log.error("Failed to process tenant: {} ({}). Error: {}", 
-                             tenant.getName(), tenant.getTenantId(), e.getMessage(), e);
-                    // Continue processing other tenants even if one fails
+                    log.error("Failed to process workspace: {} ({}). Error: {}", 
+                             workspace.getName(), workspace.getId(), e.getMessage(), e);
+                    // Continue processing other workspaces even if one fails
                 }
             }
 
-            log.info("Completed scheduled message enrichment process. " +
-                    "Processed {} tenants with {} total groups and {} total messages", 
-                    processedTenants, totalGroups, totalMessages);
+            log.info("Completed scheduled message enrichment process using SlidingWindowService. " +
+                    "Processed {} workspaces with {} total batches and {} total messages", 
+                    processedWorkspaces, totalBatches, totalMessages);
 
         } catch (Exception e) {
             log.error("Error during scheduled message enrichment process: {}", e.getMessage(), e);
@@ -103,261 +106,179 @@ public class MessageEnrichmentScheduler {
     }
 
     /**
-     * Processes messages for a specific tenant.
-     * Gets all group IDs for the tenant, then processes messages for each group.
+     * Processes messages for a specific workspace using SlidingWindowService.
+     * Uses sliding window approach to process messages from Redis in batches.
      * 
-     * @param tenant the tenant to process
-     * @return array with [totalGroups, totalMessages] processed
+     * @param workspace the workspace to process
+     * @return array with [totalBatches, totalMessages] processed
      */
-    private int[] processTenant(TenantDTO tenant) {
+    private int[] processWorkspace(Workspace workspace) {
         try {
-            String tenantId = tenant.getTenantId().toString();
-            String tenantSchema = tenant.getSchemaName();
+            String workspaceId = workspace.getId();
             
-            // Get all group IDs for this tenant
-            APIResponse<List<String>> groupIdsResponse = dataStorageServiceClient.getAllGroupIds(tenantId, tenantSchema);
+            log.info("Processing workspace: {} using SlidingWindowService", workspace.getName());
             
-            if (!groupIdsResponse.isSuccess() || groupIdsResponse.getData() == null) {
-                log.warn("Failed to retrieve group IDs for tenant {}: {}", tenant.getName(), groupIdsResponse.getMessage());
+            // Get workspace statistics first
+            SlidingWindowService.WorkspaceMessageStats stats = 
+                    slidingWindowService.getWorkspaceStats(workspaceId);
+            
+            log.info("Workspace {} stats: {}", workspace.getName(), stats);
+            
+            if (stats.getTotalMessages() == 0) {
+                log.info("No messages found in Redis for workspace: {}", workspace.getName());
                 return new int[]{0, 0};
             }
             
-            List<String> groupIds = groupIdsResponse.getData();
+            // Track processing metrics
+            AtomicInteger batchCount = new AtomicInteger(0);
+            AtomicInteger totalProcessed = new AtomicInteger(0);
             
-            if (groupIds.isEmpty()) {
-                log.debug("No groups found for tenant: {}", tenant.getName());
-                return new int[]{0, 0};
-            }
+            // Define the processing callback for each batch
+            Function<List<Message>, Void> enrichmentProcessor = 
+                messages -> {
+                    int currentBatch = batchCount.incrementAndGet();
+                    log.info("Processing batch #{} with {} messages for workspace: {}", 
+                           currentBatch, messages.size(), workspace.getName());
+                    
+                    try {
+                        // Process messages for AI enrichment
+                        processMessageBatchForEnrichment(messages, workspace, currentBatch);
+                        totalProcessed.addAndGet(messages.size());
+                        
+                        log.debug("Successfully processed batch #{} for workspace: {}", 
+                                currentBatch, workspace.getName());
+                        
+                    } catch (Exception e) {
+                        log.error("Error processing batch #{} for workspace {}: {}", 
+                                currentBatch, workspace.getName(), e.getMessage(), e);
+                        // Don't throw exception here - let other batches continue
+                    }
+                    
+                    return null;
+                };
+            
+            // Process messages using sliding window
+            int messagesProcessed = slidingWindowService.processMessages(
+                    workspaceId, batchSize, 20, enrichmentProcessor);
+            
+            log.info("Completed processing workspace: {} - {} batches, {} messages processed", 
+                    workspace.getName(), batchCount.get(), messagesProcessed);
+            
+            return new int[]{batchCount.get(), messagesProcessed};
 
-            log.info("Found {} groups for tenant: {}", groupIds.size(), tenant.getName());
+        } catch (Exception e) {
+            log.error("Error processing workspace: {}. Error: {}", workspace.getName(), e.getMessage(), e);
+            throw e;
+        }
+    }
 
-            int totalMessages = 0;
-            int processedGroups = 0;
-
-            // Process each group
-            for (String groupId : groupIds) {
-                log.info("Processing group ID: {} in tenant: {}", groupId, tenant.getName());
-                try {
-                    int messagesProcessed = processMessagesForGroup(groupId, tenantId, tenantSchema);
-                    totalMessages += messagesProcessed;
-                    processedGroups++;
-                } catch (Exception e) {
-                    log.error("Failed to process group {} for tenant {}: {}", groupId, tenant.getName(), e.getMessage(), e);
-                    // Continue processing other groups
+    /**
+     * Process a batch of messages from Redis for AI enrichment.
+     * Converts Redis Message objects to the format expected by the AI service.
+     * Processes all messages in the batch as a single unit without grouping.
+     * 
+     * @param messages The batch of messages from Redis
+     * @param workspace The workspace context
+     * @param batchNumber The current batch number for logging
+     */
+    private void processMessageBatchForEnrichment(List<Message> messages, Workspace workspace, int batchNumber) {
+        if (messages == null || messages.isEmpty()) {
+            log.debug("No messages to process in batch #{} for workspace: {}", batchNumber, workspace.getName());
+            return;
+        }
+        
+        try {
+            log.debug("Processing batch #{} with {} messages for workspace: {}", 
+                     batchNumber, messages.size(), workspace.getName());
+            
+            // Convert all Redis Message objects to SlackMessage format
+            List<SlackMessage> slackMessages = new ArrayList<>();
+            List<SlackParticipant> participants = new ArrayList<>();
+            
+            // Process all messages in the batch
+            for (Message message : messages) {
+                SlackMessage slackMessage = new SlackMessage();
+                slackMessage.setId(message.getId());
+                slackMessage.setTs(message.getMessageTs());
+                slackMessage.setUserId(message.getUserId());
+                slackMessage.setUsername(message.getUsername());
+                slackMessage.setText(message.getText());
+                slackMessage.setChannelId(message.getChannelId());
+                slackMessage.setThreadTs(message.getThreadTs());
+                slackMessage.setType(message.getMessageType());
+                slackMessage.setSubtype(message.getSubtype());
+                
+                // Convert timestamp from String to LocalDateTime if needed
+                if (message.getMessageTs() != null) {
+                    try {
+                        // Assuming messageTs is in epoch seconds format
+                        long epochSeconds = Long.parseLong(message.getMessageTs().split("\\.")[0]);
+                        slackMessage.setTimestamp(LocalDateTime.ofEpochSecond(
+                            epochSeconds, 0, ZoneOffset.UTC));
+                    } catch (Exception e) {
+                        log.warn("Could not parse timestamp for message {}: {}", message.getId(), e.getMessage());
+                    }
+                }
+                
+                slackMessages.add(slackMessage);
+                
+                // Add participant if not already present
+                if (message.getUserId() != null && message.getUsername() != null) {
+                    boolean participantExists = participants.stream()
+                        .anyMatch(p -> message.getUserId().equals(p.getId()));
+                    
+                    if (!participantExists) {
+                        SlackParticipant participant = new SlackParticipant();
+                        participant.setId(message.getUserId());
+                        participant.setUsername(message.getUsername());
+                        participants.add(participant);
+                    }
                 }
             }
-
-            return new int[]{processedGroups, totalMessages};
-
-        } catch (Exception e) {
-            log.error("Error processing tenant: {}. Error: {}", tenant.getName(), e.getMessage(), e);
-            throw e;
-        }
-    }
-
-    /**
-     * Processes messages for a specific group ID within a tenant using batch conversation enrichment.
-     * 
-     * @param groupId the group ID to process
-     * @param tenantId the tenant ID
-     * @param tenantSchema the tenant schema
-     * @return the number of messages processed
-     */
-    private int processMessagesForGroup(String groupId, String tenantId, String tenantSchema) {
-        try {
-            // Get all messages for this group ID within the tenant
-            APIResponse<List<MessageWithContentDTO>> messagesResponse = dataStorageServiceClient.getAllMessagesByGroupId(
-                    groupId, tenantId, tenantSchema);
             
-            if (!messagesResponse.isSuccess() || messagesResponse.getData() == null) {
-                log.warn("Failed to retrieve messages for group ID {} in tenant {}: {}", 
-                        groupId, tenantId, messagesResponse.getMessage());
-                return 0;
+            // Publish AI enrichment request for all messages in the batch
+            if (!slackMessages.isEmpty()) {
+                String conversationId = workspace.getId() + ":batch_" + batchNumber;
+                
+                // Create context map with batch information
+                Map<String, Object> context = new HashMap<>();
+                context.put("workspaceId", workspace.getId());
+                context.put("workspaceName", workspace.getName());
+                context.put("batchNumber", batchNumber);
+                context.put("messageCount", slackMessages.size());
+                context.put("participantCount", participants.size());
+                
+                // Publish to AI enrichment queue using the existing method
+                String messageId = aiMessagePublisherService.publishAIRequest(
+                    AITaskType.ENRICH_CONVERSATION,
+                    "", // content - empty for conversation enrichment
+                    workspace.getTenantId(),
+                    workspace.getTenantSchema() != null ? workspace.getTenantSchema() : defaultTenantSchema,
+                    null, // userId - not needed for conversation enrichment
+                    conversationId,
+                    slackMessages,
+                    participants,
+                    context,
+                    null, // preferredProvider
+                    null  // replyTopic
+                );
+                
+                if (messageId != null) {
+                    log.debug("Successfully published batch #{} with {} messages to AI enrichment queue with messageId: {}", 
+                            batchNumber, slackMessages.size(), messageId);
+                } else {
+                    log.warn("Failed to publish batch #{} with {} messages to AI enrichment queue", 
+                           batchNumber, slackMessages.size());
+                }
             }
             
-            List<MessageWithContentDTO> messages = messagesResponse.getData();
+            log.info("Completed processing batch #{} with {} messages for workspace: {}", 
+                    batchNumber, messages.size(), workspace.getName());
             
-            if (messages.isEmpty()) {
-                log.info("No messages found for group ID: {} in tenant: {}", groupId, tenantId);
-                return 0;
-            }
-
-            log.info("Found {} messages for group ID: {} in tenant: {}", messages.size(), groupId, tenantId);
-
-            // Filter out messages that already have enrichment data
-            // List<MessageWithContentDTO> unenrichedMessages = messages.stream()
-            //         .filter(message -> !hasEnrichmentData(message))
-            //         .toList();
-
-            // if (unenrichedMessages.isEmpty()) {
-            //     log.debug("All messages in group {} already have enrichment data, skipping", groupId);
-            //     return 0;
-            // }
-
-            // log.debug("Processing {} unenriched messages for group ID: {} in tenant: {}", 
-            //          unenrichedMessages.size(), groupId, tenantId);
-
-            List<MessageWithContentDTO> unenrichedMessages = messages;
-            // Convert messages to SlackMessage objects
-            List<SlackMessage> slackMessages = convertToSlackMessages(unenrichedMessages);
-
-            // Extract participants from messages
-            List<SlackParticipant> participants = extractParticipants(unenrichedMessages);
-            
-            // Use senderId from first message as userId if available, otherwise use a default
-            String userId = unenrichedMessages.get(0).getSenderId() != null ? 
-                          unenrichedMessages.get(0).getSenderId() : "scheduler";
-
-            // Create context with tenant information for the response handler
-            Map<String, Object> context = new HashMap<>();
-            context.put("tenantId", tenantId);
-            context.put("tenantSchema", tenantSchema);
-            context.put("groupId", groupId);
-            context.put("userId", userId);
-
-            // Create conversation enrichment request using the request object
-            ConversationEnrichmentRequest request = new ConversationEnrichmentRequest();
-            request.setConversationId(groupId);
-            request.setMessages(slackMessages);
-            request.setParticipants(participants);
-            request.setTenantId(tenantId);
-            request.setTenantSchema(tenantSchema);
-            request.setPreferredProvider(null); // use default
-            request.setReplyTopic("ai.enrich.conversation.response");
-            request.setContext(context);
-
-            // Publish conversation enrichment request using the request object
-            aiMessagePublisherService.publishConversationEnrichmentRequest(request, userId);
-
-            log.info("Published conversation enrichment request for {} messages in group: {} for tenant: {}", 
-                     unenrichedMessages.size(), groupId, tenantId);
-
-            return unenrichedMessages.size();
-
         } catch (Exception e) {
-            log.error("Error processing messages for group ID: {} in tenant: {}. Error: {}", 
-                     groupId, tenantId, e.getMessage(), e);
+            log.error("Error processing message batch #{} for workspace {}: {}", 
+                     batchNumber, workspace.getName(), e.getMessage(), e);
             throw e;
         }
-    }
-
-    /**
-     * Checks if a message already has enrichment data.
-     * 
-     * @param messageDto the message to check
-     * @return true if the message has enrichment data, false otherwise
-     */
-    private boolean hasEnrichmentData(MessageWithContentDTO messageDto) {
-        // Check if any of the enrichment fields are populated
-        return messageDto.getCategory() != null || 
-               messageDto.getSentiment() != null || 
-               messageDto.getConfidenceScore() != null ||
-               (messageDto.getEnrichmentData() != null && !messageDto.getEnrichmentData().isEmpty());
-    }
-
-    /**
-     * Converts MessageWithContentDTO objects to SlackMessage objects.
-     * 
-     * @param messages the list of message DTOs to convert
-     * @return list of SlackMessage objects
-     */
-    private List<SlackMessage> convertToSlackMessages(List<MessageWithContentDTO> messages) {
-        return messages.stream()
-                .map(this::convertToSlackMessage)
-                .toList();
-    }
-
-    /**
-     * Converts a single MessageWithContentDTO to SlackMessage with comprehensive field mapping.
-     * 
-     * @param messageDto the message DTO to convert
-     * @return SlackMessage object with all relevant fields mapped
-     */
-    private SlackMessage convertToSlackMessage(MessageWithContentDTO messageDto) {
-        log.debug("Converting message with ID {} to SlackMessage", messageDto.getMessageId());
-
-        SlackMessage slackMessage = new SlackMessage();
-        
-        // Core identification fields
-        slackMessage.setId(messageDto.getMessageId());
-        
-        // Content mapping - Slack uses both 'content' and 'text'
-        String content = messageDto.getContent();
-        slackMessage.setContent(content);
-        slackMessage.setText(content);
-        
-        // User identification - map to both userId and user for compatibility
-        String senderId = messageDto.getSenderId();
-        slackMessage.setUserId(senderId);
-        slackMessage.setUser(senderId);
-        
-        // Username mapping with fallback
-        String username = messageDto.getSenderName() != null ? 
-                         messageDto.getSenderName() : messageDto.getUsername();
-        slackMessage.setUsername(username);
-        
-        // Channel mapping - map to both channelId and channel for compatibility
-        String channelId = messageDto.getChannelId();
-        slackMessage.setChannelId(channelId);
-        slackMessage.setChannel(channelId);
-        
-        // Thread information
-        String threadTs = messageDto.getThreadTs();
-        slackMessage.setThreadId(threadTs);
-        slackMessage.setThreadTs(threadTs);
-        
-        // Message type information
-        slackMessage.setType(messageDto.getType() != null ? messageDto.getType() : "message");
-        slackMessage.setSubtype(messageDto.getSubtype());
-        
-        // Timestamp mapping - convert to both LocalDateTime and Slack ts format
-        LocalDateTime messageTimestamp = messageDto.getMessageTimestamp();
-        if (messageTimestamp != null) {
-            slackMessage.setTimestamp(messageTimestamp);
-            
-            // Convert to Slack timestamp format (epoch seconds with microseconds)
-            long epochSeconds = messageTimestamp.toEpochSecond(ZoneOffset.UTC);
-            int nanos = messageTimestamp.getNano();
-            String microseconds = String.format("%06d", nanos / 1000);
-            slackMessage.setTs(epochSeconds + "." + microseconds);
-        }
-        
-        // Initialize collections based on available data
-        if (messageDto.isHasAttachments()) {
-            // Initialize empty collections that could be populated with actual data
-            slackMessage.setAttachments(new ArrayList<>());
-            slackMessage.setFiles(new ArrayList<>());
-        }
-        
-        // Initialize other collections as empty (to be populated by external services if needed)
-        slackMessage.setReplies(new ArrayList<>());
-        slackMessage.setReactions(new ArrayList<>());
-        slackMessage.setReplyCount(0);
-        
-        log.debug("Successfully converted message {} with timestamp {} and user {}", 
-                 slackMessage.getId(), slackMessage.getTs(), slackMessage.getUser());
-        
-        return slackMessage;
-    }
-
-    /**
-     * Extracts unique participants from a list of messages.
-     * 
-     * @param messages the list of messages to extract participants from
-     * @return list of unique SlackParticipant objects
-     */
-    private List<SlackParticipant> extractParticipants(List<MessageWithContentDTO> messages) {
-        return messages.stream()
-                .filter(message -> message.getSenderId() != null)
-                .map(message -> {
-                    SlackParticipant participant = new SlackParticipant();
-                    participant.setId(message.getSenderId());
-                    participant.setName(message.getSenderName() != null ? 
-                                      message.getSenderName() : message.getSenderId());
-                    participant.setRealName(message.getSenderName());
-                    return participant;
-                })
-                .distinct()
-                .toList();
     }
 }

@@ -44,8 +44,8 @@ public class RabbitMQConfig {
     @Value("${rabbitmq.queue.ai-responses:ai.responses.queue}")
     private String aiResponsesQueue;
     
-    @Value("${rabbitmq.queue.ai-enrich-conversation-response:ai.enrich.conversation.response.queue}")
-    private String aiEnrichConversationResponseQueue;
+    // @Value("${rabbitmq.queue.ai-enrich-conversation-response:ai.enrich.conversation.response.queue}")
+    // private String aiEnrichConversationResponseQueue;
     
     @Value("${rabbitmq.queue.ingestion-messages:ingestion.messages.queue}")
     private String ingestionMessagesQueue;
@@ -147,10 +147,10 @@ public class RabbitMQConfig {
         return QueueBuilder.durable(aiResponsesQueue).build();
     }
     
-    @Bean
-    public Queue aiEnrichConversationResponseQueue() {
-        return QueueBuilder.durable(aiEnrichConversationResponseQueue).build();
-    }
+    // @Bean
+    // public Queue aiEnrichConversationResponseQueue() {
+    //     return QueueBuilder.durable(aiEnrichConversationResponseQueue).build();
+    // }
     
     @Bean
     public Queue ingestionMessagesQueue() {
@@ -200,12 +200,12 @@ public class RabbitMQConfig {
                 .with(responsesRoutingKey);
     }
     
-    @Bean
-    public Binding enrichConversationResponseBinding() {
-        return BindingBuilder.bind(aiEnrichConversationResponseQueue())
-                .to(aiResponsesExchange())
-                .with(enrichConversationResponseRoutingKey);
-    }
+    // @Bean
+    // public Binding enrichConversationResponseBinding() {
+    //     return BindingBuilder.bind(aiEnrichConversationResponseQueue())
+    //             .to(aiResponsesExchange())
+    //             .with(enrichConversationResponseRoutingKey);
+    // }
     
     @Bean
     public Binding ingestionMessagesBinding() {
@@ -226,7 +226,7 @@ public class RabbitMQConfig {
     public String getAiSummarizeQueue() { return aiSummarizeQueue; }
     public String getAiEnrichQueue() { return aiEnrichQueue; }
     public String getAiResponsesQueue() { return aiResponsesQueue; }
-    public String getAiEnrichConversationResponseQueue() { return aiEnrichConversationResponseQueue; }
+    // public String getAiEnrichConversationResponseQueue() { return aiEnrichConversationResponseQueue; }
     public String getIngestionMessagesQueue() { return ingestionMessagesQueue; }
     public String getAiResponsesExchange() { return aiResponsesExchange; }
     public String getResponsesRoutingKey() { return responsesRoutingKey; }

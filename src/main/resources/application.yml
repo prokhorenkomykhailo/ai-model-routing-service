@@ -51,7 +51,7 @@ opentelemetry:
     probability: 1.0
   resource:
     attributes:
-      service.name: ${OTEL_SERVICE_NAME:gateway-service}
+      service.name: ${OTEL_SERVICE_NAME:ai-routing-service}
       service.version: ${OTEL_SERVICE_VERSION:1.0.0}
       deployment.environment: ${DEPLOYMENT_ENVIRONMENT:local}
 
@@ -87,12 +87,18 @@ ai:
       default-tenant-id: "${DEFAULT_TENANT_ID:default-tenant}"
       default-tenant-schema: "${DEFAULT_TENANT_SCHEMA:public}"
 
-
-# Logging Configuration
+# Logging Configuration - DEBUG MODE ENABLED
 logging:
   level:
+    root: INFO
     com.lucid.automation.airouting: DEBUG
-    org.springframework.web: INFO
+    com.lucid.automation.airouting.service: DEBUG
+    com.lucid.automation.airouting.scheduler: DEBUG
+    com.lucid.automation.airouting.controller: DEBUG
+    org.springframework: ERROR
+    org.springframework.web: ERROR
+    org.springframework.amqp: ERROR
+    org.springframework.data.redis: ERROR
     AI_AUDIT: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
@@ -155,4 +161,15 @@ redis:
   conversation:
     max-messages: ${REDIS_MAX_MESSAGES:100}
     ttl-seconds: ${REDIS_TTL_SECONDS:604800} # 7 days (604800 seconds)
+
+# Sliding Window Processing Configuration
+sliding:
+  window:
+    default:
+      batch:
+        size: ${SLIDING_WINDOW_BATCH_SIZE:1000}
+      overlap:
+        percentage: ${SLIDING_WINDOW_OVERLAP_PERCENTAGE:20}
+    cleanup:
+      enabled: ${SLIDING_WINDOW_CLEANUP_ENABLED:true}
 

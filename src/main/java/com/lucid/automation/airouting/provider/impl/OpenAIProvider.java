@@ -465,7 +465,12 @@ public class OpenAIProvider implements AIProvider {
                 .map(m -> new MessageEnrichment(GENERAL_CATEGORY, 0.0, UNKNOWN_INTENT, List.of(), 0.7))
                 .toList();
             
-            return new ConversationEnrichment(topic, summary, urgency, 
+            TopicEnrichment topicEnrichment = new TopicEnrichment(
+                topic, summary, summary, "No action suggested", null, null,
+                urgency, GENERAL_CATEGORY, List.of(), Map.of(), List.of(), null, null
+            );
+            
+            return new ConversationEnrichment(List.of(topicEnrichment), 
                 participantInsights, messageEnrichments, Map.of(PROVIDER_ID, PROVIDER_ID));
             
         } catch (Exception e) {
@@ -584,10 +589,24 @@ public class OpenAIProvider implements AIProvider {
     }
     
     private ConversationEnrichment getDefaultConversationEnrichment() {
-        return new ConversationEnrichment(
+        TopicEnrichment defaultTopic = new TopicEnrichment(
             GENERAL_DISCUSSION,
             "No summary available",
+            "No detailed summary available",
+            "No action suggested",
+            null,
+            null,
             UrgencyLevel.LOW,
+            GENERAL_CATEGORY,
+            List.of(),
+            Map.of(),
+            List.of(),
+            null,
+            null
+        );
+        
+        return new ConversationEnrichment(
+            List.of(defaultTopic),
             List.of(),
             List.of(),
             Map.of("provider", "openai", "error", "true")

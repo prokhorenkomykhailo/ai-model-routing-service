@@ -105,11 +105,47 @@ public interface AIProvider {
     ) {}
     
     record ConversationEnrichment(
-        String topic,
-        String summary,
-        UrgencyLevel urgency,
+        List<TopicEnrichment> topics,
         List<ParticipantInsight> participants,
         List<MessageEnrichment> messages,
         Map<String, Object> metadata
+    ) {}
+    
+    record TopicEnrichment(
+        String title,
+        String shortSummary,
+        String summary,
+        String suggestedAction,
+        String clientOrSupplier,
+        String deadline,
+        UrgencyLevel urgency,
+        String category,
+        List<String> peopleInvolved,
+        Map<String, String> summaryPerPerson,
+        List<ConversationMessage> conversations,
+        ReplyInfo reply,
+        ForwardInfo forward
+    ) {}
+    
+    record ConversationMessage(
+        String text,
+        String relevance
+    ) {}
+    
+    record ReplyInfo(
+        String channel,
+        String mode,
+        String to,
+        List<String> cc,
+        String threadId,
+        String subject,
+        String body
+    ) {}
+    
+    record ForwardInfo(
+        String channel,
+        String to,
+        String subject,
+        String body
     ) {}
 }

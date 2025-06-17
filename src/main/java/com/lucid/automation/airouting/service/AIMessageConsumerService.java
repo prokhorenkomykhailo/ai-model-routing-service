@@ -180,7 +180,6 @@ public class AIMessageConsumerService {
             aiMessage.getTaskType(),
             errorMessage
         );
-        
         sendResponse(errorResponse, aiMessage.getReplyTopic());
     }
     

@@ -47,7 +47,10 @@ public class AIResponse {
             if (response.metadata == null) {
                 response.metadata = new HashMap<>();
             }
-            response.metadata.put("topic", enrichment.topic());
+            // Get the first topic title if available
+            if (!enrichment.topics().isEmpty()) {
+                response.metadata.put("topic", enrichment.topics().get(0).title());
+            }
         }
 
         return response;

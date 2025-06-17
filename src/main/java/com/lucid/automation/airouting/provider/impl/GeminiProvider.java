@@ -6,6 +6,7 @@ import com.lucid.automation.airouting.model.SlackParticipant;
 import com.lucid.automation.airouting.client.DataStorageServiceClient;
 import com.lucid.automation.airouting.dto.CategoryDTO;
 import com.lucid.automation.airouting.dto.APIResponse;
+import com.lucid.automation.airouting.util.PromptLoader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.genai.Client;
 import com.google.genai.types.GenerateContentResponse;
@@ -40,12 +41,14 @@ public class GeminiProvider implements AIProvider {
     private final Client geminiClient;
     private final ObjectMapper objectMapper;
     private final DataStorageServiceClient dataStorageServiceClient;
+    private final PromptLoader promptLoader;
     private double lastConfidence = 0.0;
     private final boolean isClientAvailable;
     
-    public GeminiProvider(ObjectMapper objectMapper, DataStorageServiceClient dataStorageServiceClient) {
+    public GeminiProvider(ObjectMapper objectMapper, DataStorageServiceClient dataStorageServiceClient, PromptLoader promptLoader) {
         this.objectMapper = objectMapper;
         this.dataStorageServiceClient = dataStorageServiceClient;
+        this.promptLoader = promptLoader;
         
         // Try to initialize the client, but handle gracefully if API key is not available
         Client tempClient = null;
@@ -199,13 +202,15 @@ public class GeminiProvider implements AIProvider {
                 : fetchAvailableCategories(debugId);
             
             String prompt = buildConversationEnrichmentPrompt(conversationText, participants, categoriesToUse);
-            logger.debug("GEMINI-DEBUG [{}]: Built enrichment prompt, length: {}", debugId, prompt.length());
+            logger.info("GEMINI-DEBUG [{}]: Built enrichment prompt, length: {}", debugId, prompt.length());
+            logger.info("GEMINI-DEBUG [{}]: Full prompt being sent: {}", debugId, prompt);
             
             String response = callGeminiAPI(prompt);
-            logger.debug("GEMINI-DEBUG [{}]: Received API response for conversation enrichment", debugId);
+            logger.info("GEMINI-DEBUG [{}]: Received API response for conversation enrichment", debugId);
+            logger.info("GEMINI-DEBUG [{}]: Raw response received: {}", debugId, response);
             
             ConversationEnrichment result = parseConversationEnrichmentResponse(response, messages, participants);
-            logger.info("GEMINI-DEBUG [{}]: Conversation enrichment successful", debugId);
+            logger.info("GEMINI-DEBUG [{}]: Conversation enrichment successful: {}", debugId);
             
             return result;
             
@@ -559,182 +564,31 @@ public class GeminiProvider implements AIProvider {
     
     // Prompt building methods
     private String buildCategorizationPrompt(String content) {
-        return String.format("""
-            Categorize this message into one of these categories:
-            - Customer Inquiry
-            - Technical Support
-            - Billing Issue
-            - Feature Request
-            - Complaint
-            - General Discussion
-            - Urgent Issue
-            
-            Message: "%s"
-            
-            Respond with only the category name followed by a confidence score (0.0-1.0).
-            Format: "Category|confidence"
-            Example: "Customer Inquiry|0.85"
-            """, content);
+        String template = promptLoader.loadPromptTemplate("categorization");
+        return String.format(template, content);
     }
     
     private String buildSummarizationPrompt(String content) {
-        return String.format("""
-            Summarize the following content in 2-3 sentences. Focus on key points and main ideas.
-            
-            Content: "%s"
-            
-            Summary:
-            """, content);
+        String template = promptLoader.loadPromptTemplate("summarization");
+        return String.format(template, content);
     }
     
     private String buildConversationEnrichmentPrompt(String conversationText, 
                                                     List<SlackParticipant> participants, 
                                                     List<String> availableCategories) {
-        StringBuilder participantInfo = new StringBuilder();
+        // Build participant names list
         List<String> participantNames = new ArrayList<>();
-        
         if (participants != null) {
-            participantInfo.append("Participants: ");
-            participants.forEach(p -> {
-                participantInfo.append(p.getUsername()).append(" ");
-                participantNames.add(p.getUsername());
-            });
+            participantNames = participants.stream()
+                .map(SlackParticipant::getUsername)
+                .toList();
         }
         
-        // Build available categories string for the prompt
-        String categoriesInstruction = buildCategoriesInstruction(availableCategories);
-        
-        return String.format("""
-            ## ROLE
-You are a highly skilled AI operations assistant.
-Your task is to analyze Slack or email conversations and extract distinct, well-structured business topics. Each topic must represent a single actionable issue, not a general summary or thread-level grouping.
-## OBJECTIVE
-- Analyze the entire thread or message set
-- Detect and extract all distinct topics being discussed — even if they’re in the same Slack thread or email chain
-- For each topic, generate one complete output entry using the schema and rules below
-## WHAT IS A TOPIC?
-A topic is a focused, coherent unit of discussion that revolves around a single actionable issue, decision, task, request, or problem.
-# A valid topic MUST:
-- Be narrow and specific (not a general summary or vague update)
-- Include a clear action, outcome, or pending decision
-- Actionable — with someone responsible or waiting
-- Standalone, not mixed with other unrelated items in the same thread
-# A topic is NOT:
-- A full thread or conversation (a single thread may contain multiple topics)
-- A vague reflection of general discussion
-- A mix of multiple tasks, side remarks, or status updates
-# Examples of valid topics:
-- “Send final invoice to Glow Agency for March services”
-- “Awaiting design approval from Zuno’s CMO”
-- “Confirm updated shipping timeline with warehouse team”
-## PROCESS RULES
-- Extract all valid topics per thread. Return them as separate objects in a JSON list
-- Ignore side chatter, jokes, greetings, emojis, and non-actionable comments
-- Return valid JSON only — cleanly formatted
-- Set fields to null if missing (e.g. no deadline)
-## INPUT MESSAGE:
-%s
-## PEOPLE INVOLVED:
-%s
-## OUTPUT FORMAT:
-Always return a JSON array called topics, like so:
-{
-  "topics": [
-    {
-      "topic": {
-        "title": Short, clear title that includes any client/supplier name and describes the core subject,
-                  Example: Confirm Asset Delivery for Glow Agency
-        "shortSummary": 1–2 sentence abstract,
-                  Example: Final delivery date still unconfirmed by Glow’s marketing lead.
-        "summary": 3–5 sentence detailed explanation of what was said, who’s waiting, what’s unclear, etc.
-        "suggestedAction": 3–5 sentence detailed explanation of what was said, who’s waiting, what’s unclear, etc.
-        "clientOrSupplier": Name of external party, or null if internal-only,
-                  Example: Arvia
-        "deadline": Extract YYYY-MM-DD date if explicitly mentioned, else null
-        "category": "Sales",
-        "urgency": "High",
-        "keywords": ["proposal", "pricing", "client follow-up"],
-        "peopleInvolved": Names or handles of all participants in the thread or email
-                Example: ["Alex Smith", "Jamie Lee", "arvia@client.com"],
-        "summaryPerPerson": For each speaker, 1–2 sentence summary of their contribution
-        Example:
-          {
-            "Alex Smith": "Finalized revised proposal and offered to send it to client.",
-            "Jamie Lee": "Suggested pricing adjustments based on Arvia's feedback."
-          },
-        "replyAction": {
-          "type": "slack",
-          "to": "@arvia",
-          "channel": "#sales-deals",
-          "threadId": "16892111234.056700",
-          "subject": null,
-          "mode": "reply"
-        }
-      },
-      "conversations": [
-        {
-          "text": "Let’s apply a 10% discount for Arvia — they pushed back on pricing.",
-          "relevance": "Establishes the need for proposal revision due to client concern."
-        },
-        {
-          "text": "I’ll finalize the document and send it by EOD.",
-          "relevance": "Marks the commitment to send the revised proposal and next step."
-        }
-      ]
-    }
-  ]
-}
-## POST-PROCESSING LOGIC: TOPIC DEDUPLICATION & MERGING
-If run across multiple threads:
-- Compare each extracted topic with others.
-- If same external party, same people, and similar short summary or subject, and dates within 14 days, → merge
-- When merging:
-    Combine all conversations
-    Unify summary, suggestedAction, peopleInvolved
-    Prefer earlier deadline if available
-- Never merge topics:
-    From different clients/suppliers
-    With unrelated actions or issues
-    Just because they were in the same Slack thread
-## RULES:
-- Extract **multiple topics** if needed from the same thread. Each topic must be independent.
-- Prioritize topics with business impact or unresolved actions.
-- Each topic must be cleanly separated and standalone
-- Fill every field based on what is explicitly or implicitly stated
-- Use "null" for missing values (e.g. if deadline or clientOrSupplier isn't mentioned)
-- Each `conversation` must include 2–5 critical messages showing issue origin, decisions, blockers, or resolutions.
-- Use specific `category` and `sub-category` (not general terms like “misc” or “update”).
-- Assign `priority` based on urgency, deadlines, and tone.
-- Use `null` for any fields that are unknown.
-- Ensure all output is valid JSON with correct formatting and types
-## DO NOT:
-- Generate vague summaries like “this was a general discussion”
-- Skip or merge unrelated topics
-- Omit suggested actions — these must be actionable
-Think like an analyst. Read the conversation, extract what matters, and structure it for a user who needs to take action now.
-""", 
-            participantInfo.toString(), 
+        String template = promptLoader.loadPromptTemplate("conversation-enrichment");
+        return String.format(template, 
             conversationText,
-            participantNames.isEmpty() ? "[]" : participantNames.toString(),
-            categoriesInstruction);
-    }
-    
-    /**
-     * Builds the categories instruction for the prompt based on available categories
-     */
-    private String buildCategoriesInstruction(List<String> availableCategories) {
-        if (availableCategories == null || availableCategories.isEmpty()) {
-            return "- For topic.category: Use broad categories like \"Technical\", \"Business\", \"Support\", \"Planning\", etc.";
-        }
-        
-        StringBuilder instruction = new StringBuilder();
-        instruction.append("- For topic.category: Choose from these available categories: ");
-        instruction.append(String.join(", ", availableCategories.stream()
-            .map(cat -> "\"" + cat + "\"")
-            .toList()));
-        instruction.append(". If none fit perfectly, choose the closest match or use a general category.");
-        
-        return instruction.toString();
+            participantNames.isEmpty() ? "[]" : participantNames.toString()
+        );
     }
     
     private String buildMessageEnrichmentPrompt(String content, Map<String, Object> context) {
@@ -843,11 +697,15 @@ Think like an analyst. Read the conversation, extract what matters, and structur
             List<SlackMessage> messages, List<SlackParticipant> participants) {
         
         try {
+            logger.info("Original response before cleaning: {}", response);
             String cleanedResponse = cleanJsonResponse(response);
+            logger.info("Attempting to parse cleaned response: {}", 
+                        cleanedResponse.length() > 500 ? cleanedResponse.substring(0, 500) + "..." : cleanedResponse);
+            
             @SuppressWarnings("unchecked")
             Map<String, Object> analysis = objectMapper.readValue(cleanedResponse, Map.class);
             
-            TopicInfo topicInfo = extractTopicInfo(analysis);
+            List<TopicEnrichment> topics = extractTopicsFromResponse(analysis);
             
             List<ParticipantInsight> participantInsights = participants != null ? 
                 participants.stream()
@@ -859,11 +717,12 @@ Think like an analyst. Read the conversation, extract what matters, and structur
                 .map(msg -> enrichMessage(msg.getContent(), Map.of()))
                 .toList();
             
-            return new ConversationEnrichment(topicInfo.topic(), topicInfo.summary(), topicInfo.urgency(), 
-                                            participantInsights, messageEnrichments, analysis);
+            return new ConversationEnrichment(topics, participantInsights, messageEnrichments, analysis);
                                             
         } catch (Exception e) {
-            logger.warn("Failed to parse conversation enrichment response, using fallback", e);
+            logger.warn("Failed to parse conversation enrichment response. Original response: '{}'. Error: {}", 
+                       response.length() > 200 ? response.substring(0, 200) + "..." : response, 
+                       e.getMessage(), e);
             return getDefaultConversationEnrichment();
         }
     }
@@ -1098,10 +957,24 @@ Think like an analyst. Read the conversation, extract what matters, and structur
     }
     
     private ConversationEnrichment getDefaultConversationEnrichment() {
-        return new ConversationEnrichment(
+        TopicEnrichment defaultTopic = new TopicEnrichment(
             "General Discussion",
-            "No summary available",
+            "No summary available", 
+            "No detailed summary available",
+            "No action suggested",
+            null,
+            null,
             UrgencyLevel.LOW,
+            "General",
+            List.of(),
+            Map.of(),
+            List.of(),
+            null,
+            null
+        );
+        
+        return new ConversationEnrichment(
+            List.of(defaultTopic),
             List.of(),
             List.of(),
             Map.of("error", "Failed to analyze conversation")
@@ -1134,6 +1007,173 @@ Think like an analyst. Read the conversation, extract what matters, and structur
             }
         }
         
+        // Look for JSON content by finding the first { or [
+        int jsonStart = -1;
+        for (int i = 0; i < trimmed.length(); i++) {
+            char c = trimmed.charAt(i);
+            if (c == '{' || c == '[') {
+                jsonStart = i;
+                break;
+            }
+        }
+        
+        if (jsonStart > 0) {
+            // Found JSON content after some text, extract from that point
+            trimmed = trimmed.substring(jsonStart);
+            logger.debug("Extracted JSON content starting from position {}", jsonStart);
+        } else if (jsonStart == -1) {
+            // No JSON structure found, log the response for debugging
+            logger.warn("No JSON structure found in response: {}", 
+                       trimmed.length() > 200 ? trimmed.substring(0, 200) + "..." : trimmed);
+            return trimmed; // Return as-is and let the parsing fail gracefully
+        }
+        
+        // Find the last } or ] to handle any trailing text
+        int jsonEnd = -1;
+        for (int i = trimmed.length() - 1; i >= 0; i--) {
+            char c = trimmed.charAt(i);
+            if (c == '}' || c == ']') {
+                jsonEnd = i;
+                break;
+            }
+        }
+        
+        if (jsonEnd > 0 && jsonEnd < trimmed.length() - 1) {
+            // Found trailing text after JSON, remove it
+            trimmed = trimmed.substring(0, jsonEnd + 1);
+            logger.debug("Removed trailing text after JSON");
+        }
+        
         return trimmed.trim();
+    }
+    
+    private List<TopicEnrichment> extractTopicsFromResponse(Map<String, Object> analysis) {
+        try {
+            if (analysis.containsKey("topics") && analysis.get("topics") instanceof List<?> topicsList) {
+                List<TopicEnrichment> topics = new ArrayList<>();
+                
+                for (Object topicObj : topicsList) {
+                    if (topicObj instanceof Map<?, ?> topicMap) {
+                        TopicEnrichment topic = parseTopicFromMap(topicMap);
+                        topics.add(topic);
+                    }
+                }
+                
+                return topics;
+            } else {
+                logger.warn("No topics array found in response, returning empty list");
+                return List.of();
+            }
+        } catch (Exception e) {
+            logger.error("Failed to extract topics from response", e);
+            return List.of();
+        }
+    }
+    
+    private TopicEnrichment parseTopicFromMap(Map<?, ?> topicMap) {
+        String title = extractStringValue(topicMap, "title", "Untitled Topic");
+        String shortSummary = extractStringValue(topicMap, "shortSummary", "No summary available");
+        String summary = extractStringValue(topicMap, "summary", "No detailed summary available");
+        String suggestedAction = extractStringValue(topicMap, "suggestedAction", "No action suggested");
+        String clientOrSupplier = extractStringValue(topicMap, "clientOrSupplier", null);
+        String deadline = extractStringValue(topicMap, "deadline", null);
+        String urgencyStr = extractStringValue(topicMap, "urgency", "Low");
+        String category = extractStringValue(topicMap, "category", "General");
+        
+        UrgencyLevel urgency = mapStringToUrgency(urgencyStr);
+        
+        List<String> peopleInvolved = extractStringList(topicMap, "peopleInvolved");
+        Map<String, String> summaryPerPerson = extractStringMap(topicMap, "summaryPerPerson");
+        List<ConversationMessage> conversations = extractConversationMessages(topicMap);
+        ReplyInfo reply = extractReplyInfo(topicMap);
+        ForwardInfo forward = extractForwardInfo(topicMap);
+        
+        return new TopicEnrichment(title, shortSummary, summary, suggestedAction, 
+                                 clientOrSupplier, deadline, urgency, category, 
+                                 peopleInvolved, summaryPerPerson, conversations, 
+                                 reply, forward);
+    }
+    
+    private UrgencyLevel mapStringToUrgency(String urgencyStr) {
+        if (urgencyStr == null) return UrgencyLevel.LOW;
+        
+        return switch (urgencyStr.toUpperCase()) {
+            case "CRITICAL" -> UrgencyLevel.CRITICAL;
+            case "HIGH" -> UrgencyLevel.HIGH;
+            case "MEDIUM" -> UrgencyLevel.MEDIUM;
+            default -> UrgencyLevel.LOW;
+        };
+    }
+    
+    private List<String> extractStringList(Map<?, ?> map, String key) {
+        Object value = map.get(key);
+        if (value instanceof List<?> list) {
+            return list.stream()
+                .filter(String.class::isInstance)
+                .map(String.class::cast)
+                .toList();
+        }
+        return List.of();
+    }
+    
+    private Map<String, String> extractStringMap(Map<?, ?> map, String key) {
+        Object value = map.get(key);
+        if (value instanceof Map<?, ?> innerMap) {
+            Map<String, String> result = new HashMap<>();
+            for (Map.Entry<?, ?> entry : innerMap.entrySet()) {
+                if (entry.getKey() instanceof String k && entry.getValue() instanceof String v) {
+                    result.put(k, v);
+                }
+            }
+            return result;
+        }
+        return Map.of();
+    }
+    
+    private List<ConversationMessage> extractConversationMessages(Map<?, ?> topicMap) {
+        Object conversationsObj = topicMap.get("conversations");
+        if (conversationsObj instanceof List<?> conversationsList) {
+            List<ConversationMessage> messages = new ArrayList<>();
+            
+            for (Object convObj : conversationsList) {
+                if (convObj instanceof Map<?, ?> convMap) {
+                    String text = extractStringValue(convMap, "text", "");
+                    String relevance = extractStringValue(convMap, "relevance", "");
+                    messages.add(new ConversationMessage(text, relevance));
+                }
+            }
+            
+            return messages;
+        }
+        return List.of();
+    }
+    
+    private ReplyInfo extractReplyInfo(Map<?, ?> topicMap) {
+        Object replyObj = topicMap.get("reply");
+        if (replyObj instanceof Map<?, ?> replyMap) {
+            String channel = extractStringValue(replyMap, "channel", null);
+            String mode = extractStringValue(replyMap, "mode", null);
+            String to = extractStringValue(replyMap, "to", null);
+            List<String> cc = extractStringList(replyMap, "cc");
+            String threadId = extractStringValue(replyMap, "threadId", null);
+            String subject = extractStringValue(replyMap, "subject", null);
+            String body = extractStringValue(replyMap, "body", null);
+            
+            return new ReplyInfo(channel, mode, to, cc, threadId, subject, body);
+        }
+        return null;
+    }
+    
+    private ForwardInfo extractForwardInfo(Map<?, ?> topicMap) {
+        Object forwardObj = topicMap.get("forward");
+        if (forwardObj instanceof Map<?, ?> forwardMap) {
+            String channel = extractStringValue(forwardMap, "channel", null);
+            String to = extractStringValue(forwardMap, "to", null);
+            String subject = extractStringValue(forwardMap, "subject", null);
+            String body = extractStringValue(forwardMap, "body", null);
+            
+            return new ForwardInfo(channel, to, subject, body);
+        }
+        return null;
     }
 }
