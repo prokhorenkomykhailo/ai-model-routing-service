@@ -42,6 +42,10 @@ public class PromptLoader {
                 boolean foundContent = false;
                 
                 for (String line : lines) {
+                    // Skip markdown headings (lines starting with #)
+                    if (line.trim().startsWith("#")) {
+                        continue;
+                    }
                     // Skip empty lines at the beginning
                     if (!foundContent && line.trim().isEmpty()) {
                         continue;

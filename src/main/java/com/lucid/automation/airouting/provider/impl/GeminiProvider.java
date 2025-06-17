@@ -4,6 +4,17 @@ import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.SlackParticipant;
 import com.lucid.automation.airouting.client.DataStorageServiceClient;
+import com.lucid.automation.airouting.dto.CategoryResult;
+import com.lucid.automation.airouting.dto.SummaryResult;
+import com.lucid.automation.airouting.dto.SentimentResult;
+import com.lucid.automation.airouting.dto.UrgencyLevel;
+import com.lucid.automation.airouting.dto.MessageEnrichment;
+import com.lucid.automation.airouting.dto.ParticipantInsight;
+import com.lucid.automation.airouting.dto.ConversationEnrichment;
+import com.lucid.automation.airouting.dto.TopicEnrichment;
+import com.lucid.automation.airouting.dto.ConversationMessage;
+import com.lucid.automation.airouting.dto.ReplyInfo;
+import com.lucid.automation.airouting.dto.ForwardInfo;
 import com.lucid.automation.airouting.dto.CategoryDTO;
 import com.lucid.automation.airouting.dto.APIResponse;
 import com.lucid.automation.airouting.util.PromptLoader;
@@ -202,15 +213,15 @@ public class GeminiProvider implements AIProvider {
                 : fetchAvailableCategories(debugId);
             
             String prompt = buildConversationEnrichmentPrompt(conversationText, participants, categoriesToUse);
-            logger.info("GEMINI-DEBUG [{}]: Built enrichment prompt, length: {}", debugId, prompt.length());
-            logger.info("GEMINI-DEBUG [{}]: Full prompt being sent: {}", debugId, prompt);
+            logger.debug("GEMINI-DEBUG [{}]: Built enrichment prompt, length: {}", debugId, prompt.length());
+            logger.debug("GEMINI-DEBUG [{}]: Full prompt being sent: {}", debugId, prompt);
             
             String response = callGeminiAPI(prompt);
-            logger.info("GEMINI-DEBUG [{}]: Received API response for conversation enrichment", debugId);
-            logger.info("GEMINI-DEBUG [{}]: Raw response received: {}", debugId, response);
+            logger.debug("GEMINI-DEBUG [{}]: Received API response for conversation enrichment", debugId);
+            logger.debug("GEMINI-DEBUG [{}]: Raw response received: {}", debugId, response);
             
             ConversationEnrichment result = parseConversationEnrichmentResponse(response, messages, participants);
-            logger.info("GEMINI-DEBUG [{}]: Conversation enrichment successful: {}", debugId);
+            logger.info("GEMINI-DEBUG [{}]: Conversation enrichment successful", debugId);
             
             return result;
             
@@ -697,9 +708,9 @@ public class GeminiProvider implements AIProvider {
             List<SlackMessage> messages, List<SlackParticipant> participants) {
         
         try {
-            logger.info("Original response before cleaning: {}", response);
+            logger.debug("Original response before cleaning: {}", response);
             String cleanedResponse = cleanJsonResponse(response);
-            logger.info("Attempting to parse cleaned response: {}", 
+            logger.debug("Attempting to parse cleaned response: {}", 
                         cleanedResponse.length() > 500 ? cleanedResponse.substring(0, 500) + "..." : cleanedResponse);
             
             @SuppressWarnings("unchecked")

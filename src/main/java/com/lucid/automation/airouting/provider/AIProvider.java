@@ -1,5 +1,6 @@
 package com.lucid.automation.airouting.provider;
 
+import com.lucid.automation.airouting.dto.*;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.SlackParticipant;
 
@@ -75,77 +76,4 @@ public interface AIProvider {
      * Get last confidence score
      */
     double getLastConfidence();
-    
-    // Result classes
-    record CategoryResult(String category, double confidence) {}
-    record SummaryResult(String summary, String metadata) {}
-    record SentimentResult(String sentiment, double score, double confidence) {}
-    
-    enum UrgencyLevel {
-        LOW(1), MEDIUM(2), HIGH(3), CRITICAL(4);
-        
-        private final int priority;
-        UrgencyLevel(int priority) { this.priority = priority; }
-        public int getPriority() { return priority; }
-    }
-    
-    record MessageEnrichment(
-        String category,
-        double sentiment,
-        String intent,
-        List<String> entities,
-        double confidence
-    ) {}
-    
-    record ParticipantInsight(
-        String role,
-        double engagementLevel,
-        String dominantSentiment,
-        int messageCount
-    ) {}
-    
-    record ConversationEnrichment(
-        List<TopicEnrichment> topics,
-        List<ParticipantInsight> participants,
-        List<MessageEnrichment> messages,
-        Map<String, Object> metadata
-    ) {}
-    
-    record TopicEnrichment(
-        String title,
-        String shortSummary,
-        String summary,
-        String suggestedAction,
-        String clientOrSupplier,
-        String deadline,
-        UrgencyLevel urgency,
-        String category,
-        List<String> peopleInvolved,
-        Map<String, String> summaryPerPerson,
-        List<ConversationMessage> conversations,
-        ReplyInfo reply,
-        ForwardInfo forward
-    ) {}
-    
-    record ConversationMessage(
-        String text,
-        String relevance
-    ) {}
-    
-    record ReplyInfo(
-        String channel,
-        String mode,
-        String to,
-        List<String> cc,
-        String threadId,
-        String subject,
-        String body
-    ) {}
-    
-    record ForwardInfo(
-        String channel,
-        String to,
-        String subject,
-        String body
-    ) {}
 }
