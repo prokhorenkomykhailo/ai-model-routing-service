@@ -35,6 +35,7 @@ public class SecurityConfig {
                 
                 // Message API endpoints are public
                 .requestMatchers("/api/messages/**").permitAll()
+                .requestMatchers("/api/**").permitAll()
                 
                 // All AI API endpoints require authentication
                 .requestMatchers("/ai/**").permitAll()

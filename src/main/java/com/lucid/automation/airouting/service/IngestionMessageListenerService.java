@@ -3,6 +3,7 @@ package com.lucid.automation.airouting.service;
 import com.lucid.automation.airouting.dto.IngestionEventDTO;
 import com.lucid.automation.airouting.model.AIRequest;
 import com.lucid.automation.airouting.model.AITaskType;
+import com.lucid.automation.airouting.model.Workspace;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
@@ -21,11 +22,14 @@ public class IngestionMessageListenerService {
     
     private final AIRoutingService aiRoutingService;
     private final MessageService messageService;
+    private final WorkspaceService workspaceService;
     
     public IngestionMessageListenerService(AIRoutingService aiRoutingService,
-                                        MessageService messageService) {
+                                        MessageService messageService,
+                                        WorkspaceService workspaceService) {
         this.aiRoutingService = aiRoutingService;
         this.messageService = messageService;
+        this.workspaceService = workspaceService;
     }
     
     /**
@@ -60,7 +64,13 @@ public class IngestionMessageListenerService {
                 logger.debug("Saved message to Redis: {}", message.getMessageId());
             }
             
-            // Process the message
+            // Create or update workspace data
+            Workspace workspace = workspaceService.createOrUpdateWorkspace(message);
+            if (workspace != null) {
+                logger.debug("Updated workspace: {} for tenant: {}", workspace.getId(), workspace.getTenantId());
+            }
+            
+            // Process the message for AI routing
             // processMessage(message);
             
             logger.debug("Successfully processed ingestion message: {}", message.getMessageId());
