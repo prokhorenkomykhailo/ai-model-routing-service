@@ -941,4 +941,164 @@ public class MessageService {
             return Page.empty(pageable);
         }
     }
+
+    /**
+     * Gets messages by tenant ID with pagination
+     * 
+     * @param tenantId The tenant ID
+     * @param pageable The pagination information
+     * @return Page of messages
+     */
+    public Page<Message> findMessagesByTenantId(String tenantId, Pageable pageable) {
+        logger.debug("Getting messages for tenantId: {} with pagination", tenantId);
+        
+        try {
+            List<Message> messages = messageRepository.findByTenantId(tenantId);
+            
+            // Sort messages by ingestedAt in descending order
+            messages.sort((m1, m2) -> {
+                if (m1.getIngestedAt() == null && m2.getIngestedAt() == null) return 0;
+                if (m1.getIngestedAt() == null) return 1;
+                if (m2.getIngestedAt() == null) return -1;
+                return m2.getIngestedAt().compareTo(m1.getIngestedAt());
+            });
+            
+            // Apply pagination manually
+            int start = (int) pageable.getOffset();
+            int end = Math.min(start + pageable.getPageSize(), messages.size());
+            
+            if (start >= messages.size()) {
+                return Page.empty(pageable);
+            }
+            
+            List<Message> pagedMessages = messages.subList(start, end);
+            
+            return new org.springframework.data.domain.PageImpl<>(
+                pagedMessages, pageable, messages.size());
+                
+        } catch (Exception e) {
+            logger.error("Error retrieving messages for tenantId: {}", tenantId, e);
+            return Page.empty(pageable);
+        }
+    }
+
+    /**
+     * Gets messages by workspace ID with pagination
+     * 
+     * @param workspaceId The workspace ID
+     * @param pageable The pagination information
+     * @return Page of messages
+     */
+    public Page<Message> findMessagesByWorkspaceId(String workspaceId, Pageable pageable) {
+        logger.debug("Getting messages for workspaceId: {} with pagination", workspaceId);
+        
+        try {
+            List<Message> messages = messageRepository.findByWorkspaceId(workspaceId);
+            
+            // Sort messages by ingestedAt in descending order
+            messages.sort((m1, m2) -> {
+                if (m1.getIngestedAt() == null && m2.getIngestedAt() == null) return 0;
+                if (m1.getIngestedAt() == null) return 1;
+                if (m2.getIngestedAt() == null) return -1;
+                return m2.getIngestedAt().compareTo(m1.getIngestedAt());
+            });
+            
+            // Apply pagination manually
+            int start = (int) pageable.getOffset();
+            int end = Math.min(start + pageable.getPageSize(), messages.size());
+            
+            if (start >= messages.size()) {
+                return Page.empty(pageable);
+            }
+            
+            List<Message> pagedMessages = messages.subList(start, end);
+            
+            return new org.springframework.data.domain.PageImpl<>(
+                pagedMessages, pageable, messages.size());
+                
+        } catch (Exception e) {
+            logger.error("Error retrieving messages for workspaceId: {}", workspaceId, e);
+            return Page.empty(pageable);
+        }
+    }
+
+    /**
+     * Gets messages by channel ID with pagination
+     * 
+     * @param channelId The channel ID
+     * @param pageable The pagination information
+     * @return Page of messages
+     */
+    public Page<Message> findMessagesByChannelId(String channelId, Pageable pageable) {
+        logger.debug("Getting messages for channelId: {} with pagination", channelId);
+        
+        try {
+            List<Message> messages = messageRepository.findByChannelId(channelId);
+            
+            // Sort messages by ingestedAt in descending order
+            messages.sort((m1, m2) -> {
+                if (m1.getIngestedAt() == null && m2.getIngestedAt() == null) return 0;
+                if (m1.getIngestedAt() == null) return 1;
+                if (m2.getIngestedAt() == null) return -1;
+                return m2.getIngestedAt().compareTo(m1.getIngestedAt());
+            });
+            
+            // Apply pagination manually
+            int start = (int) pageable.getOffset();
+            int end = Math.min(start + pageable.getPageSize(), messages.size());
+            
+            if (start >= messages.size()) {
+                return Page.empty(pageable);
+            }
+            
+            List<Message> pagedMessages = messages.subList(start, end);
+            
+            return new org.springframework.data.domain.PageImpl<>(
+                pagedMessages, pageable, messages.size());
+                
+        } catch (Exception e) {
+            logger.error("Error retrieving messages for channelId: {}", channelId, e);
+            return Page.empty(pageable);
+        }
+    }
+
+    /**
+     * Gets messages by thread timestamp with pagination
+     * 
+     * @param threadTs The thread timestamp
+     * @param pageable The pagination information
+     * @return Page of messages
+     */
+    public Page<Message> findMessagesByThreadTs(String threadTs, Pageable pageable) {
+        logger.debug("Getting messages for threadTs: {} with pagination", threadTs);
+        
+        try {
+            List<Message> messages = messageRepository.findByThreadTs(threadTs);
+            
+            // Sort messages by ingestedAt in descending order
+            messages.sort((m1, m2) -> {
+                if (m1.getIngestedAt() == null && m2.getIngestedAt() == null) return 0;
+                if (m1.getIngestedAt() == null) return 1;
+                if (m2.getIngestedAt() == null) return -1;
+                return m2.getIngestedAt().compareTo(m1.getIngestedAt());
+            });
+            
+            // Apply pagination manually
+            int start = (int) pageable.getOffset();
+            int end = Math.min(start + pageable.getPageSize(), messages.size());
+            
+            if (start >= messages.size()) {
+                return Page.empty(pageable);
+            }
+            
+            List<Message> pagedMessages = messages.subList(start, end);
+            
+            return new org.springframework.data.domain.PageImpl<>(
+                pagedMessages, pageable, messages.size());
+                
+        } catch (Exception e) {
+            logger.error("Error retrieving messages for threadTs: {}", threadTs, e);
+            return Page.empty(pageable);
+        }
+    }
 }

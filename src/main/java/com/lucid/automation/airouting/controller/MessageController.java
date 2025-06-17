@@ -393,6 +393,46 @@ public class MessageController {
             return messageService.findByWorkspaceChannelThreadIndex(compositeKey, pageable);
         }
         
+        // Support individual field searches
+        if (searchDto.getTenantId() != null && searchDto.getWorkspaceId() == null && 
+            searchDto.getChannelId() == null && searchDto.getThreadTs() == null) {
+            
+            logger.debug("Searching by tenantId only: {}", searchDto.getTenantId());
+            return messageService.findMessagesByTenantId(searchDto.getTenantId(), pageable);
+        }
+        
+        if (searchDto.getWorkspaceId() != null && searchDto.getTenantId() == null && 
+            searchDto.getChannelId() == null && searchDto.getThreadTs() == null) {
+            
+            logger.debug("Searching by workspaceId only: {}", searchDto.getWorkspaceId());
+            return messageService.findMessagesByWorkspaceId(searchDto.getWorkspaceId(), pageable);
+        }
+        
+        if (searchDto.getChannelId() != null && searchDto.getTenantId() == null && 
+            searchDto.getWorkspaceId() == null && searchDto.getThreadTs() == null) {
+            
+            logger.debug("Searching by channelId only: {}", searchDto.getChannelId());
+            return messageService.findMessagesByChannelId(searchDto.getChannelId(), pageable);
+        }
+        
+        if (searchDto.getThreadTs() != null && searchDto.getTenantId() == null && 
+            searchDto.getWorkspaceId() == null && searchDto.getChannelId() == null) {
+            
+            logger.debug("Searching by threadTs only: {}", searchDto.getThreadTs());
+            return messageService.findMessagesByThreadTs(searchDto.getThreadTs(), pageable);
+        }
+        
+        // Support search by workspaceId only
+        if (searchDto.getWorkspaceId() != null && searchDto.getTenantId() == null && 
+            searchDto.getChannelId() == null && searchDto.getThreadTs() == null &&
+            searchDto.getUserId() == null && searchDto.getMessageType() == null &&
+            searchDto.getSubtype() == null && searchDto.getTextContains() == null &&
+            searchDto.getStartTime() == null && searchDto.getEndTime() == null) {
+            
+            logger.debug("Returning messages for workspace: {}", searchDto.getWorkspaceId());
+            return messageService.findMessagesByWorkspaceId(searchDto.getWorkspaceId(), pageable);
+        }
+        
         // If no specific filters are provided, return all messages with pagination
         if (searchDto.getTenantId() == null && searchDto.getWorkspaceId() == null && 
             searchDto.getChannelId() == null && searchDto.getThreadTs() == null &&

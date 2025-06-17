@@ -259,6 +259,22 @@ public interface MessageRepository extends CrudRepository<Message, String> {
      */
     void deleteByWorkspaceIdAndChannelIdAndThreadTs(String workspaceId, String channelId, String threadTs);
     
+    /**
+     * Find all messages by channel ID
+     * 
+     * @param channelId The channel ID
+     * @return List of messages
+     */
+    List<Message> findByChannelId(String channelId);
+    
+    /**
+     * Find all messages by thread timestamp
+     * 
+     * @param threadTs The thread timestamp
+     * @return List of messages
+     */
+    List<Message> findByThreadTs(String threadTs);
+
     // Optimized methods using composite indexes
     
     /**
