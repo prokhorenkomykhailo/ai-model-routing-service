@@ -393,6 +393,17 @@ public class MessageController {
             return messageService.findByWorkspaceChannelThreadIndex(compositeKey, pageable);
         }
         
+        // If no specific filters are provided, return all messages with pagination
+        if (searchDto.getTenantId() == null && searchDto.getWorkspaceId() == null && 
+            searchDto.getChannelId() == null && searchDto.getThreadTs() == null &&
+            searchDto.getUserId() == null && searchDto.getMessageType() == null &&
+            searchDto.getSubtype() == null && searchDto.getTextContains() == null &&
+            searchDto.getStartTime() == null && searchDto.getEndTime() == null) {
+            
+            logger.debug("Returning all messages with pagination");
+            return messageService.findAllMessages(pageable);
+        }
+        
         // For complex searches, we would need to implement additional repository methods
         // For now, return empty page for unsupported combinations
         logger.warn("Complex search not yet implemented for criteria: {}", searchDto);

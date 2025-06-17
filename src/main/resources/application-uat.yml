@@ -1,18 +1,13 @@
 # UAT (User Acceptance Testing) profile
 spring:
-  datasource:
-    url: jdbc:postgresql://${UAT_DB_HOST:localhost}:${UAT_DB_PORT:5432}/${UAT_DB_NAME:ai_routing_uat}
-    driver-class-name: org.postgresql.Driver
-    username: ${UAT_DB_USERNAME:postgres}
-    password: ${UAT_DB_PASSWORD:postgres}
-
-  jpa:
-    hibernate:
-      ddl-auto: update
-    show-sql: false
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
+  # Redis configuration for UAT
+  data:
+    redis:
+      host: ${UAT_REDIS_HOST:localhost}
+      port: ${UAT_REDIS_PORT:6379}
+      password: ${UAT_REDIS_PASSWORD:}
+      database: ${UAT_REDIS_DATABASE:2}
+      timeout: 3000ms
 
 # UAT service discovery
 eureka:

@@ -34,4 +34,3 @@ logging:
     com.lucid.automation.airouting: DEBUG
     org.springframework.web: INFO
     AI_AUDIT: DEBUG
-    org.hibernate.SQL: DEBUG

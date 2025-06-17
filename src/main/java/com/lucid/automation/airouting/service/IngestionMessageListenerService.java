@@ -1,6 +1,6 @@
 package com.lucid.automation.airouting.service;
 
-import com.lucid.automation.airouting.dto.IngestionMessageEventDTO;
+import com.lucid.automation.airouting.dto.IngestionEventDTO;
 import com.lucid.automation.airouting.model.AIRequest;
 import com.lucid.automation.airouting.model.AITaskType;
 import org.slf4j.Logger;
@@ -34,7 +34,7 @@ public class IngestionMessageListenerService {
      * @param message The ingestion message event received from RabbitMQ
      */
     @RabbitListener(queues = "${rabbitmq.queue.ingestion-messages}")
-    public void processIngestionMessage(IngestionMessageEventDTO message) {
+    public void processIngestionMessage(IngestionEventDTO message) {
         logger.info("Received message from ingestion queue: tenantId={}, messageId={}, channelId={}, userId={}",
                 message.getTenantId(), message.getMessageId(), message.getChannelId(), message.getUserId());
         
@@ -61,7 +61,7 @@ public class IngestionMessageListenerService {
             }
             
             // Process the message
-            processMessage(message);
+            // processMessage(message);
             
             logger.debug("Successfully processed ingestion message: {}", message.getMessageId());
         } catch (Exception e) {
@@ -75,7 +75,7 @@ public class IngestionMessageListenerService {
      * 
      * @param message The ingestion message to process
      */
-    private void processMessage(IngestionMessageEventDTO message) {
+    private void processMessage(IngestionEventDTO message) {
         // Step 1: Check if message meets criteria for processing
         if (message.getText() == null || message.getText().isEmpty()) {
             logger.debug("Skipping empty message: {}", message.getMessageId());
@@ -128,7 +128,7 @@ public class IngestionMessageListenerService {
      * @param message The ingestion message to process
      * @return The configured AIRequest object
      */
-    private AIRequest createAIRequest(AITaskType taskType, IngestionMessageEventDTO message) {
+    private AIRequest createAIRequest(AITaskType taskType, IngestionEventDTO message) {
         AIRequest request = new AIRequest();
         request.setTaskType(taskType);
         request.setContent(message.getText());
@@ -160,7 +160,7 @@ public class IngestionMessageListenerService {
      * @param message The ingestion message
      * @return Map of context values for AI processing
      */
-    private Map<String, Object> buildContext(IngestionMessageEventDTO message) {
+    private Map<String, Object> buildContext(IngestionEventDTO message) {
         Map<String, Object> context = new HashMap<>();
         context.put("messageId", message.getMessageId());
         context.put("channelId", message.getChannelId());
@@ -183,8 +183,14 @@ public class IngestionMessageListenerService {
             if (message.getMessage().getPurpose() != null) {
                 context.put("purpose", message.getMessage().getPurpose());
             }
+            if (message.getMessage().getClientMsgId() != null) {
+                context.put("clientMsgId", message.getMessage().getClientMsgId());
+            }
             if (message.getMessage().getReplyCount() != null) {
                 context.put("replyCount", message.getMessage().getReplyCount());
+            }
+            if (message.getMessage().getReplyUsers() != null && !message.getMessage().getReplyUsers().isEmpty()) {
+                context.put("replyUsers", message.getMessage().getReplyUsers());
             }
             if (message.getMessage().getReplyUsersCount() != null) {
                 context.put("replyUsersCount", message.getMessage().getReplyUsersCount());
@@ -212,6 +218,9 @@ public class IngestionMessageListenerService {
             }
             if (message.getMetadata().getMentionedUsers() != null && !message.getMetadata().getMentionedUsers().isEmpty()) {
                 context.put("mentionedUsers", message.getMetadata().getMentionedUsers());
+            }
+            if (message.getMetadata().getAdditionalAttributes() != null && !message.getMetadata().getAdditionalAttributes().isEmpty()) {
+                context.put("additionalAttributes", message.getMetadata().getAdditionalAttributes());
             }
         }
         

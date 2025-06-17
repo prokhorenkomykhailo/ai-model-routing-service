@@ -19,7 +19,7 @@ import java.util.Map;
 @AllArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class IngestionMessageEventDTO {
+public class IngestionEventDTO {
     private String tenantId;
     private String tenantSchema;
     private MessageData message;

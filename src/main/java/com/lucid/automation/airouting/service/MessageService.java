@@ -1,6 +1,6 @@
 package com.lucid.automation.airouting.service;
 
-import com.lucid.automation.airouting.dto.IngestionMessageEventDTO;
+import com.lucid.automation.airouting.dto.IngestionEventDTO;
 import com.lucid.automation.airouting.model.Message;
 import com.lucid.automation.airouting.repository.MessageRepository;
 import org.slf4j.Logger;
@@ -46,7 +46,7 @@ public class MessageService {
      * @param message The ingestion message event to save
      * @return The saved message
      */
-    public Message saveMessage(IngestionMessageEventDTO message) {
+    public Message saveMessage(IngestionEventDTO message) {
         if (message == null || message.getMessage() == null) {
             logger.warn("Cannot save null message to Redis");
             return null;
@@ -162,12 +162,12 @@ public class MessageService {
     }
     
     /**
-     * Maps an IngestionMessageEventDTO to a Message for Redis storage
+     * Maps an IngestionEventDTO to a Message for Redis storage
      * 
      * @param dto The DTO to map
      * @return The mapped Message
      */
-    private Message mapToMessage(IngestionMessageEventDTO dto) {
+    private Message mapToMessage(IngestionEventDTO dto) {
         String messageTs = dto.getTimestamp();
         String threadTs = dto.getThreadTs() != null ? dto.getThreadTs() : messageTs;
         
@@ -335,10 +335,10 @@ public class MessageService {
     /**
      * Store a message in the conversation history with automatic trimming
      * 
-     * @param message The IngestionMessageEventDTO to store
+     * @param message The IngestionEventDTO to store
      * @return true if the message was stored successfully, false otherwise
      */
-    public boolean storeMessage(IngestionMessageEventDTO message) {
+    public boolean storeMessage(IngestionEventDTO message) {
         if (message == null || message.getMessage() == null) {
             logger.warn("Cannot store null message");
             return false;
@@ -895,6 +895,49 @@ public class MessageService {
             return messageRepository.findByWorkspaceChannelThreadIndex(compositeKey, pageable);
         } catch (Exception e) {
             logger.error("Error finding messages by workspace channel thread index: {}", compositeKey, e);
+            return Page.empty(pageable);
+        }
+    }
+    
+    /**
+     * Gets all messages with pagination
+     * 
+     * @param pageable The pagination information
+     * @return Page of messages
+     */
+    public Page<Message> findAllMessages(Pageable pageable) {
+        logger.debug("Getting all messages with pagination: page={}, size={}", 
+                    pageable.getPageNumber(), pageable.getPageSize());
+        
+        try {
+            // Get all messages from repository
+            Iterable<Message> allMessages = messageRepository.findAll();
+            List<Message> messageList = new ArrayList<>();
+            allMessages.forEach(messageList::add);
+            
+            // Sort messages by ingestedAt in descending order (most recent first)
+            messageList.sort((m1, m2) -> {
+                if (m1.getIngestedAt() == null && m2.getIngestedAt() == null) return 0;
+                if (m1.getIngestedAt() == null) return 1;
+                if (m2.getIngestedAt() == null) return -1;
+                return m2.getIngestedAt().compareTo(m1.getIngestedAt());
+            });
+            
+            // Apply pagination manually
+            int start = (int) pageable.getOffset();
+            int end = Math.min(start + pageable.getPageSize(), messageList.size());
+            
+            if (start >= messageList.size()) {
+                return Page.empty(pageable);
+            }
+            
+            List<Message> pagedMessages = messageList.subList(start, end);
+            
+            return new org.springframework.data.domain.PageImpl<>(
+                pagedMessages, pageable, messageList.size());
+                
+        } catch (Exception e) {
+            logger.error("Error retrieving all messages", e);
             return Page.empty(pageable);
         }
     }

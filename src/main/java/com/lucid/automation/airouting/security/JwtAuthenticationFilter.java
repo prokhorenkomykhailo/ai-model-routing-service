@@ -36,7 +36,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final UserDetailsService userDetailsService;
     
     private static final Set<String> PUBLIC_PATH_PREFIXES = Set.of(
-        "/actuator", "/swagger-ui", "/v3/api-docs", "/swagger-ui.html"
+        "/actuator", "/swagger-ui", "/v3/api-docs", "/swagger-ui.html", "/api/messages", "ai/"
     );
 
     public JwtAuthenticationFilter(JwtService jwtService, UserDetailsService userDetailsService) {

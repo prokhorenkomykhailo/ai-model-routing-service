@@ -9,14 +9,6 @@ spring:
   profiles:
     active: '@activatedProperties@'  # Replace or override this at runtime
 
-  # Redis Configuration
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD:}
-      timeout: 2000
-      database: 0
     
   jackson:
     serialization:
