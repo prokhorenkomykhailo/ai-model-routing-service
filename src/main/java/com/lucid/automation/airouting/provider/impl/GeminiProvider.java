@@ -13,6 +13,7 @@ import com.lucid.automation.airouting.dto.ParticipantInsight;
 import com.lucid.automation.airouting.dto.ConversationEnrichment;
 import com.lucid.automation.airouting.dto.TopicEnrichment;
 import com.lucid.automation.airouting.dto.ConversationMessage;
+import com.lucid.automation.airouting.dto.UserDTO;
 import com.lucid.automation.airouting.dto.ReplyInfo;
 import com.lucid.automation.airouting.dto.ForwardInfo;
 import com.lucid.automation.airouting.dto.CategoryDTO;
@@ -1094,7 +1095,7 @@ public class GeminiProvider implements AIProvider {
         
         UrgencyLevel urgency = mapStringToUrgency(urgencyStr);
         
-        List<String> peopleInvolved = extractStringList(topicMap, "peopleInvolved");
+        List<UserDTO> peopleInvolved = extractPeopleInvolved(topicMap);
         Map<String, String> summaryPerPerson = extractStringMap(topicMap, "summaryPerPerson");
         List<ConversationMessage> conversations = extractConversationMessages(topicMap);
         ReplyInfo reply = extractReplyInfo(topicMap);
@@ -1149,9 +1150,26 @@ public class GeminiProvider implements AIProvider {
             
             for (Object convObj : conversationsList) {
                 if (convObj instanceof Map<?, ?> convMap) {
-                    String text = extractStringValue(convMap, "text", "");
-                    String relevance = extractStringValue(convMap, "relevance", "");
-                    messages.add(new ConversationMessage(text, relevance));
+                    // Check if this is the new format (has id, username, sender fields)
+                    if (convMap.containsKey("id") || convMap.containsKey("username") || convMap.containsKey("sender")) {
+                        // New format: full conversation message
+                        String id = extractStringValue(convMap, "id", null);
+                        String username = extractStringValue(convMap, "username", null);
+                        String sender = extractStringValue(convMap, "sender", null);
+                        String imageUrl = extractStringValue(convMap, "imageUrl", null);
+                        String text = extractStringValue(convMap, "text", "");
+                        String timestamp = extractStringValue(convMap, "timestamp", null);
+                        String source = extractStringValue(convMap, "source", null);
+                        String relevance = extractStringValue(convMap, "relevance", null);
+                        
+                        messages.add(new ConversationMessage(id, username, sender, imageUrl, 
+                                                           text, timestamp, source, relevance));
+                    } else {
+                        // Old format: just text and relevance
+                        String text = extractStringValue(convMap, "text", "");
+                        String relevance = extractStringValue(convMap, "relevance", "");
+                        messages.add(ConversationMessage.fromLegacy(text, relevance));
+                    }
                 }
             }
             
@@ -1187,5 +1205,31 @@ public class GeminiProvider implements AIProvider {
             return new ForwardInfo(channel, to, subject, body);
         }
         return null;
+    }
+    
+    /**
+     * Extract people involved with backward compatibility
+     * Handles both old format (array of strings) and new format (array of user objects)
+     */
+    private List<UserDTO> extractPeopleInvolved(Map<?, ?> map) {
+        Object value = map.get("peopleInvolved");
+        if (value instanceof List<?> list) {
+            List<UserDTO> result = new ArrayList<>();
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> userMap) {
+                    // New format: user object
+                    String id = extractStringValue(userMap, "id", null);
+                    String username = extractStringValue(userMap, "username", null);
+                    String displayName = extractStringValue(userMap, "displayName", null);
+                    String imageUrl = extractStringValue(userMap, "imageUrl", null);
+                    result.add(new UserDTO(id, username, displayName, imageUrl));
+                } else if (item instanceof String userString) {
+                    // Old format: just a string (user ID/name)
+                    result.add(UserDTO.fromString(userString));
+                }
+            }
+            return result;
+        }
+        return List.of();
     }
 }

@@ -12,7 +12,7 @@ public record TopicEnrichment(
     String deadline,
     UrgencyLevel urgency,
     String category,
-    List<String> peopleInvolved,
+    List<UserDTO> peopleInvolved,
     Map<String, String> summaryPerPerson,
     List<ConversationMessage> conversations,
     ReplyInfo reply,

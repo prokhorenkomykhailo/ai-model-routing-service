@@ -46,6 +46,23 @@ For each topic:
 Generate a full structured object using the schema below
 Include only relevant, high-value messages
 Output one clean JSON object per topic
+## PEOPLE INVOLVED STRUCTURE
+For each person mentioned or participating in the topic:
+- id: Use the user ID from the input message data if available, otherwise generate a unique identifier
+- username: Extract from message metadata or use a format like "firstname.lastname" 
+- displayName: Use the full display name as it appears in the conversation
+- imageUrl: Use profile image URL from input data if available, otherwise use placeholder format: "https://via.placeholder.com/40x40?text={FirstLetter}"
+
+## CONVERSATION STRUCTURE  
+For each relevant message in the topic:
+- id: Use message ID from input data if available, otherwise generate unique identifier like "msg_001"
+- username: Same as the username from peopleInvolved
+- sender: Same as username (kept for compatibility)
+- imageUrl: Same as the imageUrl from peopleInvolved for this user
+- text: The actual message content
+- timestamp: ISO 8601 format timestamp from message metadata
+- source: "slack", "email", or other communication platform
+
 ## INPUT MESSAGE: You will be given a slack message json as an input.
 %s
 ## PEOPLE INVOLVED:
@@ -66,19 +83,42 @@ Always return a JSON array called topics, like so:
   "deadline": "YYYY-MM-DD format if mentioned, else null",
   "urgency": "Low | Medium | High | Critical (based on tone, blockers, or timing)",
   "category": "Sales | Marketing | Customer Service | Finance | Operations | Legal | Procurement | Product | IT | HR | Leadership | R&D | Project Management | Partner Management | Logistics | Admin & Office",
-  "peopleInvolved": ["Full Name"],
+  "peopleInvolved": [
+    {
+      "id": "user123",
+      "username": "alex.smith",
+      "displayName": "Alex Smith", 
+      "imageUrl": "https://example.com/profile/alex.jpg"
+    },
+    {
+      "id": "user456",
+      "username": "nina.jones",
+      "displayName": "Nina Jones",
+      "imageUrl": "https://example.com/profile/nina.jpg"
+    }
+  ],
   "summaryPerPerson": {
-    "Alex": "Shared updated brief and requested review.",
-    "Nina": "Asked for delivery ETA and offered to loop in designer."
+    "alex.smith": "Shared updated brief and requested review.",
+    "nina.jones": "Asked for delivery ETA and offered to loop in designer."
   },
   "conversations": [
     {
+      "id": "msg_001",
+      "username": "alex.smith",
+      "sender": "alex.smith",
+      "imageUrl": "https://example.com/profile/alex.jpg",
       "text": "Can we confirm the launch date with the client this week?",
-      "relevance": "Introduced the core timing concern that defines this topic."
+      "timestamp": "2025-06-18T10:30:00Z",
+      "source": "slack"
     },
     {
+      "id": "msg_002", 
+      "username": "nina.jones",
+      "sender": "nina.jones",
+      "imageUrl": "https://example.com/profile/nina.jpg",
       "text": "They said they need final assets by Friday the 12th.",
-      "relevance": "Defines the deadline and sets the next steps in motion."
+      "timestamp": "2025-06-18T10:35:00Z",
+      "source": "slack"
     }
   ],
   "reply": {
@@ -97,6 +137,12 @@ Always return a JSON array called topics, like so:
     "body": "Suggested message body for the forward"
   }
 }
+## CONSISTENCY REQUIREMENTS
+- All usernames must be consistent across peopleInvolved, summaryPerPerson, and conversations
+- All people mentioned in summaryPerPerson must also appear in peopleInvolved
+- All people in conversations must also appear in peopleInvolved  
+- Use the same username format throughout (e.g., "firstname.lastname")
+
 ## POST-PROCESSING LOGIC: TOPIC DEDUPLICATION & MERGING
 If run across multiple threads:
 - Compare each extracted topic with others.
