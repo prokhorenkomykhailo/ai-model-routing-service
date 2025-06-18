@@ -1,4 +1,4 @@
-package com.lucid.automation.airouting.service;
+package com.lucid.automation.airouting.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;

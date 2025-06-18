@@ -40,7 +40,8 @@ public class GeminiProvider implements AIProvider {
     @Value("${ai.providers.gemini.endpoint:https://generativelanguage.googleapis.com/v1/models}")
     private String apiEndpoint;
     
-    @Value("${ai.providers.gemini.model:gemini-2.0-flash}")
+    //@Value("${ai.providers.gemini.model:gemini-2.0-flash}")
+    @Value("${ai.providers.gemini.model:gemini-2.5-pro}")
     private String model;
     
     @Value("${app.tenant.default-id:default}")

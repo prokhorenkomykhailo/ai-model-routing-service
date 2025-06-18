@@ -1,6 +1,5 @@
 package com.lucid.automation.airouting.security;
 
-import com.lucid.automation.airouting.service.JwtService;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.security.SignatureException;
