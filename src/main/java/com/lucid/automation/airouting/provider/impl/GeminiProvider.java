@@ -27,6 +27,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -979,6 +981,8 @@ public class GeminiProvider implements AIProvider {
             null,
             UrgencyLevel.LOW,
             "General",
+            null, // startTime
+            null, // endTime
             List.of(),
             Map.of(),
             List.of(),
@@ -1095,6 +1099,9 @@ public class GeminiProvider implements AIProvider {
         
         UrgencyLevel urgency = mapStringToUrgency(urgencyStr);
         
+        LocalDateTime startTime = extractDateTime(topicMap, "startTime");
+        LocalDateTime endTime = extractDateTime(topicMap, "endTime");
+        
         List<UserDTO> peopleInvolved = extractPeopleInvolved(topicMap);
         Map<String, String> summaryPerPerson = extractStringMap(topicMap, "summaryPerPerson");
         List<ConversationMessage> conversations = extractConversationMessages(topicMap);
@@ -1103,6 +1110,7 @@ public class GeminiProvider implements AIProvider {
         
         return new TopicEnrichment(title, shortSummary, summary, suggestedAction, 
                                  clientOrSupplier, deadline, urgency, category, 
+                                 startTime, endTime,
                                  peopleInvolved, summaryPerPerson, conversations, 
                                  reply, forward);
     }
@@ -1231,5 +1239,31 @@ public class GeminiProvider implements AIProvider {
             return result;
         }
         return List.of();
+    }
+    
+    /**
+     * Extract DateTime from map with ISO format support
+     */
+    private LocalDateTime extractDateTime(Map<?, ?> map, String key) {
+        String dateTimeStr = extractStringValue(map, key, null);
+        if (dateTimeStr == null || dateTimeStr.trim().isEmpty()) {
+            return null;
+        }
+        
+        try {
+            // Try ISO format first (e.g., "2025-06-18T10:30:00Z")
+            if (dateTimeStr.endsWith("Z")) {
+                dateTimeStr = dateTimeStr.substring(0, dateTimeStr.length() - 1);
+            }
+            return LocalDateTime.parse(dateTimeStr, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        } catch (Exception e) {
+            try {
+                // Try without time part (just date)
+                return LocalDateTime.parse(dateTimeStr + "T00:00:00", DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            } catch (Exception e2) {
+                // If all parsing fails, return null
+                return null;
+            }
+        }
     }
 }

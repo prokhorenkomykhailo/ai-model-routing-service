@@ -63,6 +63,14 @@ For each relevant message in the topic:
 - timestamp: ISO 8601 format timestamp from message metadata
 - source: "slack", "email", or other communication platform
 
+## TIMING STRUCTURE
+For startTime and endTime fields:
+- startTime: Use the timestamp of the first message related to this specific topic (not the thread start)
+- endTime: Use the timestamp of the last message related to this specific topic (not the thread end)
+- Format: ISO 8601 format "YYYY-MM-DDTHH:mm:ssZ" (e.g., "2025-06-18T10:30:00Z")
+- Set to null if timing cannot be determined from the available message data
+- For topics spanning multiple conversations, use the earliest start and latest end times
+
 ## INPUT MESSAGE: You will be given a slack message json as an input.
 %s
 ## PEOPLE INVOLVED:
@@ -83,6 +91,8 @@ Always return a JSON array called topics, like so:
   "deadline": "YYYY-MM-DD format if mentioned, else null",
   "urgency": "Low | Medium | High | Critical (based on tone, blockers, or timing)",
   "category": "Sales | Marketing | Customer Service | Finance | Operations | Legal | Procurement | Product | IT | HR | Leadership | R&D | Project Management | Partner Management | Logistics | Admin & Office",
+  "startTime": "YYYY-MM-DDTHH:mm:ssZ format - when the topic/conversation started, or null if not determinable",
+  "endTime": "YYYY-MM-DDTHH:mm:ssZ format - when the topic/conversation ended, or null if not determinable",
   "peopleInvolved": [
     {
       "id": "user123",
@@ -142,6 +152,8 @@ Always return a JSON array called topics, like so:
 - All people mentioned in summaryPerPerson must also appear in peopleInvolved
 - All people in conversations must also appear in peopleInvolved  
 - Use the same username format throughout (e.g., "firstname.lastname")
+- startTime must be earlier than or equal to endTime when both are present
+- Conversation timestamps should fall between startTime and endTime when all are present
 
 ## POST-PROCESSING LOGIC: TOPIC DEDUPLICATION & MERGING
 If run across multiple threads:

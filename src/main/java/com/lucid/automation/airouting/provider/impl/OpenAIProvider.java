@@ -11,9 +11,7 @@ import com.lucid.automation.airouting.dto.MessageEnrichment;
 import com.lucid.automation.airouting.dto.ParticipantInsight;
 import com.lucid.automation.airouting.dto.ConversationEnrichment;
 import com.lucid.automation.airouting.dto.TopicEnrichment;
-import com.lucid.automation.airouting.dto.ConversationMessage;
-import com.lucid.automation.airouting.dto.ReplyInfo;
-import com.lucid.automation.airouting.dto.ForwardInfo;
+
 import com.lucid.automation.airouting.exception.AIProviderConfigurationException;
 import com.lucid.automation.airouting.exception.AIProviderApiException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -478,7 +476,7 @@ public class OpenAIProvider implements AIProvider {
             
             TopicEnrichment topicEnrichment = new TopicEnrichment(
                 topic, summary, summary, "No action suggested", null, null,
-                urgency, GENERAL_CATEGORY, List.of(), Map.of(), List.of(), null, null
+                urgency, GENERAL_CATEGORY, null, null, List.of(), Map.of(), List.of(), null, null
             );
             
             return new ConversationEnrichment(List.of(topicEnrichment), 
@@ -609,6 +607,8 @@ public class OpenAIProvider implements AIProvider {
             null,
             UrgencyLevel.LOW,
             GENERAL_CATEGORY,
+            null, // startTime
+            null, // endTime
             List.of(),
             Map.of(),
             List.of(),
