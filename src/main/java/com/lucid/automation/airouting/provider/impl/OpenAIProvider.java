@@ -475,8 +475,26 @@ public class OpenAIProvider implements AIProvider {
                 .toList();
             
             TopicEnrichment topicEnrichment = new TopicEnrichment(
-                topic, summary, summary, "No action suggested", null, null,
-                urgency, GENERAL_CATEGORY, null, null, List.of(), Map.of(), List.of(), null, null
+                topic, // title
+                summary, // shortSummary
+                summary, // fullSummary
+                "No action suggested", // suggestedAction
+                null, // clientOrSupplier
+                null, // deadline
+                urgency, // urgency
+                GENERAL_CATEGORY, // category
+                null, // subCategory
+                null, // startTime
+                null, // endTime
+                null, // periodStartDate
+                null, // periodEndDate
+                null, // latestMessageDate
+                List.of(), // peopleInvolved
+                List.of(), // summaryPerPerson
+                Map.of(), // lastMessageDatePerPerson
+                List.of(), // conversations
+                List.of(), // suggestedReplies
+                null // suggestedForwardRecipient
             );
             
             return new ConversationEnrichment(List.of(topicEnrichment), 
@@ -599,21 +617,26 @@ public class OpenAIProvider implements AIProvider {
     
     private ConversationEnrichment getDefaultConversationEnrichment() {
         TopicEnrichment defaultTopic = new TopicEnrichment(
-            GENERAL_DISCUSSION,
-            "No summary available",
-            "No detailed summary available",
-            "No action suggested",
-            null,
-            null,
-            UrgencyLevel.LOW,
-            GENERAL_CATEGORY,
+            GENERAL_DISCUSSION, // title
+            "No summary available", // shortSummary
+            "No detailed summary available", // fullSummary
+            "No action suggested", // suggestedAction
+            null, // clientOrSupplier
+            null, // deadline
+            UrgencyLevel.LOW, // urgency
+            GENERAL_CATEGORY, // category
+            null, // subCategory
             null, // startTime
             null, // endTime
-            List.of(),
-            Map.of(),
-            List.of(),
-            null,
-            null
+            null, // periodStartDate
+            null, // periodEndDate
+            null, // latestMessageDate
+            List.of(), // peopleInvolved
+            List.of(), // summaryPerPerson
+            Map.of(), // lastMessageDatePerPerson
+            List.of(), // conversations
+            List.of(), // suggestedReplies
+            null // suggestedForwardRecipient
         );
         
         return new ConversationEnrichment(

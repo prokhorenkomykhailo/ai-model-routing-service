@@ -5,7 +5,6 @@ import com.lucid.automation.airouting.model.AITaskType;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.SlackParticipant;
 import com.lucid.automation.airouting.model.message.AIMessage;
-import com.lucid.automation.airouting.model.message.SlackMessageData;
 import com.lucid.automation.airouting.model.message.SlackParticipantData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -109,12 +108,9 @@ public class AIMessagePublisherService {
             aiMessage.setCorrelationId(correlationId);
             aiMessage.setPriority(determinePriority(taskType));
             
-            // Convert messages and participants to lightweight format
+            // Set messages and participants directly (no conversion needed)
             if (messages != null && !messages.isEmpty()) {
-                List<SlackMessageData> messageData = messages.stream()
-                        .map(messageConverter::convertToMessageData)
-                        .collect(Collectors.toList());
-                aiMessage.setMessages(messageData);
+                aiMessage.setMessages(messages);
             }
             
             if (participants != null && !participants.isEmpty()) {

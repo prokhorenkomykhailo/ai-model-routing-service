@@ -35,37 +35,45 @@ public class IngestionMessageListenerService {
     /**
      * Processes messages from the ingestion.messages.queue
      * 
-     * @param message The ingestion message event received from RabbitMQ
+     * @param ingestionEvent The ingestion message event received from RabbitMQ
      */
     @RabbitListener(queues = "${rabbitmq.queue.ingestion-messages}")
-    public void processIngestionMessage(IngestionEventDTO message) {
+    public void processIngestionMessage(IngestionEventDTO ingestionEvent) {
         logger.info("Received message from ingestion queue: tenantId={}, messageId={}, channelId={}, userId={}",
-                message.getTenantId(), message.getMessageId(), message.getChannelId(), message.getUserId());
+                ingestionEvent.getTenantId(), 
+                ingestionEvent.getMessage() != null ? ingestionEvent.getMessage().getTs() : null, 
+                ingestionEvent.getMessage() != null ? ingestionEvent.getMessage().getChannelId() : null, 
+                ingestionEvent.getMessage() != null ? ingestionEvent.getMessage().getUser() : null);
         
-        if (message.getMessage() == null) {
+        // Log user data information
+        if (ingestionEvent.getUser() != null) {
+            logger.info("User data: slackUserId={}, name={}, displayName={}", 
+                ingestionEvent.getUser().getSlackUserId(),
+                ingestionEvent.getUser().getName(),
+                ingestionEvent.getUser().getDisplayName());
+        } else {
+            logger.warn("No user data present in ingestion event");
+        }
+        
+        if (ingestionEvent.getMessage() == null) {
             logger.warn("Received message with null message data, skipping processing");
             return;
         }
-        
-        if (logger.isDebugEnabled()) {
-            logger.debug("Message details: type={}, subtype={}, teamId={}, conversationGroupId={}, ts={}, ingestedAt={}",
-                message.getMessageType(),
-                message.getSubtype(),
-                message.getTeamId(),
-                message.getConversationGroupId(),
-                message.getTimestamp(),
-                message.getMessage().getIngestedAt());
-        }
-        
+
         try {
             // Save message to Redis for conversation history
-            boolean stored = messageService.storeMessage(message);
+            boolean stored = messageService.storeMessage(ingestionEvent);
             if (stored) {
-                logger.debug("Saved message to Redis: {}", message.getMessageId());
+                logger.info("Successfully saved message to Redis: messageId={}, slackUserId={}", 
+                    ingestionEvent.getMessage().getTs(),
+                    ingestionEvent.getUser() != null ? ingestionEvent.getUser().getSlackUserId() : "null");
+            } else {
+                logger.error("Failed to save message to Redis: messageId={}", 
+                    ingestionEvent.getMessage().getTs());
             }
             
             // Create or update workspace data
-            Workspace workspace = workspaceService.createOrUpdateWorkspace(message);
+            Workspace workspace = workspaceService.createOrUpdateWorkspace(ingestionEvent);
             if (workspace != null) {
                 logger.debug("Updated workspace: {} for tenant: {}", workspace.getId(), workspace.getTenantId());
             }
@@ -73,61 +81,10 @@ public class IngestionMessageListenerService {
             // Process the message for AI routing
             // processMessage(message);
             
-            logger.debug("Successfully processed ingestion message: {}", message.getMessageId());
+            logger.debug("Successfully processed ingestion message: {}", ingestionEvent.getMessageId());
         } catch (Exception e) {
-            logger.error("Error processing ingestion message: {}", message.getMessageId(), e);
+            logger.error("Error processing ingestion message: {}", ingestionEvent.getMessageId(), e);
             // You might want to implement retry logic or send to a dead letter queue
-        }
-    }
-    
-    /**
-     * Processes the message by routing it to appropriate AI services
-     * 
-     * @param message The ingestion message to process
-     */
-    private void processMessage(IngestionEventDTO message) {
-        // Step 1: Check if message meets criteria for processing
-        if (message.getText() == null || message.getText().isEmpty()) {
-            logger.debug("Skipping empty message: {}", message.getMessageId());
-            return;
-        }
-        
-        // Skip system messages like channel_join, channel_leave, etc.
-        if (message.getSubtype() != null && 
-            (message.getSubtype().equals("channel_join") || 
-             message.getSubtype().equals("channel_leave") ||
-             message.getSubtype().equals("bot_message"))) {
-            logger.debug("Skipping system message with subtype: {}", message.getSubtype());
-            return;
-        }
-        
-        logger.info("Processing message: id={}, text='{}', type={}, subtype={}", 
-                message.getMessageId(), 
-                message.getText().length() > 50 ? message.getText().substring(0, 47) + "..." : message.getText(),
-                message.getMessageType(),
-                message.getSubtype());
-        
-        // Step 2: Route to appropriate AI tasks based on content
-        try {
-            // Categorize the message
-            AIRequest categorizeRequest = createAIRequest(AITaskType.CATEGORIZE, message);
-            aiRoutingService.processRequest(categorizeRequest);
-            
-            // Analyze sentiment
-            AIRequest sentimentRequest = createAIRequest(AITaskType.SENTIMENT_ANALYSIS, message);
-            aiRoutingService.processRequest(sentimentRequest);
-            
-            // Generate topic
-            AIRequest topicRequest = createAIRequest(AITaskType.GENERATE_TOPIC, message);
-            aiRoutingService.processRequest(topicRequest);
-            
-            // Extract entities
-            AIRequest entityRequest = createAIRequest(AITaskType.EXTRACT_ENTITIES, message);
-            aiRoutingService.processRequest(entityRequest);
-            
-            logger.info("Message processing routed successfully: {}", message.getMessageId());
-        } catch (Exception e) {
-            logger.error("Error routing AI tasks for message: {}", message.getMessageId(), e);
         }
     }
     

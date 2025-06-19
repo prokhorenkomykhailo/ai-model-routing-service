@@ -2,16 +2,20 @@ package com.lucid.automation.airouting.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Data Transfer Object for messages received from the ingestion queue
+ * DTO for publishing messages to RabbitMQ for AI processing
+ * Matches the structure from lucid-slack-ingestion-service
  */
 @Data
 @Builder
@@ -20,10 +24,21 @@ import java.util.Map;
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class IngestionEventDTO {
+    
+    @JsonProperty("tenantId")
     private String tenantId;
+    
+    @JsonProperty("tenantSchema")
     private String tenantSchema;
+    
+    @JsonProperty("message")
     private MessageData message;
-    private Double ingestedAt;
+    
+    @JsonProperty("user")
+    private UserData user;
+    
+    @JsonProperty("ingestedAt")
+    private Instant ingestedAt;
     
     @Data
     @Builder
@@ -62,6 +77,98 @@ public class IngestionEventDTO {
         public String getMessageType() {
             return type;
         }
+    }
+    
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class UserData {
+        @JsonProperty("id")
+        private Long id;
+        
+        @JsonProperty("slackUserId")
+        private String slackUserId;
+        
+        @JsonProperty("teamId")
+        private String teamId;
+        
+        @JsonProperty("name")
+        private String name;
+        
+        @JsonProperty("emailConfirmed")
+        private Boolean emailConfirmed;
+        
+        @JsonProperty("displayName")
+        private String displayName;
+        
+        @JsonProperty("displayNameNormalized")
+        private String displayNameNormalized;
+        
+        @JsonProperty("realNameNormalized")
+        private String realNameNormalized;
+        
+        @JsonProperty("email")
+        private String email;
+        
+        @JsonProperty("title")
+        private String title;
+        
+        @JsonProperty("phone")
+        private String phone;
+        
+        @JsonProperty("firstName")
+        private String firstName;
+        
+        @JsonProperty("lastName")
+        private String lastName;
+        
+        @JsonProperty("pronouns")
+        private String pronouns;
+        
+        @JsonProperty("statusText")
+        private String statusText;
+        
+        @JsonProperty("avatarHash")
+        private String avatarHash;
+        
+        @JsonProperty("imageOriginal")
+        private String imageOriginal;
+        
+        @JsonProperty("image24")
+        private String image24;
+        
+        @JsonProperty("image32")
+        private String image32;
+        
+        @JsonProperty("image48")
+        private String image48;
+        
+        @JsonProperty("image72")
+        private String image72;
+        
+        @JsonProperty("image192")
+        private String image192;
+        
+        @JsonProperty("image512")
+        private String image512;
+        
+        @JsonProperty("image1024")
+        private String image1024;
+        
+        @JsonProperty("teamName")
+        private String teamName;
+        
+        @JsonProperty("slackUpdatedAt")
+        private Long slackUpdatedAt;
+        
+        @JsonProperty("createdAt")
+        private LocalDateTime createdAt;
+        
+        @JsonProperty("updatedAt")
+        private LocalDateTime updatedAt;
     }
     
     // Helper methods to maintain backward compatibility with existing code

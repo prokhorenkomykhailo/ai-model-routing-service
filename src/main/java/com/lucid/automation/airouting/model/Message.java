@@ -101,6 +101,132 @@ public class Message implements Serializable {
      */
     private String username;
     
+    // User profile fields from UserData
+    /**
+     * Slack user ID
+     */
+    private String slackUserId;
+    
+    /**
+     * Team ID the user belongs to
+     */
+    private String teamId;
+    
+    /**
+     * User's full name
+     */
+    private String name;
+    
+    /**
+     * Whether user's email is confirmed
+     */
+    private Boolean emailConfirmed;
+    
+    /**
+     * User's display name
+     */
+    private String displayName;
+    
+    /**
+     * Normalized display name
+     */
+    private String displayNameNormalized;
+    
+    /**
+     * Normalized real name
+     */
+    private String realNameNormalized;
+    
+    /**
+     * User's email address
+     */
+    private String email;
+    
+    /**
+     * User's job title
+     */
+    private String title;
+    
+    /**
+     * User's phone number
+     */
+    private String phone;
+    
+    /**
+     * User's first name
+     */
+    private String firstName;
+    
+    /**
+     * User's last name
+     */
+    private String lastName;
+    
+    /**
+     * User's pronouns
+     */
+    private String pronouns;
+    
+    /**
+     * User's status text
+     */
+    private String statusText;
+    
+    /**
+     * User's avatar hash
+     */
+    private String avatarHash;
+    
+    /**
+     * User's original image URL
+     */
+    private String imageOriginal;
+    
+    /**
+     * User's 24px image URL
+     */
+    private String image24;
+    
+    /**
+     * User's 32px image URL
+     */
+    private String image32;
+    
+    /**
+     * User's 48px image URL
+     */
+    private String image48;
+    
+    /**
+     * User's 72px image URL
+     */
+    private String image72;
+    
+    /**
+     * User's 192px image URL
+     */
+    private String image192;
+    
+    /**
+     * User's 512px image URL
+     */
+    private String image512;
+    
+    /**
+     * User's 1024px image URL
+     */
+    private String image1024;
+    
+    /**
+     * Team name the user belongs to
+     */
+    private String teamName;
+    
+    /**
+     * Slack updated timestamp for the user
+     */
+    private Long slackUpdatedAt;
+    
     /**
      * Message text content
      */

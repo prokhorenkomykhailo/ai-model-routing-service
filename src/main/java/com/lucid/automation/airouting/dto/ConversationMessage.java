@@ -16,6 +16,9 @@ public record ConversationMessage(
     @JsonProperty("username")
     String username,
     
+    @JsonProperty("displayName")
+    String displayName,
+    
     @JsonProperty("sender")
     String sender,
     
@@ -31,6 +34,12 @@ public record ConversationMessage(
     @JsonProperty("source")
     String source,
     
+    @JsonProperty("messageType")
+    String messageType,
+    
+    @JsonProperty("isRelevantToTopic")
+    Boolean isRelevantToTopic,
+    
     @JsonProperty("relevance")
     String relevance
 ) {
@@ -42,11 +51,14 @@ public record ConversationMessage(
         return new ConversationMessage(
             null, // id
             null, // username
+            null, // displayName
             null, // sender
             null, // imageUrl
             text,
             null, // timestamp
             "legacy", // source
+            null, // messageType
+            null, // isRelevantToTopic
             relevance
         );
     }

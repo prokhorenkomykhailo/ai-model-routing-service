@@ -43,19 +43,26 @@ public class MessageService {
     /**
      * Saves a message to Redis
      * 
-     * @param message The ingestion message event to save
+     * @param ingestionEventDto The ingestion message event to save
      * @return The saved message
      */
-    public Message saveMessage(IngestionEventDTO message) {
-        if (message == null || message.getMessage() == null) {
+    public Message saveMessage(IngestionEventDTO ingestionEventDto) {
+        if (ingestionEventDto == null || ingestionEventDto.getMessage() == null) {
             logger.warn("Cannot save null message to Redis");
             return null;
         }
         
         try {
-            Message messageToSave = mapToMessage(message);
+            Message messageToSave = mapToMessage(ingestionEventDto);
             logger.debug("Saving message to Redis: {}", messageToSave.getId());
-            return messageRepository.save(messageToSave);
+            logger.debug("Message user data: slackUserId={}, name={}, displayName={}", 
+                messageToSave.getSlackUserId(), messageToSave.getName(), messageToSave.getDisplayName());
+            
+            Message savedMessage = messageRepository.save(messageToSave);
+            logger.info("Successfully saved message to Redis with user data: messageId={}, slackUserId={}, name={}", 
+                savedMessage.getId(), savedMessage.getSlackUserId(), savedMessage.getName());
+            
+            return savedMessage;
         } catch (Exception e) {
             logger.error("Error saving message to Redis", e);
             return null;
@@ -168,16 +175,26 @@ public class MessageService {
      * @return The mapped Message
      */
     private Message mapToMessage(IngestionEventDTO dto) {
-        String messageTs = dto.getTimestamp();
-        String threadTs = dto.getThreadTs() != null ? dto.getThreadTs() : messageTs;
+        logger.debug("Mapping IngestionEventDTO to Message: messageId={}", dto.getMessageId());
+        logger.debug("User data present: {}", dto.getUser() != null);
+        if (dto.getUser() != null) {
+            logger.debug("User details: slackUserId={}, name={}, displayName={}, email={}", 
+                dto.getUser().getSlackUserId(), dto.getUser().getName(), 
+                dto.getUser().getDisplayName(), dto.getUser().getEmail());
+        }
+        
+        // Extract message timestamp and thread timestamp from the message object
+        String messageTs = dto.getMessage() != null ? dto.getMessage().getTs() : null;
+        String threadTs = dto.getMessage() != null && dto.getMessage().getThreadTs() != null ? 
+            dto.getMessage().getThreadTs() : messageTs;
         
         // Generate a unique ID: tenantId:workspaceId:channelId:threadTs:messageTs
         String id = String.join(":", 
                 dto.getTenantId(), 
-                dto.getTeamId(), 
-                dto.getChannelId(), 
-                threadTs, 
-                messageTs);
+                dto.getMessage() != null ? dto.getMessage().getTeamId() : "", 
+                dto.getMessage() != null ? dto.getMessage().getChannelId() : "", 
+                threadTs != null ? threadTs : "", 
+                messageTs != null ? messageTs : "");
         
         Map<String, Object> metadata = new HashMap<>();
         if (dto.getMetadata() != null) {
@@ -197,21 +214,51 @@ public class MessageService {
         Message message = Message.builder()
                 .id(id)
                 .tenantId(dto.getTenantId())
-                .workspaceId(dto.getTeamId())
-                .channelId(dto.getChannelId())
+                .workspaceId(dto.getMessage() != null ? dto.getMessage().getTeamId() : null)
+                .channelId(dto.getMessage() != null ? dto.getMessage().getChannelId() : null)
                 .threadTs(threadTs)
                 .messageTs(messageTs)
-                .userId(dto.getUserId())
-                .username(dto.getUsername())
-                .text(dto.getText())
-                .messageType(dto.getMessageType())
-                .subtype(dto.getSubtype())
+                .userId(dto.getMessage() != null ? dto.getMessage().getUser() : null)
+                .username(dto.getUser() != null ? dto.getUser().getName() : null)
+                .text(dto.getMessage() != null ? dto.getMessage().getText() : null)
+                .messageType(dto.getMessage() != null ? dto.getMessage().getType() : null)
+                .subtype(dto.getMessage() != null ? dto.getMessage().getSubtype() : null)
                 .metadata(metadata)
                 .ingestedAt(Instant.now().toEpochMilli())
+                // User profile fields from UserData
+                .slackUserId(dto.getUser() != null ? dto.getUser().getSlackUserId() : null)
+                .teamId(dto.getUser() != null ? dto.getUser().getTeamId() : 
+                    (dto.getMessage() != null ? dto.getMessage().getTeamId() : null))
+                .name(dto.getUser() != null ? dto.getUser().getName() : null)
+                .emailConfirmed(dto.getUser() != null ? dto.getUser().getEmailConfirmed() : null)
+                .displayName(dto.getUser() != null ? dto.getUser().getDisplayName() : null)
+                .displayNameNormalized(dto.getUser() != null ? dto.getUser().getDisplayNameNormalized() : null)
+                .realNameNormalized(dto.getUser() != null ? dto.getUser().getRealNameNormalized() : null)
+                .email(dto.getUser() != null ? dto.getUser().getEmail() : null)
+                .title(dto.getUser() != null ? dto.getUser().getTitle() : null)
+                .phone(dto.getUser() != null ? dto.getUser().getPhone() : null)
+                .firstName(dto.getUser() != null ? dto.getUser().getFirstName() : null)
+                .lastName(dto.getUser() != null ? dto.getUser().getLastName() : null)
+                .pronouns(dto.getUser() != null ? dto.getUser().getPronouns() : null)
+                .statusText(dto.getUser() != null ? dto.getUser().getStatusText() : null)
+                .avatarHash(dto.getUser() != null ? dto.getUser().getAvatarHash() : null)
+                .imageOriginal(dto.getUser() != null ? dto.getUser().getImageOriginal() : null)
+                .image24(dto.getUser() != null ? dto.getUser().getImage24() : null)
+                .image32(dto.getUser() != null ? dto.getUser().getImage32() : null)
+                .image48(dto.getUser() != null ? dto.getUser().getImage48() : null)
+                .image72(dto.getUser() != null ? dto.getUser().getImage72() : null)
+                .image192(dto.getUser() != null ? dto.getUser().getImage192() : null)
+                .image512(dto.getUser() != null ? dto.getUser().getImage512() : null)
+                .image1024(dto.getUser() != null ? dto.getUser().getImage1024() : null)
+                .teamName(dto.getUser() != null ? dto.getUser().getTeamName() : null)
+                .slackUpdatedAt(dto.getUser() != null ? dto.getUser().getSlackUpdatedAt() : null)
                 .build();
                 
         // Update composite indexes for optimized queries
         message.updateCompositeIndexes();
+        
+        logger.debug("Mapped message with ID: {}, user: {}, slackUserId: {}", 
+            message.getId(), message.getName(), message.getSlackUserId());
         
         return message;
     }
@@ -335,32 +382,31 @@ public class MessageService {
     /**
      * Store a message in the conversation history with automatic trimming
      * 
-     * @param message The IngestionEventDTO to store
+     * @param ingestionEventDto The IngestionEventDTO to store
      * @return true if the message was stored successfully, false otherwise
      */
-    public boolean storeMessage(IngestionEventDTO message) {
-        if (message == null || message.getMessage() == null) {
+    public boolean storeMessage(IngestionEventDTO ingestionEventDto) {
+        if (ingestionEventDto == null || ingestionEventDto.getMessage() == null) {
             logger.warn("Cannot store null message");
             return false;
         }
         
         try {
-            Message savedMessage = saveMessage(message);
+            Message savedMessage = saveMessage(ingestionEventDto);
             if (savedMessage != null) {
-                logger.debug("Successfully stored message: {}", message.getMessageId());
-                
+                logger.debug("Successfully stored message: {}", ingestionEventDto.getMessageId());
                 // Trim conversation if it exceeds maximum size
-                String threadTs = message.getThreadTs() != null ? message.getThreadTs() : message.getTimestamp();
-                trimConversationIfNeeded(
-                        message.getTenantId(), 
-                        message.getTeamId(), 
-                        message.getChannelId(), 
-                        threadTs);
+                // String threadTs = ingestionEventDto.getThreadTs() != null ? ingestionEventDto.getThreadTs() : ingestionEventDto.getTimestamp();
+                // trimConversationIfNeeded(
+                //         ingestionEventDto.getTenantId(), 
+                //         ingestionEventDto.getTeamId(), 
+                //         ingestionEventDto.getChannelId(), 
+                //         threadTs);
                 
                 return true;
             }
         } catch (Exception e) {
-            logger.error("Error storing message: {}", message.getMessageId(), e);
+            logger.error("Error storing message: {}", ingestionEventDto.getMessageId(), e);
         }
         
         return false;

@@ -2,6 +2,7 @@ package com.lucid.automation.airouting.model.message;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.lucid.automation.airouting.model.AITaskType;
+import com.lucid.automation.airouting.model.SlackMessage;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
@@ -36,7 +37,7 @@ public class AIMessage {
     private String conversationId;
     
     @JsonProperty("messages")
-    private List<SlackMessageData> messages;
+    private List<SlackMessage> messages;
     
     @JsonProperty("participants")
     private List<SlackParticipantData> participants;
@@ -97,8 +98,8 @@ public class AIMessage {
     public String getConversationId() { return conversationId; }
     public void setConversationId(String conversationId) { this.conversationId = conversationId; }
     
-    public List<SlackMessageData> getMessages() { return messages; }
-    public void setMessages(List<SlackMessageData> messages) { this.messages = messages; }
+    public List<SlackMessage> getMessages() { return messages; }
+    public void setMessages(List<SlackMessage> messages) { this.messages = messages; }
     
     public List<SlackParticipantData> getParticipants() { return participants; }
     public void setParticipants(List<SlackParticipantData> participants) { this.participants = participants; }

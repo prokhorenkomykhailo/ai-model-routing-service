@@ -119,7 +119,7 @@ public class WorkspaceService {
     private Instant parseMessageTime(IngestionEventDTO dto, IngestionEventDTO.MessageData messageData) {
         // Try to use ingestedAt first
         if (dto.getIngestedAt() != null) {
-            return Instant.ofEpochMilli(dto.getIngestedAt().longValue() * 1000);
+            return dto.getIngestedAt();
         }
         
         // Try to parse message timestamp

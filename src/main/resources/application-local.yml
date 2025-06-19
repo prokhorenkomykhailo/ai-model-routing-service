@@ -1,6 +1,15 @@
 spring:
   application:
     name: ai-routing-service
+  
+  # Redis Configuration for local development
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000
+      database: 0
 
 # Local AI provider configurations with mock/test keys
 ai:

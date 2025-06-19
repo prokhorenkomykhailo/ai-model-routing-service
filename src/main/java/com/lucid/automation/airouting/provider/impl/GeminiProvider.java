@@ -14,6 +14,8 @@ import com.lucid.automation.airouting.dto.ConversationEnrichment;
 import com.lucid.automation.airouting.dto.TopicEnrichment;
 import com.lucid.automation.airouting.dto.ConversationMessage;
 import com.lucid.automation.airouting.dto.UserDTO;
+import com.lucid.automation.airouting.dto.SummaryPerPerson;
+import com.lucid.automation.airouting.dto.SuggestedReply;
 import com.lucid.automation.airouting.dto.ReplyInfo;
 import com.lucid.automation.airouting.dto.ForwardInfo;
 import com.lucid.automation.airouting.dto.CategoryDTO;
@@ -43,8 +45,8 @@ public class GeminiProvider implements AIProvider {
     @Value("${ai.providers.gemini.endpoint:https://generativelanguage.googleapis.com/v1/models}")
     private String apiEndpoint;
     
-    //@Value("${ai.providers.gemini.model:gemini-2.0-flash}")
-    @Value("${ai.providers.gemini.model:gemini-2.5-pro}")
+    @Value("${ai.providers.gemini.model:gemini-2.0-flash}")
+    //@Value("${ai.providers.gemini.model:gemini-2.5-pro}")
     private String model;
     
     @Value("${app.tenant.default-id:default}")
@@ -193,35 +195,24 @@ public class GeminiProvider implements AIProvider {
         try {
             int messagesCount = messages != null ? messages.size() : 0;
             int participantsCount = participants != null ? participants.size() : 0;
-            int categoriesCount = availableCategories != null ? availableCategories.size() : 0;
-            logger.info("GEMINI-DEBUG [{}]: Starting conversation enrichment - {} messages, {} participants, {} categories provided", 
-                       debugId, messagesCount, participantsCount, categoriesCount);
+            logger.info("GEMINI-DEBUG [{}]: Starting conversation enrichment - {} messages, {} participants", 
+                       debugId, messagesCount, participantsCount);
             
             // Input validation
             if (messages == null || messages.isEmpty()) {
-                logger.warn("GEMINI-DEBUG [{}]: No messages provided for conversation enrichment", debugId);
                 return getDefaultConversationEnrichment();
             }
             
             if (!isClientAvailable) {
-                logger.warn("GEMINI-DEBUG [{}]: Client not available for conversation enrichment", debugId);
                 return getDefaultConversationEnrichment();
             }
             
-            String conversationText = formatConversationForAnalysis(messages);
-            logger.debug("GEMINI-DEBUG [{}]: Formatted conversation text, length: {}", debugId, conversationText.length());
-            
-            // Use provided categories or fetch from data storage service if none provided
-            List<String> categoriesToUse = (availableCategories != null && !availableCategories.isEmpty()) 
-                ? availableCategories 
-                : fetchAvailableCategories(debugId);
-            
+            String conversationText = formatConversationForAnalysis(messages);            
+            List<String> categoriesToUse = List.of();
             String prompt = buildConversationEnrichmentPrompt(conversationText, participants, categoriesToUse);
-            logger.debug("GEMINI-DEBUG [{}]: Built enrichment prompt, length: {}", debugId, prompt.length());
             logger.debug("GEMINI-DEBUG [{}]: Full prompt being sent: {}", debugId, prompt);
             
             String response = callGeminiAPI(prompt);
-            logger.debug("GEMINI-DEBUG [{}]: Received API response for conversation enrichment", debugId);
             logger.debug("GEMINI-DEBUG [{}]: Raw response received: {}", debugId, response);
             
             ConversationEnrichment result = parseConversationEnrichmentResponse(response, messages, participants);
@@ -522,35 +513,6 @@ public class GeminiProvider implements AIProvider {
         return lastConfidence;
     }
     
-    /**
-     * Fetches available categories from the data storage service with error handling
-     */
-    private List<String> fetchAvailableCategories(String debugId) {
-        try {
-            logger.debug("GEMINI-DEBUG [{}]: Fetching categories from data storage service", debugId);
-            APIResponse<List<CategoryDTO>> response = dataStorageServiceClient.getAllCategories(
-                defaultTenantId, defaultTenantSchema);
-            
-            if (response != null && response.getData() != null && !response.getData().isEmpty()) {
-                List<String> categoryNames = response.getData().stream()
-                    .map(CategoryDTO::getName)
-                    .filter(name -> name != null && !name.trim().isEmpty())
-                    .toList();
-                
-                logger.debug("GEMINI-DEBUG [{}]: Successfully fetched {} categories", debugId, categoryNames.size());
-                return categoryNames;
-            } else {
-                logger.warn("GEMINI-DEBUG [{}]: No categories returned from data storage service", debugId);
-                return List.of();
-            }
-            
-        } catch (Exception e) {
-            logger.warn("GEMINI-DEBUG [{}]: Failed to fetch categories from data storage service: {}", 
-                       debugId, e.getMessage(), e);
-            return List.of(); // Return empty list to trigger fallback categories
-        }
-    }
-    
     // Private helper methods
     private String callGeminiAPI(String prompt) {
         try {
@@ -766,6 +728,21 @@ public class GeminiProvider implements AIProvider {
         return value instanceof String str ? str : defaultValue;
     }
     
+    private Integer extractIntegerValue(Map<?, ?> map, String key, Integer defaultValue) {
+        Object value = map.get(key);
+        if (value instanceof Integer intValue) {
+            return intValue;
+        } else if (value instanceof String strValue) {
+            try {
+                return Integer.parseInt(strValue);
+            } catch (NumberFormatException e) {
+                logger.warn("Failed to parse integer value '{}' for key '{}', using default: {}", strValue, key, defaultValue);
+                return defaultValue;
+            }
+        }
+        return defaultValue;
+    }
+    
     private UrgencyLevel extractUrgencyFromPriority(Map<?, ?> topicMap) {
         String priorityStr = extractStringValue(topicMap, "priority", "LOW").toUpperCase();
         return mapPriorityToUrgency(priorityStr);
@@ -966,28 +943,109 @@ public class GeminiProvider implements AIProvider {
     // Utility methods
     private String formatConversationForAnalysis(List<SlackMessage> messages) {
         return messages.stream()
-            .map(msg -> String.format("[%s] %s: %s", 
-                msg.getTimestamp(), msg.getUsername(), msg.getContent()))
-            .collect(Collectors.joining("\n"));
+            .map(this::formatMessageForAnalysis)
+            .collect(Collectors.joining("\n\n"));
     }
     
+    private String formatMessageForAnalysis(SlackMessage msg) {
+        StringBuilder formatted = new StringBuilder();
+        
+        // Basic message info
+        formatted.append(String.format("MESSAGE ID: %s\n", safeString(msg.getId())));
+        formatted.append(String.format("TIMESTAMP: %s\n", msg.getTimestamp()));
+        formatted.append(String.format("USER: %s", safeString(msg.getUsername())));
+        
+        // User profile info if available
+        if (msg.getDisplayName() != null && !msg.getDisplayName().equals(msg.getUsername())) {
+            formatted.append(String.format(" (Display: %s)", msg.getDisplayName()));
+        }
+        if (msg.getEmail() != null) {
+            formatted.append(String.format(" <%s>", msg.getEmail()));
+        }
+        if (msg.getTitle() != null) {
+            formatted.append(String.format(" [%s]", msg.getTitle()));
+        }
+        formatted.append("\n");
+        
+        // Channel and thread context
+        formatted.append(String.format("CHANNEL: %s\n", safeString(msg.getChannelId())));
+        if (msg.getThreadTs() != null) {
+            formatted.append(String.format("THREAD: %s\n", msg.getThreadTs()));
+        }
+        
+        // Message type and metadata
+        if (msg.getMessageType() != null) {
+            formatted.append(String.format("TYPE: %s\n", msg.getMessageType()));
+        }
+        if (msg.getSubtype() != null) {
+            formatted.append(String.format("SUBTYPE: %s\n", msg.getSubtype()));
+        }
+        
+        // Message content (prioritize content over text)
+        String content = msg.getContent();
+        if (content == null || content.trim().isEmpty()) {
+            content = msg.getText();
+        }
+        formatted.append(String.format("CONTENT: %s\n", safeString(content)));
+        
+        // Attachments and files info
+        if (msg.getFiles() != null && !msg.getFiles().isEmpty()) {
+            formatted.append(String.format("FILES: %d attached\n", msg.getFiles().size()));
+        }
+        if (msg.getAttachments() != null && !msg.getAttachments().isEmpty()) {
+            formatted.append(String.format("ATTACHMENTS: %d attached\n", msg.getAttachments().size()));
+        }
+        
+        // Reactions and replies
+        if (msg.getReactions() != null && !msg.getReactions().isEmpty()) {
+            formatted.append(String.format("REACTIONS: %d reactions\n", msg.getReactions().size()));
+        }
+        if (msg.getReplyCount() > 0) {
+            formatted.append(String.format("REPLIES: %d replies\n", msg.getReplyCount()));
+        }
+        
+        // Tenant and workspace context
+        if (msg.getTenantId() != null) {
+            formatted.append(String.format("TENANT: %s\n", msg.getTenantId()));
+        }
+        if (msg.getWorkspaceId() != null) {
+            formatted.append(String.format("WORKSPACE: %s\n", msg.getWorkspaceId()));
+        }
+        
+        // Additional metadata
+        if (msg.getMetadata() != null && !msg.getMetadata().isEmpty()) {
+            formatted.append("METADATA: ").append(msg.getMetadata().toString()).append("\n");
+        }
+        
+        return formatted.toString().trim();
+    }
+    
+    private String safeString(String value) {
+        return value != null ? value : "N/A";
+    }
+
     private ConversationEnrichment getDefaultConversationEnrichment() {
         TopicEnrichment defaultTopic = new TopicEnrichment(
             "General Discussion",
             "No summary available", 
             "No detailed summary available",
             "No action suggested",
-            null,
-            null,
+            null, // clientOrSupplier
+            null, // deadline
             UrgencyLevel.LOW,
-            "General",
+            "General", // category
+            null, // subCategory
             null, // startTime
             null, // endTime
-            List.of(),
-            Map.of(),
-            List.of(),
-            null,
-            null
+            null, // periodStartDate
+            null, // periodEndDate
+            null, // latestMessageDate
+            List.of(), // peopleInvolved
+            List.of(), // summaryPerPerson
+            Map.of(), // lastMessageDatePerPerson
+            List.of(), // conversations
+            List.of(), // suggestedReplies
+            null // suggestedForwardRecipient
         );
         
         return new ConversationEnrichment(
@@ -1090,12 +1148,16 @@ public class GeminiProvider implements AIProvider {
     private TopicEnrichment parseTopicFromMap(Map<?, ?> topicMap) {
         String title = extractStringValue(topicMap, "title", "Untitled Topic");
         String shortSummary = extractStringValue(topicMap, "shortSummary", "No summary available");
-        String summary = extractStringValue(topicMap, "summary", "No detailed summary available");
+        String fullSummary = extractStringValue(topicMap, "fullSummary", "No detailed summary available");
         String suggestedAction = extractStringValue(topicMap, "suggestedAction", "No action suggested");
         String clientOrSupplier = extractStringValue(topicMap, "clientOrSupplier", null);
         String deadline = extractStringValue(topicMap, "deadline", null);
         String urgencyStr = extractStringValue(topicMap, "urgency", "Low");
         String category = extractStringValue(topicMap, "category", "General");
+        String subCategory = extractStringValue(topicMap, "subCategory", null);
+        String periodStartDate = extractStringValue(topicMap, "periodStartDate", null);
+        String periodEndDate = extractStringValue(topicMap, "periodEndDate", null);
+        String latestMessageDate = extractStringValue(topicMap, "latestMessageDate", null);
         
         UrgencyLevel urgency = mapStringToUrgency(urgencyStr);
         
@@ -1103,16 +1165,17 @@ public class GeminiProvider implements AIProvider {
         LocalDateTime endTime = extractDateTime(topicMap, "endTime");
         
         List<UserDTO> peopleInvolved = extractPeopleInvolved(topicMap);
-        Map<String, String> summaryPerPerson = extractStringMap(topicMap, "summaryPerPerson");
+        List<SummaryPerPerson> summaryPerPerson = extractSummaryPerPerson(topicMap);
+        Map<String, String> lastMessageDatePerPerson = extractStringMap(topicMap, "lastMessageDatePerPerson");
         List<ConversationMessage> conversations = extractConversationMessages(topicMap);
-        ReplyInfo reply = extractReplyInfo(topicMap);
-        ForwardInfo forward = extractForwardInfo(topicMap);
+        List<SuggestedReply> suggestedReplies = extractSuggestedReplies(topicMap);
+        ForwardInfo suggestedForwardRecipient = extractForwardInfo(topicMap);
         
-        return new TopicEnrichment(title, shortSummary, summary, suggestedAction, 
-                                 clientOrSupplier, deadline, urgency, category, 
-                                 startTime, endTime,
-                                 peopleInvolved, summaryPerPerson, conversations, 
-                                 reply, forward);
+        return new TopicEnrichment(title, shortSummary, fullSummary, suggestedAction, 
+                                 clientOrSupplier, deadline, urgency, category, subCategory,
+                                 startTime, endTime, periodStartDate, periodEndDate, latestMessageDate,
+                                 peopleInvolved, summaryPerPerson, lastMessageDatePerPerson, conversations, 
+                                 suggestedReplies, suggestedForwardRecipient);
     }
     
     private UrgencyLevel mapStringToUrgency(String urgencyStr) {
@@ -1163,15 +1226,18 @@ public class GeminiProvider implements AIProvider {
                         // New format: full conversation message
                         String id = extractStringValue(convMap, "id", null);
                         String username = extractStringValue(convMap, "username", null);
+                        String displayName = extractStringValue(convMap, "displayName", null);
                         String sender = extractStringValue(convMap, "sender", null);
                         String imageUrl = extractStringValue(convMap, "imageUrl", null);
                         String text = extractStringValue(convMap, "text", "");
                         String timestamp = extractStringValue(convMap, "timestamp", null);
                         String source = extractStringValue(convMap, "source", null);
+                        String messageType = extractStringValue(convMap, "messageType", null);
+                        Boolean isRelevantToTopic = extractBooleanValue(convMap, "isRelevantToTopic", null);
                         String relevance = extractStringValue(convMap, "relevance", null);
                         
-                        messages.add(new ConversationMessage(id, username, sender, imageUrl, 
-                                                           text, timestamp, source, relevance));
+                        messages.add(new ConversationMessage(id, username, displayName, sender, imageUrl, 
+                                                           text, timestamp, source, messageType, isRelevantToTopic, relevance));
                     } else {
                         // Old format: just text and relevance
                         String text = extractStringValue(convMap, "text", "");
@@ -1265,5 +1331,82 @@ public class GeminiProvider implements AIProvider {
                 return null;
             }
         }
+    }
+    
+    private List<SummaryPerPerson> extractSummaryPerPerson(Map<?, ?> topicMap) {
+        Object summaryPerPersonObj = topicMap.get("summaryPerPerson");
+        if (summaryPerPersonObj instanceof List<?> summaryList) {
+            List<SummaryPerPerson> summaries = new ArrayList<>();
+            
+            for (Object summaryObj : summaryList) {
+                if (summaryObj instanceof Map<?, ?> summaryMap) {
+                    String id = extractStringValue(summaryMap, "id", null);
+                    String username = extractStringValue(summaryMap, "username", null);
+                    String displayName = extractStringValue(summaryMap, "displayName", null);
+                    String imageUrl = extractStringValue(summaryMap, "imageUrl", null);
+                    String summary = extractStringValue(summaryMap, "summary", "No summary available");
+                    String role = extractStringValue(summaryMap, "role", null);
+                    Integer messageCount = extractIntegerValue(summaryMap, "messageCount", 0);
+                    LocalDateTime firstMessageDate = extractDateTime(summaryMap, "firstMessageDate");
+                    LocalDateTime lastMessageDate = extractDateTime(summaryMap, "lastMessageDate");
+                    List<String> keyContributions = extractStringList(summaryMap, "keyContributions");
+                    List<String> actionItems = extractStringList(summaryMap, "actionItems");
+                    
+                    SummaryPerPerson summaryPerPerson = new SummaryPerPerson(
+                        id, username, displayName, imageUrl, summary, role,
+                        messageCount, firstMessageDate, lastMessageDate,
+                        keyContributions, actionItems
+                    );
+                    summaries.add(summaryPerPerson);
+                }
+            }
+            return summaries;
+        }
+        return List.of();
+    }
+    
+    private List<SuggestedReply> extractSuggestedReplies(Map<?, ?> topicMap) {
+        Object suggestedRepliesObj = topicMap.get("suggestedReplies");
+        if (suggestedRepliesObj instanceof List<?> repliesList) {
+            List<SuggestedReply> replies = new ArrayList<>();
+            
+            for (Object replyObj : repliesList) {
+                if (replyObj instanceof Map<?, ?> replyMap) {
+                    String tone = extractStringValue(replyMap, "tone", null);
+                    String replyMethod = extractStringValue(replyMap, "replyMethod", null);
+                    String recipientHandle = extractStringValue(replyMap, "recipientHandle", null);
+                    String channelName = extractStringValue(replyMap, "channelName", null);
+                    String channelId = extractStringValue(replyMap, "channelId", null);
+                    String threadId = extractStringValue(replyMap, "threadId", null);
+                    String to = extractStringValue(replyMap, "to", null);
+                    List<String> cc = extractStringList(replyMap, "cc");
+                    String subject = extractStringValue(replyMap, "subject", null);
+                    String messageBody = extractStringValue(replyMap, "messageBody", "");
+                    
+                    SuggestedReply suggestedReply = new SuggestedReply(
+                        tone, replyMethod, recipientHandle, channelName, channelId,
+                        threadId, to, cc, subject, messageBody
+                    );
+                    replies.add(suggestedReply);
+                }
+            }
+            return replies;
+        }
+        return List.of();
+    }
+    
+    private Boolean extractBooleanValue(Map<?, ?> map, String key, Boolean defaultValue) {
+        Object value = map.get(key);
+        if (value instanceof Boolean boolValue) {
+            return boolValue;
+        } else if (value instanceof String strValue) {
+            try {
+                return Boolean.parseBoolean(strValue);
+            } catch (Exception e) {
+                logger.warn("Failed to parse boolean value '{}' for key '{}', using default: {}", strValue, key, defaultValue);
+                return defaultValue;
+            }
+        }
+        return defaultValue;
     }
 }
