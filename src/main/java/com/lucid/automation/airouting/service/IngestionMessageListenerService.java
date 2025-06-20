@@ -21,15 +21,18 @@ public class IngestionMessageListenerService {
     
     private final MessageService messageService;
     private final WorkspaceService workspaceService;
+    private final UserService userService;
     
-    public IngestionMessageListenerService(MessageService messageService, WorkspaceService workspaceService) {
+    public IngestionMessageListenerService(MessageService messageService, WorkspaceService workspaceService, UserService userService) {
         this.messageService = messageService;
         this.workspaceService = workspaceService;
+        this.userService = userService;
         
         // Debug logging to verify services are injected
         logger.info("=== IngestionMessageListenerService INITIALIZED ===");
         logger.info("MessageService: {}", messageService != null ? messageService.getClass().getSimpleName() : "NULL");
         logger.info("WorkspaceService: {}", workspaceService != null ? workspaceService.getClass().getSimpleName() : "NULL");
+        logger.info("UserService: {}", userService != null ? userService.getClass().getSimpleName() : "NULL");
         logger.info("=== Service injection check complete ===");
     }
     
@@ -138,6 +141,8 @@ public class IngestionMessageListenerService {
             logger.info("Step 1: Processing message: messageId={}, tenantId={}", 
                 ingestionEvent.getMessage().getTs(), ingestionEvent.getTenantId());
             
+            boolean processingSuccessful = true;
+            
             // Save message to Redis for conversation history
             logger.info("Step 2: Attempting to save message to Redis...");
             logger.debug("  - Calling messageService.storeMessage()");
@@ -151,32 +156,62 @@ public class IngestionMessageListenerService {
             } else {
                 logger.error("Step 2: FAILED - Could not save message to Redis");
                 logger.error("  - MessageId: {}", ingestionEvent.getMessage().getTs());
-                logger.error("  - This might indicate Redis connectivity issues");
+                logger.error("  - This indicates Redis connectivity or data issues");
+                processingSuccessful = false;
+            }
+            
+            // Store/update user information in Redis
+            logger.info("Step 3: Attempting to store/update user information...");
+            logger.debug("  - Calling userService.createOrUpdateUser()");
+            var user = userService.createOrUpdateUser(ingestionEvent);
+            
+            if (user != null) {
+                logger.info("Step 3: SUCCESS - User information stored/updated");
+                logger.info("  - UserId: {}", user.getId());
+                logger.info("  - SlackUserId: {}", user.getSlackUserId());
+                logger.info("  - Name: {}", user.getName());
+                logger.info("  - MessageCount: {}", user.getMessageCount());
+            } else {
+                logger.warn("Step 3: WARNING - User service returned null");
+                logger.warn("  - This might happen if user data is missing or invalid");
+                logger.warn("  - SlackUserId: {}", 
+                    ingestionEvent.getUser() != null ? ingestionEvent.getUser().getSlackUserId() : "null");
+                // Don't mark as failed for user update issues - this is not critical for message processing
             }
             
             // Create or update workspace data
-            logger.info("Step 3: Attempting to create/update workspace...");
+            logger.info("Step 4: Attempting to create/update workspace...");
             logger.debug("  - Calling workspaceService.createOrUpdateWorkspace()");
             Workspace workspace = workspaceService.createOrUpdateWorkspace(ingestionEvent);
             
             if (workspace != null) {
-                logger.info("Step 3: SUCCESS - Workspace updated");
+                logger.info("Step 4: SUCCESS - Workspace updated");
                 logger.info("  - WorkspaceId: {}", workspace.getId());
                 logger.info("  - TenantId: {}", workspace.getTenantId());
             } else {
-                logger.warn("Step 3: WARNING - Workspace service returned null");
+                logger.warn("Step 4: WARNING - Workspace service returned null");
                 logger.warn("  - TenantId: {}", ingestionEvent.getTenantId());
                 logger.warn("  - This might be expected behavior in some cases");
+                // Don't mark as failed for workspace update issues
             }
             
-            logger.info("Step 4: Processing completed successfully");
-            logger.info("  - MessageId: {}", ingestionEvent.getMessage().getTs());
-            
-            // Acknowledge the message after successful processing
-            logger.info("Step 5: Acknowledging message...");
-            acknowledgment.acknowledge();
-            
-            logger.info("=== MESSAGE PROCESSING COMPLETE ===");
+            // Only acknowledge if both critical operations succeeded
+            if (processingSuccessful) {
+                logger.info("Step 5: Processing completed successfully");
+                logger.info("  - MessageId: {}", ingestionEvent.getMessage().getTs());
+                
+                // Acknowledge the message after successful processing
+                logger.info("Step 6: Acknowledging message...");
+                acknowledgment.acknowledge();
+                logger.info("=== MESSAGE PROCESSING COMPLETE ===");
+            } else {
+                logger.error("Step 5: Processing FAILED - Critical operations unsuccessful");
+                logger.error("  - MessageId: {}", ingestionEvent.getMessage().getTs());
+                logger.error("  - Message will NOT be acknowledged to allow retry");
+                logger.error("=== MESSAGE PROCESSING FAILED - NO ACK ===");
+                // Do NOT acknowledge - let Kafka retry
+                throw new RuntimeException("Critical processing step failed - message not acknowledged");
+            }
             
         } catch (Exception e) {
             logger.error("=== EXCEPTION DURING MESSAGE PROCESSING ===");
@@ -194,8 +229,10 @@ public class IngestionMessageListenerService {
             if (exceptionMsg.contains("redis") || exceptionMsg.contains("store") || 
                 className.contains("Redis") || className.contains("Jedis")) {
                 logger.error("LIKELY FAILURE POINT: Step 2 - Redis storage");
+            } else if (exceptionMsg.contains("user") || className.contains("User")) {
+                logger.error("LIKELY FAILURE POINT: Step 3 - User processing");
             } else if (exceptionMsg.contains("workspace") || className.contains("Workspace")) {
-                logger.error("LIKELY FAILURE POINT: Step 3 - Workspace processing");
+                logger.error("LIKELY FAILURE POINT: Step 4 - Workspace processing");
             } else if (exceptionMsg.contains("sql") || exceptionMsg.contains("database") || 
                        className.contains("SQL") || className.contains("DataAccess")) {
                 logger.error("LIKELY FAILURE POINT: Database operation");
@@ -215,10 +252,61 @@ public class IngestionMessageListenerService {
                 logger.error("CLASS CAST EXCEPTION - Check for type mismatches");
             }
             
-            // For now, acknowledge even on error to prevent message reprocessing
-            logger.info("Acknowledging failed message to prevent infinite reprocessing...");
-            acknowledgment.acknowledge();
-            logger.error("=== EXCEPTION HANDLING COMPLETE ===");
+            // Determine if this is a retryable error
+            boolean isRetryable = isRetryableException(e);
+            
+            if (isRetryable) {
+                logger.info("Exception is RETRYABLE - message will NOT be acknowledged");
+                logger.info("Kafka will retry this message according to retry policy");
+                logger.error("=== RETRYABLE EXCEPTION - NO ACK ===");
+                // Do NOT acknowledge - let Kafka retry
+                throw e; // Re-throw to trigger retry
+            } else {
+                logger.info("Exception is NOT RETRYABLE - acknowledging message to prevent infinite retries");
+                acknowledgment.acknowledge();
+                logger.error("=== NON-RETRYABLE EXCEPTION - ACKNOWLEDGED ===");
+            }
         }
+    }
+    
+    /**
+     * Determines if an exception is retryable or should be skipped
+     * 
+     * @param exception The exception to evaluate
+     * @return true if the exception is retryable, false if it should be skipped
+     */
+    private boolean isRetryableException(Exception exception) {
+        // Network/connectivity issues - should retry
+        if (exception.getMessage() != null) {
+            String msg = exception.getMessage().toLowerCase();
+            if (msg.contains("connection") || msg.contains("timeout") || 
+                msg.contains("network") || msg.contains("redis") ||
+                msg.contains("unable to connect") || msg.contains("connection refused")) {
+                return true;
+            }
+        }
+        
+        // Class name based checks
+        String className = exception.getClass().getSimpleName().toLowerCase();
+        if (className.contains("connection") || className.contains("timeout") ||
+            className.contains("redis") || className.contains("jedis")) {
+            return true;
+        }
+        
+        // Data format issues - should not retry
+        if (exception instanceof IllegalArgumentException ||
+            exception instanceof ClassCastException ||
+            exception instanceof NullPointerException) {
+            return false;
+        }
+        
+        // Serialization/deserialization issues - should not retry
+        if (className.contains("serialization") || className.contains("json") ||
+            className.contains("parse") || className.contains("mapping")) {
+            return false;
+        }
+        
+        // Default to retryable for unknown exceptions
+        return true;
     }
 }

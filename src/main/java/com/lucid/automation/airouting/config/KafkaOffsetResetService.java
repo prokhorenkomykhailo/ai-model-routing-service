@@ -34,6 +34,9 @@ public class KafkaOffsetResetService {
     @Value("${kafka.topics.ai-enrich:ai-enrich}")
     private String aiEnrichTopic;
     
+    @Value("${kafka.topics.ingestion-messages:lucid-ingestion-messages}")
+    private String ingestionMessagesTopic;
+    
     @Value("${kafka.reset-offsets-on-startup:true}")
     private boolean resetOffsetsOnStartup;
     
@@ -51,9 +54,17 @@ public class KafkaOffsetResetService {
      */
     @EventListener(ApplicationReadyEvent.class)
     public void onApplicationReady() {
+        logger.info("=== KAFKA OFFSET RESET SERVICE ===");
+        logger.info("Reset offsets on startup configured: {}", resetOffsetsOnStartup);
+        
         if (resetOffsetsOnStartup) {
-            logger.info("=== KAFKA OFFSET RESET SERVICE ===");
-            logger.info("Application ready - checking if ai-enrich topic offsets need reset");
+            logger.info("🔄 DEBUGGING MODE: Application will restart from beginning of ALL topics every time");
+            logger.info("Application ready - resetting offsets for debugging (reset-offsets-on-startup=true)");
+            
+            // Reset offsets for ingestion-messages topic (main consumer group)
+            resetIngestionMessagesOffsets();
+            
+            // Reset offsets for ai-enrich topic
             resetAiEnrichTopicOffsets();
         } else {
             logger.info("Offset reset on startup is disabled (kafka.reset-offsets-on-startup=false)");
@@ -118,6 +129,66 @@ public class KafkaOffsetResetService {
         } catch (Exception e) {
             logger.error("Failed to reset offsets for ai-enrich topic", e);
             logger.warn("ai-enrich topic will still be processed with auto-offset-reset=earliest configuration");
+        }
+    }
+    
+    /**
+     * Reset offsets for the ingestion-messages topic to ensure processing from beginning
+     */
+    private void resetIngestionMessagesOffsets() {
+        String mainConsumerGroup = groupId;
+        
+        try {
+            logger.info("Attempting to reset offsets for MAIN consumer group: {} on topic: {}", 
+                       mainConsumerGroup, ingestionMessagesTopic);
+            
+            // Create admin client properties
+            Properties adminProps = createAdminProperties();
+            
+            try (AdminClient adminClient = AdminClient.create(adminProps)) {
+                
+                // Check if consumer group exists and has committed offsets
+                try {
+                    Map<String, ConsumerGroupDescription> groups = adminClient
+                        .describeConsumerGroups(Collections.singletonList(mainConsumerGroup))
+                        .all()
+                        .get();
+                    
+                    if (groups.containsKey(mainConsumerGroup)) {
+                        logger.info("Main consumer group {} exists - will attempt to reset offsets", mainConsumerGroup);
+                        
+                        // Delete the consumer group to force offset reset
+                        DeleteConsumerGroupsResult deleteResult = adminClient
+                            .deleteConsumerGroups(Collections.singletonList(mainConsumerGroup));
+                        
+                        deleteResult.all().get(); // Wait for completion
+                        logger.info("Successfully deleted MAIN consumer group: {}", mainConsumerGroup);
+                        logger.info("Next consumer startup will read ingestion-messages topic from the BEGINNING");
+                        
+                    } else {
+                        logger.info("Main consumer group {} does not exist - ingestion-messages will be read from beginning on first startup", 
+                                   mainConsumerGroup);
+                    }
+                    
+                } catch (ExecutionException e) {
+                    if (e.getCause() instanceof org.apache.kafka.common.errors.GroupIdNotFoundException) {
+                        logger.info("Main consumer group {} not found - ingestion-messages will be read from beginning", mainConsumerGroup);
+                    } else {
+                        logger.warn("Error checking/resetting main consumer group {}: {}", mainConsumerGroup, e.getMessage());
+                    }
+                }
+            }
+            
+            logger.info("=== INGESTION-MESSAGES PROCESSING GUARANTEE ===");
+            logger.info("Topic: {}", ingestionMessagesTopic);
+            logger.info("Consumer Group: {}", mainConsumerGroup);
+            logger.info("Auto Offset Reset: earliest");
+            logger.info("Processing guarantee: ALL ingestion messages will be processed from the beginning");
+            logger.info("===============================================");
+            
+        } catch (Exception e) {
+            logger.error("Failed to reset offsets for ingestion-messages topic", e);
+            logger.warn("ingestion-messages topic will still be processed with auto-offset-reset=earliest configuration");
         }
     }
     

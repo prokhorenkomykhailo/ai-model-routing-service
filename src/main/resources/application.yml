@@ -72,7 +72,7 @@ kafka:
     ai-summarize: ${KAFKA_TOPIC_AI_SUMMARIZE:ai-summarize}
     ai-enrich: ${KAFKA_TOPIC_AI_ENRICH:ai-enrich}
     ai-responses: ${KAFKA_TOPIC_AI_RESPONSES:ai.responses.queue}
-  reset-offsets-on-startup: ${KAFKA_RESET_OFFSETS_ON_STARTUP:true}
+  reset-offsets-on-startup: true  # Force true for debugging - always restart from beginning
 
 # OpenTelemetry Configuration
 opentelemetry:

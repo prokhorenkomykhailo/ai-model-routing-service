@@ -191,6 +191,15 @@ public class MessageEnrichmentScheduler {
             log.debug("Processing batch #{} with {} messages for workspace: {}", 
                      batchNumber, messages.size(), workspace.getName());
             
+            // Log sample of message data to verify what we're receiving
+            if (!messages.isEmpty()) {
+                Message sampleMessage = messages.get(0);
+                log.debug("Sample message data - ID: {}, Username: {}, DisplayName: {}, Email: {}, Title: {}, Text length: {}", 
+                         sampleMessage.getId(), sampleMessage.getUsername(), sampleMessage.getDisplayName(),
+                         sampleMessage.getEmail(), sampleMessage.getTitle(), 
+                         sampleMessage.getText() != null ? sampleMessage.getText().length() : 0);
+            }
+            
             // Convert all Redis Message objects to SlackMessage format
             List<SlackMessage> slackMessages = new ArrayList<>();
             List<SlackParticipant> participants = new ArrayList<>();
@@ -198,8 +207,11 @@ public class MessageEnrichmentScheduler {
             // Process all messages in the batch
             for (Message message : messages) {
                 SlackMessage slackMessage = new SlackMessage();
+                
+                // Core message fields
                 slackMessage.setId(message.getId());
                 slackMessage.setTs(message.getMessageTs());
+                slackMessage.setMessageTs(message.getMessageTs());
                 slackMessage.setUserId(message.getUserId());
                 slackMessage.setUsername(message.getUsername());
                 slackMessage.setText(message.getText());
@@ -207,7 +219,49 @@ public class MessageEnrichmentScheduler {
                 slackMessage.setChannelId(message.getChannelId());
                 slackMessage.setThreadTs(message.getThreadTs());
                 slackMessage.setType(message.getMessageType());
+                slackMessage.setMessageType(message.getMessageType());
                 slackMessage.setSubtype(message.getSubtype());
+                
+                // Tenant and workspace fields
+                slackMessage.setTenantId(message.getTenantId());
+                slackMessage.setWorkspaceId(message.getWorkspaceId());
+                
+                // Composite indexes
+                slackMessage.setTenantWorkspaceIndex(message.getTenantWorkspaceIndex());
+                slackMessage.setTenantWorkspaceChannelIndex(message.getTenantWorkspaceChannelIndex());
+                slackMessage.setTenantWorkspaceChannelThreadIndex(message.getTenantWorkspaceChannelThreadIndex());
+                slackMessage.setWorkspaceChannelThreadIndex(message.getWorkspaceChannelThreadIndex());
+                
+                // User profile fields from Message
+                slackMessage.setSlackUserId(message.getSlackUserId());
+                slackMessage.setTeamId(message.getTeamId());
+                slackMessage.setName(message.getName());
+                slackMessage.setEmailConfirmed(message.getEmailConfirmed());
+                slackMessage.setDisplayName(message.getDisplayName());
+                slackMessage.setDisplayNameNormalized(message.getDisplayNameNormalized());
+                slackMessage.setRealNameNormalized(message.getRealNameNormalized());
+                slackMessage.setEmail(message.getEmail());
+                slackMessage.setTitle(message.getTitle());
+                slackMessage.setPhone(message.getPhone());
+                slackMessage.setFirstName(message.getFirstName());
+                slackMessage.setLastName(message.getLastName());
+                slackMessage.setPronouns(message.getPronouns());
+                slackMessage.setStatusText(message.getStatusText());
+                slackMessage.setAvatarHash(message.getAvatarHash());
+                slackMessage.setImageOriginal(message.getImageOriginal());
+                slackMessage.setImage24(message.getImage24());
+                slackMessage.setImage32(message.getImage32());
+                slackMessage.setImage48(message.getImage48());
+                slackMessage.setImage72(message.getImage72());
+                slackMessage.setImage192(message.getImage192());
+                slackMessage.setImage512(message.getImage512());
+                slackMessage.setImage1024(message.getImage1024());
+                slackMessage.setTeamName(message.getTeamName());
+                slackMessage.setSlackUpdatedAt(message.getSlackUpdatedAt());
+                
+                // Additional metadata
+                slackMessage.setMetadata(message.getMetadata());
+                slackMessage.setIngestedAt(message.getIngestedAt());
                 
                 // Convert timestamp from String to LocalDateTime if needed
                 if (message.getMessageTs() != null) {
@@ -221,10 +275,14 @@ public class MessageEnrichmentScheduler {
                     }
                 }
                 
+                log.debug("Mapped message {} with user profile: username={}, displayName={}, email={}, title={}", 
+                         message.getId(), message.getUsername(), message.getDisplayName(), 
+                         message.getEmail(), message.getTitle());
+                
                 slackMessages.add(slackMessage);
                 
                 // Add participant if not already present
-                if (message.getUserId() != null && message.getUsername() != null) {
+                if (message.getUserId() != null) {
                     boolean participantExists = participants.stream()
                         .anyMatch(p -> message.getUserId().equals(p.getId()));
                     
@@ -232,7 +290,18 @@ public class MessageEnrichmentScheduler {
                         SlackParticipant participant = new SlackParticipant();
                         participant.setId(message.getUserId());
                         participant.setUsername(message.getUsername());
+                        
+                        // Add enhanced participant information from the message user profile
+                        participant.setName(message.getName());
+                        participant.setEmail(message.getEmail());
+                        // Set role based on title or other logic if available
+                        participant.setRole(message.getTitle());
+                        
                         participants.add(participant);
+                        
+                        log.debug("Added participant: {} (ID: {}, email: {}, title: {})", 
+                                 message.getUsername(), message.getUserId(), 
+                                 message.getEmail(), message.getTitle());
                     }
                 }
             }
@@ -240,6 +309,19 @@ public class MessageEnrichmentScheduler {
             // Publish AI enrichment request for all messages in the batch
             if (!slackMessages.isEmpty()) {
                 String conversationId = workspace.getId() + ":batch_" + batchNumber;
+                
+                // Log summary of what was mapped
+                long messagesWithUsernames = slackMessages.stream().filter(m -> m.getUsername() != null).count();
+                long messagesWithDisplayNames = slackMessages.stream().filter(m -> m.getDisplayName() != null).count();
+                long messagesWithEmails = slackMessages.stream().filter(m -> m.getEmail() != null).count();
+                long messagesWithTitles = slackMessages.stream().filter(m -> m.getTitle() != null).count();
+                
+                log.info("Batch #{} mapping summary: {} messages, {} with usernames, {} with display names, {} with emails, {} with titles", 
+                        batchNumber, slackMessages.size(), messagesWithUsernames, messagesWithDisplayNames, 
+                        messagesWithEmails, messagesWithTitles);
+                        
+                log.info("Batch #{} participants summary: {} participants with enhanced info", 
+                        batchNumber, participants.size());
                 
                 // Create context map with batch information
                 Map<String, Object> context = new HashMap<>();

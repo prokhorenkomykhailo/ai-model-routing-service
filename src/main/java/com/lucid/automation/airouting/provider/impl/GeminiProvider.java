@@ -3,6 +3,7 @@ package com.lucid.automation.airouting.provider.impl;
 import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.SlackParticipant;
+import com.lucid.automation.airouting.model.User;
 import com.lucid.automation.airouting.client.DataStorageServiceClient;
 import com.lucid.automation.airouting.dto.CategoryResult;
 import com.lucid.automation.airouting.dto.SummaryResult;
@@ -16,6 +17,7 @@ import com.lucid.automation.airouting.dto.UserDTO;
 import com.lucid.automation.airouting.dto.SummaryPerPerson;
 import com.lucid.automation.airouting.dto.SuggestedReply;
 import com.lucid.automation.airouting.dto.ForwardInfo;
+import com.lucid.automation.airouting.service.UserService;
 import com.lucid.automation.airouting.util.PromptLoader;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -57,14 +59,16 @@ public class GeminiProvider implements AIProvider {
     private final ObjectMapper objectMapper;
     private final DataStorageServiceClient dataStorageServiceClient;
     private final PromptLoader promptLoader;
+    private final UserService userService;
     private double lastConfidence = 0.0;
     private final boolean isClientAvailable;
     
     public GeminiProvider(ObjectMapper objectMapper, DataStorageServiceClient dataStorageServiceClient, 
-                         PromptLoader promptLoader) {
+                         PromptLoader promptLoader, UserService userService) {
         this.objectMapper = objectMapper;
         this.dataStorageServiceClient = dataStorageServiceClient;
         this.promptLoader = promptLoader;
+        this.userService = userService;
         
         // Try to initialize the client, but handle gracefully if API key is not available
         Client tempClient = null;
@@ -767,7 +771,7 @@ public class GeminiProvider implements AIProvider {
                     
                     if (topicObj instanceof Map<?, ?> topicMap) {
                         logger.debug("GEMINI-PARSE: Topic {} map keys: {}", i, topicMap.keySet());
-                        TopicEnrichment topic = parseTopicFromMap(topicMap);
+                        TopicEnrichment topic = parseTopicFromMap(topicMap, messages);
                         topics.add(topic);
                         logger.info("GEMINI-PARSE: Successfully parsed topic {}: '{}'", i, topic.title());
                     } else {
@@ -805,7 +809,7 @@ public class GeminiProvider implements AIProvider {
                 logger.info("GEMINI-PARSE: Successfully parsed analysis map with keys: {}", analysis.keySet());
                 logger.debug("GEMINI-PARSE: Analysis map contents: {}", analysis);
                 
-                List<TopicEnrichment> topics = extractTopicsFromResponse(analysis);
+                List<TopicEnrichment> topics = extractTopicsFromResponse(analysis, messages);
                 logger.info("GEMINI-PARSE: Extracted {} topics from analysis map", topics.size());
                 
                 List<ParticipantInsight> participantInsights = participants != null ? 
@@ -1234,14 +1238,14 @@ public class GeminiProvider implements AIProvider {
         return trimmed.trim();
     }
     
-    private List<TopicEnrichment> extractTopicsFromResponse(Map<String, Object> analysis) {
+    private List<TopicEnrichment> extractTopicsFromResponse(Map<String, Object> analysis, List<SlackMessage> messages) {
         try {
             if (analysis.containsKey("topics") && analysis.get("topics") instanceof List<?> topicsList) {
                 List<TopicEnrichment> topics = new ArrayList<>();
                 
                 for (Object topicObj : topicsList) {
                     if (topicObj instanceof Map<?, ?> topicMap) {
-                        TopicEnrichment topic = parseTopicFromMap(topicMap);
+                        TopicEnrichment topic = parseTopicFromMap(topicMap, messages);
                         topics.add(topic);
                     }
                 }
@@ -1257,7 +1261,7 @@ public class GeminiProvider implements AIProvider {
         }
     }
     
-    private TopicEnrichment parseTopicFromMap(Map<?, ?> topicMap) {
+    private TopicEnrichment parseTopicFromMap(Map<?, ?> topicMap, List<SlackMessage> messages) {
         String title = extractStringValue(topicMap, "title", "Untitled Topic");
         String shortSummary = extractStringValue(topicMap, "shortSummary", "No summary available");
         String fullSummary = extractStringValue(topicMap, "fullSummary", "No detailed summary available");
@@ -1276,8 +1280,12 @@ public class GeminiProvider implements AIProvider {
         LocalDateTime startTime = extractDateTime(topicMap, "startTime");
         LocalDateTime endTime = extractDateTime(topicMap, "endTime");
         
-        List<UserDTO> peopleInvolved = extractPeopleInvolved(topicMap);
-        List<SummaryPerPerson> summaryPerPerson = extractSummaryPerPerson(topicMap);
+        // Extract tenant and workspace info from messages for user enrichment
+        String tenantId = messages.isEmpty() ? null : messages.get(0).getTenantId();
+        String workspaceId = messages.isEmpty() ? null : messages.get(0).getWorkspaceId();
+        
+        List<UserDTO> peopleInvolved = extractPeopleInvolved(topicMap, tenantId, workspaceId);
+        List<SummaryPerPerson> summaryPerPerson = extractSummaryPerPerson(topicMap, tenantId, workspaceId, messages);
         Map<String, String> lastMessageDatePerPerson = extractStringMap(topicMap, "lastMessageDatePerPerson");
         List<SuggestedReply> suggestedReplies = extractSuggestedReplies(topicMap);
         ForwardInfo suggestedForwardRecipient = extractForwardInfo(topicMap);
@@ -1339,10 +1347,10 @@ public class GeminiProvider implements AIProvider {
     }
     
     /**
-     * Extract people involved with backward compatibility
+     * Extract people involved with backward compatibility and user enrichment from Redis
      * Handles both old format (array of strings) and new format (array of user objects)
      */
-    private List<UserDTO> extractPeopleInvolved(Map<?, ?> map) {
+    private List<UserDTO> extractPeopleInvolved(Map<?, ?> map, String tenantId, String workspaceId) {
         Object value = map.get("peopleInvolved");
         if (value instanceof List<?> list) {
             List<UserDTO> result = new ArrayList<>();
@@ -1353,15 +1361,57 @@ public class GeminiProvider implements AIProvider {
                     String username = extractStringValue(userMap, "username", null);
                     String displayName = extractStringValue(userMap, "displayName", null);
                     String imageUrl = extractStringValue(userMap, "imageUrl", null);
-                    result.add(new UserDTO(id, username, displayName, imageUrl));
+                    
+                    // Enrich with data from Redis if available
+                    UserDTO enrichedUser = enrichUserDTO(id, username, displayName, imageUrl, tenantId, workspaceId);
+                    result.add(enrichedUser);
                 } else if (item instanceof String userString) {
                     // Old format: just a string (user ID/name)
-                    result.add(UserDTO.fromString(userString));
+                    UserDTO basicUser = UserDTO.fromString(userString);
+                    // Try to enrich with Redis data
+                    UserDTO enrichedUser = enrichUserDTO(basicUser.id(), basicUser.username(), 
+                                                        basicUser.displayName(), basicUser.imageUrl(), 
+                                                        tenantId, workspaceId);
+                    result.add(enrichedUser);
                 }
             }
             return result;
         }
         return List.of();
+    }
+    
+    /**
+     * Enriches UserDTO with data from Redis
+     */
+    private UserDTO enrichUserDTO(String userId, String username, String displayName, String imageUrl, String tenantId, String workspaceId) {
+        try {
+            // If we already have complete data, no need to query Redis
+            if (username != null && displayName != null && imageUrl != null) {
+                return new UserDTO(userId, username, displayName, imageUrl);
+            }
+            
+            // Get user details from Redis
+            if (tenantId != null && workspaceId != null && userId != null) {
+                Optional<User> userOptional = userService.getUser(tenantId, workspaceId, userId);
+                if (userOptional.isPresent()) {
+                    User user = userOptional.get();
+                    return new UserDTO(
+                        userId,
+                        username != null ? username : user.getName(),
+                        displayName != null ? displayName : user.getDisplayName(),
+                        imageUrl != null ? imageUrl : user.getImageOriginal()
+                    );
+                }
+            }
+            
+            // Return original data if Redis lookup fails
+            return new UserDTO(userId, username, displayName, imageUrl);
+            
+        } catch (Exception e) {
+            logger.warn("Failed to enrich UserDTO for user {}: {}", userId, e.getMessage());
+            // Return original data on error
+            return new UserDTO(userId, username, displayName, imageUrl);
+        }
     }
     
     /**
@@ -1390,7 +1440,7 @@ public class GeminiProvider implements AIProvider {
         }
     }
     
-    private List<SummaryPerPerson> extractSummaryPerPerson(Map<?, ?> topicMap) {
+    private List<SummaryPerPerson> extractSummaryPerPerson(Map<?, ?> topicMap, String tenantId, String workspaceId, List<SlackMessage> messages) {
         Object summaryPerPersonObj = topicMap.get("summaryPerPerson");
         
         // Handle new format: simple map of userId -> summary
@@ -1401,21 +1451,11 @@ public class GeminiProvider implements AIProvider {
                 String userId = String.valueOf(entry.getKey());
                 String summary = String.valueOf(entry.getValue());
                 
-                // Create minimal SummaryPerPerson object - will be enhanced with full user data in post-processing
-                SummaryPerPerson summaryPerPerson = new SummaryPerPerson(
-                    userId,           // id
-                    null,            // username - to be filled in post-processing
-                    null,            // displayName - to be filled in post-processing  
-                    null,            // imageUrl - to be filled in post-processing
-                    summary,         // summary - from LLM response
-                    null,            // role - to be filled in post-processing
-                    0,               // messageCount - to be calculated in post-processing
-                    null,            // firstMessageDate - to be calculated in post-processing
-                    null,            // lastMessageDate - to be calculated in post-processing
-                    List.of(),       // keyContributions - to be calculated in post-processing
-                    List.of()        // actionItems - to be calculated in post-processing
+                // Enrich with user data from Redis
+                SummaryPerPerson enrichedSummary = enrichSummaryWithUserData(
+                    userId, summary, tenantId, workspaceId, messages
                 );
-                summaries.add(summaryPerPerson);
+                summaries.add(enrichedSummary);
             }
             return summaries;
         }
@@ -1450,6 +1490,74 @@ public class GeminiProvider implements AIProvider {
         }
         
         return List.of();
+    }
+    
+    /**
+     * Enriches a basic SummaryPerPerson with user data from Redis and message statistics
+     */
+    private SummaryPerPerson enrichSummaryWithUserData(String userId, String summary, String tenantId, String workspaceId, List<SlackMessage> messages) {
+        try {
+            // Get user details from Redis
+            User user = null;
+            if (tenantId != null && workspaceId != null) {
+                Optional<User> userOptional = userService.getUser(tenantId, workspaceId, userId);
+                user = userOptional.orElse(null);
+            }
+            
+            // Calculate message statistics for this user
+            List<SlackMessage> userMessages = messages.stream()
+                .filter(msg -> userId.equals(msg.getUserId()))
+                .collect(Collectors.toList());
+            
+            int messageCount = userMessages.size();
+            LocalDateTime firstMessageDate = userMessages.stream()
+                .map(SlackMessage::getTimestamp)
+                .filter(Objects::nonNull)
+                .min(LocalDateTime::compareTo)
+                .orElse(null);
+            LocalDateTime lastMessageDate = userMessages.stream()
+                .map(SlackMessage::getTimestamp)
+                .filter(Objects::nonNull)
+                .max(LocalDateTime::compareTo)
+                .orElse(null);
+            
+            // Extract user details from Redis or fall back to basic info
+            String username = user != null ? user.getName() : null;
+            String displayName = user != null ? user.getDisplayName() : null;
+            String imageUrl = user != null ? user.getImageOriginal() : null;
+            String role = user != null ? user.getTitle() : null;
+            
+            return new SummaryPerPerson(
+                userId,
+                username,
+                displayName,
+                imageUrl,
+                summary,
+                role,
+                messageCount,
+                firstMessageDate,
+                lastMessageDate,
+                List.of(), // keyContributions - could be enhanced later
+                List.of()  // actionItems - could be enhanced later
+            );
+            
+        } catch (Exception e) {
+            logger.warn("Failed to enrich summary for user {}: {}", userId, e.getMessage());
+            // Return basic summary without enrichment
+            return new SummaryPerPerson(
+                userId,
+                null,  // username
+                null,  // displayName
+                null,  // imageUrl
+                summary,
+                null,  // role
+                0,     // messageCount
+                null,  // firstMessageDate
+                null,  // lastMessageDate
+                List.of(),
+                List.of()
+            );
+        }
     }
     
     private List<SuggestedReply> extractSuggestedReplies(Map<?, ?> topicMap) {
