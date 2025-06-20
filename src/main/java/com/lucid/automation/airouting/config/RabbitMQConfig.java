@@ -28,6 +28,10 @@ public class RabbitMQConfig {
     @Value("${rabbitmq.exchange.ingestion-messages:ingestion.messages}")
     private String ingestionMessagesExchange;
     
+    // Debug/Logging exchange
+    @Value("${rabbitmq.exchange.ai-debug:ai.debug}")
+    private String aiDebugExchange;
+    
     // Queue names
     @Value("${rabbitmq.queue.ai-requests:ai.requests.queue}")
     private String aiRequestsQueue;
@@ -50,6 +54,10 @@ public class RabbitMQConfig {
     @Value("${rabbitmq.queue.ingestion-messages:ingestion.messages.queue}")
     private String ingestionMessagesQueue;
     
+    // Debug/Logging queue
+    @Value("${rabbitmq.queue.ai-debug:ai.debug.queue}")
+    private String aiDebugQueue;
+    
     // Routing keys
     @Value("${rabbitmq.routing.categorize:ai.categorize}")
     private String categorizeRoutingKey;
@@ -68,6 +76,10 @@ public class RabbitMQConfig {
     
     @Value("${rabbitmq.routing.ingestion-messages:ingestion.messages}")
     private String ingestionMessagesRoutingKey;
+    
+    // Debug/Logging routing key
+    @Value("${rabbitmq.routing.ai-debug:ai.debug}")
+    private String aiDebugRoutingKey;
     
     // Message converter
     @Bean
@@ -107,6 +119,11 @@ public class RabbitMQConfig {
     @Bean
     public TopicExchange ingestionMessagesExchange() {
         return new TopicExchange(ingestionMessagesExchange, true, false);
+    }
+    
+    @Bean
+    public TopicExchange aiDebugExchange() {
+        return new TopicExchange(aiDebugExchange, true, false);
     }
     
     // Queues
@@ -158,6 +175,11 @@ public class RabbitMQConfig {
                 .withArgument("x-dead-letter-exchange", ingestionMessagesExchange + ".dlx")
                 .withArgument("x-dead-letter-routing-key", "dead-letter")
                 .build();
+    }
+    
+    @Bean
+    public Queue aiDebugQueue() {
+        return QueueBuilder.durable(aiDebugQueue).build();
     }
     
     // Dead letter queue
@@ -215,6 +237,13 @@ public class RabbitMQConfig {
     }
     
     @Bean
+    public Binding aiDebugBinding() {
+        return BindingBuilder.bind(aiDebugQueue())
+                .to(aiDebugExchange())
+                .with(aiDebugRoutingKey);
+    }
+    
+    @Bean
     public Binding deadLetterBinding() {
         return BindingBuilder.bind(deadLetterQueue())
                 .to(deadLetterExchange())
@@ -232,4 +261,6 @@ public class RabbitMQConfig {
     public String getResponsesRoutingKey() { return responsesRoutingKey; }
     public String getEnrichConversationResponseRoutingKey() { return enrichConversationResponseRoutingKey; }
     public String getIngestionMessagesRoutingKey() { return ingestionMessagesRoutingKey; }
+    public String getAiDebugExchange() { return aiDebugExchange; }
+    public String getAiDebugRoutingKey() { return aiDebugRoutingKey; }
 }

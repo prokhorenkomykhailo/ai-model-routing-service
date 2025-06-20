@@ -20,12 +20,15 @@ import com.lucid.automation.airouting.dto.ReplyInfo;
 import com.lucid.automation.airouting.dto.ForwardInfo;
 import com.lucid.automation.airouting.dto.CategoryDTO;
 import com.lucid.automation.airouting.dto.APIResponse;
+import com.lucid.automation.airouting.dto.AIDebugLog;
 import com.lucid.automation.airouting.util.PromptLoader;
+import com.lucid.automation.airouting.config.RabbitMQConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.genai.Client;
 import com.google.genai.types.GenerateContentResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -59,13 +62,18 @@ public class GeminiProvider implements AIProvider {
     private final ObjectMapper objectMapper;
     private final DataStorageServiceClient dataStorageServiceClient;
     private final PromptLoader promptLoader;
+    private final RabbitTemplate rabbitTemplate;
+    private final RabbitMQConfig rabbitMQConfig;
     private double lastConfidence = 0.0;
     private final boolean isClientAvailable;
     
-    public GeminiProvider(ObjectMapper objectMapper, DataStorageServiceClient dataStorageServiceClient, PromptLoader promptLoader) {
+    public GeminiProvider(ObjectMapper objectMapper, DataStorageServiceClient dataStorageServiceClient, 
+                         PromptLoader promptLoader, RabbitTemplate rabbitTemplate, RabbitMQConfig rabbitMQConfig) {
         this.objectMapper = objectMapper;
         this.dataStorageServiceClient = dataStorageServiceClient;
         this.promptLoader = promptLoader;
+        this.rabbitTemplate = rabbitTemplate;
+        this.rabbitMQConfig = rabbitMQConfig;
         
         // Try to initialize the client, but handle gracefully if API key is not available
         Client tempClient = null;
@@ -111,7 +119,7 @@ public class GeminiProvider implements AIProvider {
             String prompt = buildCategorizationPrompt(content);
             logger.debug("GEMINI-DEBUG [{}]: Built categorization prompt, length: {}", debugId, prompt.length());
             
-            String response = callGeminiAPI(prompt);
+            String response = callGeminiAPI(prompt, "categorization", debugId);
             logger.debug("GEMINI-DEBUG [{}]: Received API response for categorization", debugId);
             
             CategoryResult result = parseCategorizationResponse(response);
@@ -157,7 +165,7 @@ public class GeminiProvider implements AIProvider {
             String prompt = buildSummarizationPrompt(content);
             logger.debug("GEMINI-DEBUG [{}]: Built summarization prompt, length: {}", debugId, prompt.length());
             
-            String response = callGeminiAPI(prompt);
+            String response = callGeminiAPI(prompt, "summarization", debugId);
             logger.debug("GEMINI-DEBUG [{}]: Received API response for summarization", debugId);
             
             SummaryResult result = parseSummaryResponse(response);
@@ -212,7 +220,8 @@ public class GeminiProvider implements AIProvider {
             String prompt = buildConversationEnrichmentPrompt(conversationText, participants, categoriesToUse);
             logger.debug("GEMINI-DEBUG [{}]: Full prompt being sent: {}", debugId, prompt);
             
-            String response = callGeminiAPI(prompt);
+            String response = callGeminiAPI(prompt, "conversation-enrichment", debugId);
+            // put response to rabbitmq for debugging
             logger.debug("GEMINI-DEBUG [{}]: Raw response received: {}", debugId, response);
             
             ConversationEnrichment result = parseConversationEnrichmentResponse(response, messages, participants);
@@ -254,7 +263,7 @@ public class GeminiProvider implements AIProvider {
             String prompt = buildMessageEnrichmentPrompt(content, context);
             logger.debug("GEMINI-DEBUG [{}]: Built message enrichment prompt, length: {}", debugId, prompt.length());
             
-            String response = callGeminiAPI(prompt);
+            String response = callGeminiAPI(prompt, "message-enrichment", debugId);
             logger.debug("GEMINI-DEBUG [{}]: Received API response for message enrichment", debugId);
             
             MessageEnrichment result = parseMessageEnrichmentResponse(response);
@@ -309,7 +318,7 @@ public class GeminiProvider implements AIProvider {
             String prompt = buildParticipantAnalysisPrompt(participant, userMessages);
             logger.debug("GEMINI-DEBUG [{}]: Built participant analysis prompt, length: {}", debugId, prompt.length());
             
-            String response = callGeminiAPI(prompt);
+            String response = callGeminiAPI(prompt, "participant-analysis", debugId);
             logger.debug("GEMINI-DEBUG [{}]: Received API response for participant analysis", debugId);
             
             ParticipantInsight result = parseParticipantAnalysisResponse(response);
@@ -353,7 +362,7 @@ public class GeminiProvider implements AIProvider {
             String prompt = buildUrgencyAssessmentPrompt(conversationText);
             logger.debug("GEMINI-DEBUG [{}]: Built urgency assessment prompt, length: {}", debugId, prompt.length());
             
-            String response = callGeminiAPI(prompt);
+            String response = callGeminiAPI(prompt, "urgency-assessment", debugId);
             logger.debug("GEMINI-DEBUG [{}]: Received API response for urgency assessment", debugId);
             
             UrgencyLevel result = parseUrgencyResponse(response);
@@ -397,7 +406,7 @@ public class GeminiProvider implements AIProvider {
             String prompt = buildTopicGenerationPrompt(conversationText);
             logger.debug("GEMINI-DEBUG [{}]: Built topic generation prompt, length: {}", debugId, prompt.length());
             
-            String response = callGeminiAPI(prompt);
+            String response = callGeminiAPI(prompt, "topic-generation", debugId);
             logger.debug("GEMINI-DEBUG [{}]: Received API response for topic generation", debugId);
             
             String result = parseTopicResponse(response);
@@ -437,7 +446,7 @@ public class GeminiProvider implements AIProvider {
             String prompt = buildEntityExtractionPrompt(content);
             logger.debug("GEMINI-DEBUG [{}]: Built entity extraction prompt, length: {}", debugId, prompt.length());
             
-            String response = callGeminiAPI(prompt);
+            String response = callGeminiAPI(prompt, "entity-extraction", debugId);
             logger.debug("GEMINI-DEBUG [{}]: Received API response for entity extraction", debugId);
             
             List<String> result = parseEntitiesResponse(response);
@@ -477,7 +486,7 @@ public class GeminiProvider implements AIProvider {
             String prompt = buildSentimentAnalysisPrompt(content);
             logger.debug("GEMINI-DEBUG [{}]: Built sentiment analysis prompt, length: {}", debugId, prompt.length());
             
-            String response = callGeminiAPI(prompt);
+            String response = callGeminiAPI(prompt, "sentiment-analysis", debugId);
             logger.debug("GEMINI-DEBUG [{}]: Received API response for sentiment analysis", debugId);
             
             SentimentResult result = parseSentimentResponse(response);
@@ -514,7 +523,7 @@ public class GeminiProvider implements AIProvider {
     }
     
     // Private helper methods
-    private String callGeminiAPI(String prompt) {
+    private String callGeminiAPI(String prompt, String operation, String debugId) {
         try {
             if (geminiClient == null) {
                 throw new RuntimeException("Gemini client is not available - API key not configured");
@@ -530,6 +539,27 @@ public class GeminiProvider implements AIProvider {
             
             String responseText = response.text();
             logger.debug("Received response from Gemini API");
+            
+            // Log raw response to RabbitMQ for debugging
+            try {
+                AIDebugLog debugLog = new AIDebugLog(
+                    "gemini", 
+                    operation, 
+                    debugId, 
+                    String.valueOf(prompt.length()), 
+                    responseText
+                );
+                
+                rabbitTemplate.convertAndSend(
+                    rabbitMQConfig.getAiDebugExchange(),
+                    rabbitMQConfig.getAiDebugRoutingKey(),
+                    debugLog
+                );
+                
+                logger.debug("GEMINI-DEBUG [{}]: Raw response published to RabbitMQ", debugId);
+            } catch (Exception e) {
+                logger.warn("Failed to publish debug log to RabbitMQ: {}", e.getMessage());
+            }
             
             return responseText;
             
@@ -679,22 +709,52 @@ public class GeminiProvider implements AIProvider {
             logger.debug("Attempting to parse cleaned response: {}", 
                         cleanedResponse.length() > 500 ? cleanedResponse.substring(0, 500) + "..." : cleanedResponse);
             
-            @SuppressWarnings("unchecked")
-            Map<String, Object> analysis = objectMapper.readValue(cleanedResponse, Map.class);
-            
-            List<TopicEnrichment> topics = extractTopicsFromResponse(analysis);
-            
-            List<ParticipantInsight> participantInsights = participants != null ? 
-                participants.stream()
-                    .map(p -> analyzeParticipant(p, messages))
-                    .toList() : 
-                List.of();
-            
-            List<MessageEnrichment> messageEnrichments = messages.stream()
-                .map(msg -> enrichMessage(msg.getContent(), Map.of()))
-                .toList();
-            
-            return new ConversationEnrichment(topics, participantInsights, messageEnrichments, analysis);
+            // Check if the cleaned response is a JSON array (starts with '[')
+            if (cleanedResponse.trim().startsWith("[")) {
+                // Parse as array of topics directly
+                List<?> topicsArray = objectMapper.readValue(cleanedResponse, List.class);
+                List<TopicEnrichment> topics = new ArrayList<>();
+                
+                for (Object topicObj : topicsArray) {
+                    if (topicObj instanceof Map<?, ?> topicMap) {
+                        TopicEnrichment topic = parseTopicFromMap(topicMap);
+                        topics.add(topic);
+                    }
+                }
+                
+                List<ParticipantInsight> participantInsights = participants != null ? 
+                    participants.stream()
+                        .map(p -> analyzeParticipant(p, messages))
+                        .toList() : 
+                    List.of();
+                
+                List<MessageEnrichment> messageEnrichments = messages.stream()
+                    .map(msg -> enrichMessage(msg.getContent(), Map.of()))
+                    .toList();
+                
+                // Create an empty analysis map since we're parsing the topics directly
+                Map<String, Object> analysis = Map.of("topics", topics);
+                
+                return new ConversationEnrichment(topics, participantInsights, messageEnrichments, analysis);
+            } else {
+                // Original parsing logic for Map-based responses
+                @SuppressWarnings("unchecked")
+                Map<String, Object> analysis = objectMapper.readValue(cleanedResponse, Map.class);
+                
+                List<TopicEnrichment> topics = extractTopicsFromResponse(analysis);
+                
+                List<ParticipantInsight> participantInsights = participants != null ? 
+                    participants.stream()
+                        .map(p -> analyzeParticipant(p, messages))
+                        .toList() : 
+                    List.of();
+                
+                List<MessageEnrichment> messageEnrichments = messages.stream()
+                    .map(msg -> enrichMessage(msg.getContent(), Map.of()))
+                    .toList();
+                
+                return new ConversationEnrichment(topics, participantInsights, messageEnrichments, analysis);
+            }
                                             
         } catch (Exception e) {
             logger.warn("Failed to parse conversation enrichment response. Original response: '{}'. Error: {}", 
@@ -1066,6 +1126,28 @@ public class GeminiProvider implements AIProvider {
         }
         
         String trimmed = response.trim();
+        
+        // Check if response contains markdown code blocks with ```json
+        if (trimmed.contains("```json")) {
+            int jsonStart = trimmed.indexOf("```json");
+            if (jsonStart >= 0) {
+                // Find the first newline after ```json
+                int firstNewline = trimmed.indexOf('\n', jsonStart);
+                if (firstNewline > 0) {
+                    // Extract content after ```json
+                    String jsonContent = trimmed.substring(firstNewline + 1);
+                    
+                    // Find the closing ```
+                    int closingIndex = jsonContent.indexOf("```");
+                    if (closingIndex > 0) {
+                        jsonContent = jsonContent.substring(0, closingIndex);
+                    }
+                    
+                    logger.debug("Extracted JSON from markdown code block");
+                    return jsonContent.trim();
+                }
+            }
+        }
         
         // Check if response is wrapped in markdown code blocks
         if (trimmed.startsWith("```")) {
