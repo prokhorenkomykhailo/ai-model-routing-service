@@ -30,7 +30,7 @@ spring:
       "[sasl.mechanism]": ${SPRING_KAFKA_SASL_MECHANISM:PLAIN}
       "[sasl.jaas.config]": ${SPRING_KAFKA_SASL_JAAS_CONFIG:org.apache.kafka.common.security.plain.PlainLoginModule required username="client" password="client-secret";}
     
-    # Consumer Configuration
+    # Consumer Configuration - Default for IngestionEventDTO
     consumer:
       group-id: ${SPRING_KAFKA_CONSUMER_GROUP_ID:ai-routing-service-group}
       key-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
@@ -71,6 +71,7 @@ kafka:
     ai-categorize: ${KAFKA_TOPIC_AI_CATEGORIZE:ai-categorize}
     ai-summarize: ${KAFKA_TOPIC_AI_SUMMARIZE:ai-summarize}
     ai-enrich: ${KAFKA_TOPIC_AI_ENRICH:ai-enrich}
+    ai-responses: ${KAFKA_TOPIC_AI_RESPONSES:ai.responses.queue}
   reset-offsets-on-startup: ${KAFKA_RESET_OFFSETS_ON_STARTUP:true}
 
 # OpenTelemetry Configuration

@@ -203,6 +203,7 @@ public class MessageEnrichmentScheduler {
                 slackMessage.setUserId(message.getUserId());
                 slackMessage.setUsername(message.getUsername());
                 slackMessage.setText(message.getText());
+                slackMessage.setContent(message.getText());
                 slackMessage.setChannelId(message.getChannelId());
                 slackMessage.setThreadTs(message.getThreadTs());
                 slackMessage.setType(message.getMessageType());

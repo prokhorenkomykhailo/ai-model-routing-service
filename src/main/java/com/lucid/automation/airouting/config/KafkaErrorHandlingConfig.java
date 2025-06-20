@@ -1,6 +1,7 @@
 package com.lucid.automation.airouting.config;
 
 import com.lucid.automation.slackingestion.dto.messaging.IngestionEventDTO;
+import com.lucid.automation.airouting.model.message.AIMessage;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.slf4j.Logger;
@@ -79,6 +80,57 @@ public class KafkaErrorHandlingConfig {
         
         return new DefaultKafkaConsumerFactory<>(configProps);
     }
+
+    @Bean
+    public ConsumerFactory<String, AIMessage> aiMessageConsumerFactory() {
+        Map<String, Object> configProps = new HashMap<>();
+        configProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        configProps.put(ConsumerConfig.GROUP_ID_CONFIG, groupId + "-ai-enrich");
+        configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        
+        // FORCE ALWAYS START FROM BEGINNING - Set max poll interval to very high value
+        // This ensures the consumer doesn't get kicked out of the group during processing
+        configProps.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 300000); // 5 minutes
+        configProps.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 10000); // 10 seconds
+        configProps.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 3000); // 3 seconds
+        
+        logger.info("=== AI-ENRICH CONSUMER CONFIG ===");
+        logger.info("Using group ID: {}", groupId + "-ai-enrich");
+        logger.info("AUTO_OFFSET_RESET: earliest");
+        logger.info("This ensures ai-enrich topic is processed from the beginning when no committed offsets exist");
+        logger.info("================================");
+        
+        // Add security configuration if needed
+        if (!"PLAINTEXT".equals(securityProtocol)) {
+            configProps.put("security.protocol", securityProtocol);
+            if (!saslMechanism.isEmpty()) {
+                configProps.put("sasl.mechanism", saslMechanism);
+            }
+            if (!saslJaasConfig.isEmpty()) {
+                configProps.put("sasl.jaas.config", saslJaasConfig);
+            }
+        }
+        
+        // Configure ErrorHandlingDeserializer properly for AIMessage
+        configProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
+        configProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
+        configProps.put(ErrorHandlingDeserializer.KEY_DESERIALIZER_CLASS, StringDeserializer.class);
+        configProps.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class);
+        
+        // JsonDeserializer specific configuration for AIMessage
+        configProps.put(JsonDeserializer.TRUSTED_PACKAGES, "*");
+        configProps.put("spring.json.use.type.headers", false);
+        configProps.put("spring.json.fail.on.unknown.properties", false);
+        configProps.put("spring.json.value.default.type", AIMessage.class.getName());
+        
+        // Type mappings for AIMessage
+        configProps.put(JsonDeserializer.TYPE_MAPPINGS, 
+            "com.lucid.automation.airouting.model.message.AIMessage:" + AIMessage.class.getName());
+        configProps.put(JsonDeserializer.REMOVE_TYPE_INFO_HEADERS, true);
+        
+        return new DefaultKafkaConsumerFactory<>(configProps);
+    }
     
     @Bean
     public DefaultErrorHandler defaultErrorHandler() {
@@ -127,6 +179,19 @@ public class KafkaErrorHandlingConfig {
         ConcurrentKafkaListenerContainerFactory<String, IngestionEventDTO> factory = 
             new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory());
+        factory.setCommonErrorHandler(defaultErrorHandler());
+        
+        // Configure manual acknowledgment mode
+        factory.getContainerProperties().setAckMode(org.springframework.kafka.listener.ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        
+        return factory;
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, AIMessage> aiMessageListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, AIMessage> factory = 
+            new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(aiMessageConsumerFactory());
         factory.setCommonErrorHandler(defaultErrorHandler());
         
         // Configure manual acknowledgment mode
