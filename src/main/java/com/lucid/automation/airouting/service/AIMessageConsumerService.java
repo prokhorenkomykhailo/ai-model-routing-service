@@ -1,212 +1,261 @@
 package com.lucid.automation.airouting.service;
 
-import com.lucid.automation.airouting.config.RabbitMQConfig;
-import com.lucid.automation.airouting.model.AIResponse;
+import com.lucid.automation.airouting.dto.*;
 import com.lucid.automation.airouting.model.AITaskType;
 import com.lucid.automation.airouting.model.message.AIMessage;
-import com.lucid.automation.airouting.model.message.AIMessageResponse;
+import com.lucid.automation.airouting.provider.AIProvider;
+import com.lucid.automation.airouting.provider.AIProviderFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.kafka.support.KafkaHeaders;
+import org.springframework.messaging.handler.annotation.Header;
+import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
+
 /**
- * Service that listens to RabbitMQ messages and routes them to appropriate AI operations
+ * Service for consuming AI processing requests from Kafka and processing them
  */
 @Service
 public class AIMessageConsumerService {
     
     private static final Logger logger = LoggerFactory.getLogger(AIMessageConsumerService.class);
     
-    private final AIRoutingService aiRoutingService;
-    private final MessageConverterService messageConverter;
-    private final RabbitTemplate rabbitTemplate;
-    private final RabbitMQConfig rabbitMQConfig;
+    private final AIProviderFactory providerFactory;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
     
-    public AIMessageConsumerService(AIRoutingService aiRoutingService,
-                                  MessageConverterService messageConverter,
-                                  RabbitTemplate rabbitTemplate,
-                                  RabbitMQConfig rabbitMQConfig) {
-        this.aiRoutingService = aiRoutingService;
-        this.messageConverter = messageConverter;
-        this.rabbitTemplate = rabbitTemplate;
-        this.rabbitMQConfig = rabbitMQConfig;
+    public AIMessageConsumerService(AIProviderFactory providerFactory,
+                                  KafkaTemplate<String, Object> kafkaTemplate) {
+        this.providerFactory = providerFactory;
+        this.kafkaTemplate = kafkaTemplate;
     }
     
     /**
-     * Listen for categorization requests
+     * Consume categorization requests
      */
-    @RabbitListener(
-        queues = "#{rabbitMQConfig.getAiCategorizeQueue()}",
-        concurrency = "1",
-        containerFactory = "rabbitListenerContainerFactory"
-    )
-    public void handleCategorizationRequest(AIMessage message) {
+    @KafkaListener(topics = "${kafka.topics.ai-categorize:ai-categorize}")
+    public void handleCategorizationRequest(@Payload AIMessage message,
+                                          @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
+                                          Acknowledgment acknowledgment) {
         logger.info("Received categorization request: messageId={}, tenantId={}", 
                    message.getMessageId(), message.getTenantId());
         
-        if (message.getTaskType() != AITaskType.CATEGORIZE) {
-            logger.warn("Invalid task type for categorization queue: {}", message.getTaskType());
-            sendErrorResponse(message, "Invalid task type for categorization queue");
-            return;
+        try {
+            AIProvider provider = providerFactory.getProvider(message.getPreferredProvider());
+            CategoryResult result = provider.categorize(message.getContent());
+            
+            // Send response back to reply topic
+            sendResponse(message, result, "categorization");
+            
+            acknowledgment.acknowledge();
+            logger.info("Successfully processed categorization request: messageId={}", message.getMessageId());
+            
+        } catch (Exception e) {
+            logger.error("Failed to process categorization request: messageId={}, error={}", 
+                        message.getMessageId(), e.getMessage(), e);
+            sendErrorResponse(message, "categorization", e.getMessage());
+            acknowledgment.acknowledge(); // Acknowledge to avoid reprocessing
         }
-        
-        processAIRequest(message);
     }
     
     /**
-     * Listen for summarization requests
+     * Consume summarization requests
      */
-    @RabbitListener(
-        queues = "#{rabbitMQConfig.getAiSummarizeQueue()}",
-        concurrency = "1", 
-        containerFactory = "rabbitListenerContainerFactory"
-    )
-    public void handleSummarizationRequest(AIMessage message) {
+    @KafkaListener(topics = "${kafka.topics.ai-summarize:ai-summarize}")
+    public void handleSummarizationRequest(@Payload AIMessage message,
+                                         @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
+                                         Acknowledgment acknowledgment) {
         logger.info("Received summarization request: messageId={}, tenantId={}", 
                    message.getMessageId(), message.getTenantId());
         
-        if (message.getTaskType() != AITaskType.SUMMARIZE) {
-            logger.warn("Invalid task type for summarization queue: {}", message.getTaskType());
-            sendErrorResponse(message, "Invalid task type for summarization queue");
-            return;
+        try {
+            AIProvider provider = providerFactory.getProvider(message.getPreferredProvider());
+            SummaryResult result = provider.summarize(message.getContent());
+            
+            // Send response back to reply topic
+            sendResponse(message, result, "summarization");
+            
+            acknowledgment.acknowledge();
+            logger.info("Successfully processed summarization request: messageId={}", message.getMessageId());
+            
+        } catch (Exception e) {
+            logger.error("Failed to process summarization request: messageId={}, error={}", 
+                        message.getMessageId(), e.getMessage(), e);
+            sendErrorResponse(message, "summarization", e.getMessage());
+            acknowledgment.acknowledge(); // Acknowledge to avoid reprocessing
         }
-        
-        processAIRequest(message);
     }
     
     /**
-     * Listen for enrichment requests (conversation, message, participant analysis, etc.)
+     * Consume enrichment requests (conversation, message, participant analysis, etc.)
      */
-    @RabbitListener(
-        queues = "#{rabbitMQConfig.getAiEnrichQueue()}",
-        concurrency = "1",
-        containerFactory = "rabbitListenerContainerFactory"
-    )
-    public void handleEnrichmentRequest(AIMessage message) {
+    @KafkaListener(topics = "${kafka.topics.ai-enrich:ai-enrich}")
+    public void handleEnrichmentRequest(@Payload AIMessage message,
+                                      @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
+                                      Acknowledgment acknowledgment) {
         logger.info("Received enrichment request: messageId={}, taskType={}, tenantId={}", 
                    message.getMessageId(), message.getTaskType(), message.getTenantId());
         
-        // Validate that it's an enrichment-related task
-        if (!isEnrichmentTask(message.getTaskType())) {
-            logger.warn("Invalid task type for enrichment queue: {}", message.getTaskType());
-            sendErrorResponse(message, "Invalid task type for enrichment queue");
+        try {
+            AIProvider provider = providerFactory.getProvider(message.getPreferredProvider());
+            Object result = processEnrichmentTask(provider, message);
+            
+            // Send response back to reply topic
+            sendResponse(message, result, message.getTaskType().toString().toLowerCase());
+            
+            acknowledgment.acknowledge();
+            logger.info("Successfully processed enrichment request: messageId={}, taskType={}", 
+                       message.getMessageId(), message.getTaskType());
+            
+        } catch (Exception e) {
+            logger.error("Failed to process enrichment request: messageId={}, taskType={}, error={}", 
+                        message.getMessageId(), message.getTaskType(), e.getMessage(), e);
+            sendErrorResponse(message, message.getTaskType().toString().toLowerCase(), e.getMessage());
+            acknowledgment.acknowledge(); // Acknowledge to avoid reprocessing
+        }
+    }
+    
+    /**
+     * Process different types of enrichment tasks
+     */
+    private Object processEnrichmentTask(AIProvider provider, AIMessage message) {
+        AITaskType taskType = message.getTaskType();
+        
+        return switch (taskType) {
+            case ENRICH_CONVERSATION -> {
+                if (message.getMessages() == null || message.getMessages().isEmpty()) {
+                    throw new IllegalArgumentException("Messages are required for conversation enrichment");
+                }
+                yield provider.enrichConversation(message.getMessages(), 
+                                                 convertToSlackParticipants(message), 
+                                                 null); // availableCategories can be extracted from context if needed
+            }
+            case ENRICH_MESSAGE -> {
+                yield provider.enrichMessage(message.getContent(), message.getContext());
+            }
+            case ANALYZE_PARTICIPANT -> {
+                if (message.getParticipants() == null || message.getParticipants().isEmpty()) {
+                    throw new IllegalArgumentException("Participants are required for participant analysis");
+                }
+                // Assuming we analyze the first participant for now
+                var participant = convertToSlackParticipant(message.getParticipants().get(0));
+                yield provider.analyzeParticipant(participant, message.getMessages());
+            }
+            case ASSESS_URGENCY -> {
+                if (message.getMessages() == null || message.getMessages().isEmpty()) {
+                    throw new IllegalArgumentException("Messages are required for urgency assessment");
+                }
+                yield provider.assessUrgency(message.getMessages());
+            }
+            case GENERATE_TOPIC -> {
+                if (message.getMessages() == null || message.getMessages().isEmpty()) {
+                    throw new IllegalArgumentException("Messages are required for topic generation");
+                }
+                yield provider.generateTopic(message.getMessages());
+            }
+            case EXTRACT_ENTITIES -> {
+                yield provider.extractEntities(message.getContent());
+            }
+            case SENTIMENT_ANALYSIS -> {
+                yield provider.analyzeSentiment(message.getContent());
+            }
+            default -> throw new IllegalArgumentException("Unsupported enrichment task type: " + taskType);
+        };
+    }
+    
+    /**
+     * Send successful response back to the reply topic
+     */
+    private void sendResponse(AIMessage originalMessage, Object result, String taskType) {
+        if (originalMessage.getReplyTopic() == null || originalMessage.getReplyTopic().trim().isEmpty()) {
+            logger.warn("No reply topic specified for message: messageId={}", originalMessage.getMessageId());
             return;
         }
         
-        processAIRequest(message);
-    }
-    
-    private void processAIRequest(AIMessage aiMessage) {
-        long startTime = System.currentTimeMillis();
-        
         try {
-            var aiRequest = messageConverter.convertToAIRequest(aiMessage);
-            AIResponse response = aiRoutingService.processRequest(aiRequest);
+            Map<String, Object> response = new HashMap<>();
+            response.put("messageId", originalMessage.getMessageId());
+            response.put("correlationId", originalMessage.getCorrelationId());
+            response.put("taskType", taskType);
+            response.put("status", "success");
+            response.put("result", result);
+            response.put("processedAt", LocalDateTime.now());
+            response.put("tenantId", originalMessage.getTenantId());
+            response.put("tenantSchema", originalMessage.getTenantSchema());
+            response.put("userId", originalMessage.getUserId());
             
-            handleSuccessfulResponse(aiMessage, response, startTime);
+            kafkaTemplate.send(originalMessage.getReplyTopic(), response);
+            logger.info("Sent response to reply topic: messageId={}, replyTopic={}", 
+                       originalMessage.getMessageId(), originalMessage.getReplyTopic());
             
         } catch (Exception e) {
-            logger.error("Failed to convert or process AI message: messageId={}, error={}", 
-                        aiMessage.getMessageId(), e.getMessage(), e);
-            handleFailedResponse(aiMessage, e, startTime);
-        }
-    }
-
-    private void handleSuccessfulResponse(AIMessage aiMessage, AIResponse response, long startTime) {
-        long processingTime = System.currentTimeMillis() - startTime;
-        
-        AIMessageResponse messageResponse = response.isSuccess() 
-            ? createSuccessResponse(aiMessage, response)
-            : createErrorResponse(aiMessage, response);
-            
-        messageResponse.setProcessingTimeMs(processingTime);
-        messageResponse.setMetadata(response.getMetadata());
-        
-        sendResponse(messageResponse, aiMessage.getReplyTopic());
-        
-        logger.info("Successfully processed AI request: messageId={}, taskType={}, time={}ms", 
-                   aiMessage.getMessageId(), aiMessage.getTaskType(), processingTime);
-    }
-
-    private void handleFailedResponse(AIMessage aiMessage, Exception exception, long startTime) {
-        long processingTime = System.currentTimeMillis() - startTime;
-        
-        logger.error("Failed to process AI request: messageId={}, taskType={}, error={}", 
-                   aiMessage.getMessageId(), aiMessage.getTaskType(), exception.getMessage(), exception);
-        
-        AIMessageResponse errorResponse = AIMessageResponse.error(
-            aiMessage.getMessageId(),
-            aiMessage.getCorrelationId(),
-            aiMessage.getConversationId(),
-            aiMessage.getTaskType(),
-            "Processing failed: " + exception.getMessage()
-        );
-        errorResponse.setProcessingTimeMs(processingTime);
-        
-        sendResponse(errorResponse, aiMessage.getReplyTopic());
-    }
-
-    private AIMessageResponse createSuccessResponse(AIMessage aiMessage, AIResponse response) {
-        return AIMessageResponse.success(
-            aiMessage.getMessageId(),
-            aiMessage.getCorrelationId(),
-            aiMessage.getConversationId(),
-            response.getTaskType(),
-            response.getResult(),
-            response.getProviderId(),
-            response.getConfidence()
-        );
-    }
-
-    private AIMessageResponse createErrorResponse(AIMessage aiMessage, AIResponse response) {
-        return AIMessageResponse.error(
-            aiMessage.getMessageId(),
-            aiMessage.getCorrelationId(),
-            aiMessage.getConversationId(),
-            response.getTaskType(),
-            response.getErrorMessage()
-        );
-    }
-    
-    private void sendErrorResponse(AIMessage aiMessage, String errorMessage) {
-        AIMessageResponse errorResponse = AIMessageResponse.error(
-            aiMessage.getMessageId(),
-            aiMessage.getCorrelationId(),
-            aiMessage.getConversationId(),
-            aiMessage.getTaskType(),
-            errorMessage
-        );
-        sendResponse(errorResponse, aiMessage.getReplyTopic());
-    }
-    
-    private void sendResponse(AIMessageResponse response, String replyTopic) {
-        try {
-            String targetTopic = replyTopic != null ? replyTopic : rabbitMQConfig.getResponsesRoutingKey();
-            
-            rabbitTemplate.convertAndSend(
-                rabbitMQConfig.getAiResponsesExchange(),
-                targetTopic,
-                response
-            );
-            
-            logger.debug("Sent response: messageId={}, success={}, topic={}", 
-                        response.getMessageId(), response.isSuccess(), targetTopic);
-            
-        } catch (Exception e) {
-            logger.error("Failed to send response: messageId={}, error={}", 
-                        response.getMessageId(), e.getMessage(), e);
+            logger.error("Failed to send response to reply topic: messageId={}, replyTopic={}, error={}", 
+                        originalMessage.getMessageId(), originalMessage.getReplyTopic(), e.getMessage(), e);
         }
     }
     
-    private boolean isEnrichmentTask(AITaskType taskType) {
-        return taskType == AITaskType.ENRICH_CONVERSATION ||
-               taskType == AITaskType.ENRICH_MESSAGE ||
-               taskType == AITaskType.ANALYZE_PARTICIPANT ||
-               taskType == AITaskType.ASSESS_URGENCY ||
-               taskType == AITaskType.GENERATE_TOPIC ||
-               taskType == AITaskType.EXTRACT_ENTITIES ||
-               taskType == AITaskType.SENTIMENT_ANALYSIS;
+    /**
+     * Send error response back to the reply topic
+     */
+    private void sendErrorResponse(AIMessage originalMessage, String taskType, String errorMessage) {
+        if (originalMessage.getReplyTopic() == null || originalMessage.getReplyTopic().trim().isEmpty()) {
+            logger.warn("No reply topic specified for error response: messageId={}", originalMessage.getMessageId());
+            return;
+        }
+        
+        try {
+            Map<String, Object> response = new HashMap<>();
+            response.put("messageId", originalMessage.getMessageId());
+            response.put("correlationId", originalMessage.getCorrelationId());
+            response.put("taskType", taskType);
+            response.put("status", "error");
+            response.put("error", errorMessage);
+            response.put("processedAt", LocalDateTime.now());
+            response.put("tenantId", originalMessage.getTenantId());
+            response.put("tenantSchema", originalMessage.getTenantSchema());
+            response.put("userId", originalMessage.getUserId());
+            
+            kafkaTemplate.send(originalMessage.getReplyTopic(), response);
+            logger.info("Sent error response to reply topic: messageId={}, replyTopic={}", 
+                       originalMessage.getMessageId(), originalMessage.getReplyTopic());
+            
+        } catch (Exception e) {
+            logger.error("Failed to send error response to reply topic: messageId={}, replyTopic={}, error={}", 
+                        originalMessage.getMessageId(), originalMessage.getReplyTopic(), e.getMessage(), e);
+        }
+    }
+    
+    // Helper methods for data conversion
+    private java.util.List<com.lucid.automation.airouting.model.SlackParticipant> convertToSlackParticipants(AIMessage message) {
+        if (message.getParticipants() == null) {
+            return java.util.Collections.emptyList();
+        }
+        
+        return message.getParticipants().stream()
+                .map(this::convertToSlackParticipant)
+                .collect(java.util.stream.Collectors.toList());
+    }
+    
+    private com.lucid.automation.airouting.model.SlackParticipant convertToSlackParticipant(
+            com.lucid.automation.airouting.model.message.SlackParticipantData participantData) {
+        // Convert SlackParticipantData to SlackParticipant
+        com.lucid.automation.airouting.model.SlackParticipant participant = 
+            new com.lucid.automation.airouting.model.SlackParticipant();
+        participant.setId(participantData.getId());
+        participant.setName(participantData.getName());
+        participant.setDisplayName(participantData.getName()); // Use name as display name if not available
+        participant.setEmail(participantData.getEmail());
+        participant.setRole(participantData.getRole());
+        // Set default values for fields not available in SlackParticipantData
+        participant.setBot(false);
+        participant.setActive(true);
+        participant.setDeleted(false);
+        return participant;
     }
 }

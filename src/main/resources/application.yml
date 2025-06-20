@@ -9,7 +9,6 @@ spring:
   profiles:
     active: '@activatedProperties@'  # Replace or override this at runtime
 
-    
   jackson:
     serialization:
       write-dates-as-timestamps: false
@@ -21,26 +20,58 @@ spring:
     discovery:
       enabled: true
 
-  rabbitmq:
-    host: ${RABBITMQ_HOST:localhost}
-    port: ${RABBITMQ_PORT:5672}
-    username: ${RABBITMQ_USERNAME:admin}
-    password: ${RABBITMQ_PASSWORD:admin123}
-    virtual-host: ${RABBITMQ_VHOST:/}
-    connection-timeout: 30000
-    publisher-confirm-type: correlated
-    publisher-returns: true
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:10.113.213.31:9092}
+    
+    # Security Configuration
+    security:
+      protocol: ${SPRING_KAFKA_SECURITY_PROTOCOL:SASL_PLAINTEXT}
+    properties:
+      "[sasl.mechanism]": ${SPRING_KAFKA_SASL_MECHANISM:PLAIN}
+      "[sasl.jaas.config]": ${SPRING_KAFKA_SASL_JAAS_CONFIG:org.apache.kafka.common.security.plain.PlainLoginModule required username="client" password="client-secret";}
+    
+    # Consumer Configuration
+    consumer:
+      group-id: ${SPRING_KAFKA_CONSUMER_GROUP_ID:ai-routing-service-group}
+      key-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      properties:
+        "[spring.json.trusted.packages]": "*"
+        "[spring.deserializer.key.delegate.class]": org.apache.kafka.common.serialization.StringDeserializer
+        "[spring.deserializer.value.delegate.class]": org.springframework.kafka.support.serializer.JsonDeserializer
+        "[spring.json.use.type.headers]": false
+        "[spring.json.fail.on.unknown.properties]": false
+        "[spring.deserializer.value.function]": "org.springframework.kafka.support.serializer.FailedDeserializationInfo::getException"
+        "[spring.kafka.consumer.enable-auto-commit]": false
+        "[spring.kafka.listener.ack-mode]": manual_immediate
+    
+    # Producer Configuration (for publishing responses/results if needed)
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+      batch-size: 16384
+      properties:
+        "[linger.ms]": 5
+        "[buffer.memory]": 33554432
+        "[enable.idempotence]": true
+    
+    # Listener Configuration
     listener:
-      simple:
-        acknowledge-mode: auto
-        concurrency: 1
-        max-concurrency: 1
-        prefetch: 1
-        retry:
-          enabled: true
-          initial-interval: 1000
-          max-attempts: 3
-          multiplier: 2.0
+      ack-mode: manual-immediate
+      missing-topics-fatal: false
+
+# Application-specific Kafka Configuration
+kafka:
+  topics:
+    ingestion-messages: ${KAFKA_TOPIC_INGESTION_MESSAGES:lucid-ingestion-messages}
+    ai-categorize: ${KAFKA_TOPIC_AI_CATEGORIZE:ai-categorize}
+    ai-summarize: ${KAFKA_TOPIC_AI_SUMMARIZE:ai-summarize}
+    ai-enrich: ${KAFKA_TOPIC_AI_ENRICH:ai-enrich}
+  reset-offsets-on-startup: ${KAFKA_RESET_OFFSETS_ON_STARTUP:true}
 
 # OpenTelemetry Configuration
 opentelemetry:
@@ -133,28 +164,6 @@ info:
     encoding: UTF-8
     java:
       version: ${java.version}
-
-# RabbitMQ Queue Configuration
-rabbitmq:
-  exchange:
-    ai-requests: ai.requests
-    ai-responses: ai.responses
-    ingestion-messages: ${RABBITMQ_EXCHANGE_INGESTION_MESSAGES:ingestion.messages}
-  queue:
-    ai-requests: ai.requests.queue
-    ai-categorize: ai.categorize.queue
-    ai-summarize: ai.summarize.queue
-    ai-enrich: ai.enrich.queue
-    ai-responses: ai.responses.queue
-    ai-enrich-conversation-response: ai.enrich.conversation.response.queue
-    ingestion-messages: ${RABBITMQ_QUEUE_INGESTION_MESSAGES:ingestion.messages.queue}
-  routing:
-    categorize: ai.categorize
-    summarize: ai.summarize
-    enrich: ai.enrich
-    responses: ai.responses
-    enrich-conversation-response: ai.enrich.conversation.response
-    ingestion-messages: ${RABBITMQ_ROUTING_INGESTION_MESSAGES:ingestion.messages}
 
 # Redis Conversation Configuration
 redis:

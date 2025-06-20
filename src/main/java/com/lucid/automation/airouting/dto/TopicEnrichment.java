@@ -22,7 +22,6 @@ public record TopicEnrichment(
     List<UserDTO> peopleInvolved,
     List<SummaryPerPerson> summaryPerPerson,
     Map<String, String> lastMessageDatePerPerson,
-    List<ConversationMessage> conversations,
     List<SuggestedReply> suggestedReplies,
     ForwardInfo suggestedForwardRecipient
 ) {}

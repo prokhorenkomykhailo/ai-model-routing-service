@@ -492,7 +492,6 @@ public class OpenAIProvider implements AIProvider {
                 List.of(), // peopleInvolved
                 List.of(), // summaryPerPerson
                 Map.of(), // lastMessageDatePerPerson
-                List.of(), // conversations
                 List.of(), // suggestedReplies
                 null // suggestedForwardRecipient
             );
@@ -634,7 +633,6 @@ public class OpenAIProvider implements AIProvider {
             List.of(), // peopleInvolved
             List.of(), // summaryPerPerson
             Map.of(), // lastMessageDatePerPerson
-            List.of(), // conversations
             List.of(), // suggestedReplies
             null // suggestedForwardRecipient
         );

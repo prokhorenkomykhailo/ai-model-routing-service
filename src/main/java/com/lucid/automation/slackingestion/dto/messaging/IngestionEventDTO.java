@@ -1,8 +1,9 @@
-package com.lucid.automation.airouting.dto;
+package com.lucid.automation.slackingestion.dto.messaging;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * DTO for publishing messages to RabbitMQ for AI processing
+ * DTO for consuming messages from Kafka for AI processing
  * Matches the structure from lucid-slack-ingestion-service
  */
 @Data
@@ -23,6 +24,7 @@ import java.util.Map;
 @AllArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
+@JsonTypeInfo(use = JsonTypeInfo.Id.NONE) // Ignore type information
 public class IngestionEventDTO {
     
     @JsonProperty("tenantId")
@@ -32,10 +34,13 @@ public class IngestionEventDTO {
     private String tenantSchema;
     
     @JsonProperty("message")
-    private MessageData message;
+    private SlackMessageDTO message;
     
     @JsonProperty("user")
-    private UserData user;
+    private SlackUserDTO user;
+    
+    @JsonProperty("metadata")
+    private SlackMessageMetadataDTO metadata;
     
     @JsonProperty("ingestedAt")
     private Instant ingestedAt;
@@ -45,38 +50,61 @@ public class IngestionEventDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public static class MessageData {
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class SlackMessageDTO {
+        @JsonProperty("type")
         private String type;
+        
+        @JsonProperty("subtype")
         private String subtype;
+        
+        @JsonProperty("user")
         private String user;
+        
+        @JsonProperty("username")
         private String username;
+        
+        @JsonProperty("text")
         private String text;
+        
+        @JsonProperty("ts")
         private String ts;
+        
+        @JsonProperty("channelId")
         private String channelId;
+        
+        @JsonProperty("teamId")
         private String teamId;
+        
+        @JsonProperty("threadTs")
         private String threadTs;
+        
+        @JsonProperty("conversationGroupId")
         private String conversationGroupId;
+        
+        @JsonProperty("ingestedAt")
         private Double ingestedAt;
+        
+        @JsonProperty("topic")
         private String topic;
+        
+        @JsonProperty("purpose")
         private String purpose;
+        
+        @JsonProperty("clientMsgId")
         private String clientMsgId;
+        
+        @JsonProperty("replyCount")
         private Integer replyCount;
+        
+        @JsonProperty("replyUsers")
         private List<String> replyUsers;
+        
+        @JsonProperty("replyUsersCount")
         private Integer replyUsersCount;
+        
+        @JsonProperty("latestReply")
         private String latestReply;
-        
-        // Helper methods to maintain backward compatibility
-        public String getUserId() {
-            return user;
-        }
-        
-        public String getTimestamp() {
-            return ts;
-        }
-        
-        public String getMessageType() {
-            return type;
-        }
     }
     
     @Data
@@ -85,7 +113,7 @@ public class IngestionEventDTO {
     @AllArgsConstructor
     @JsonIgnoreProperties(ignoreUnknown = true)
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public static class UserData {
+    public static class SlackUserDTO {
         @JsonProperty("id")
         private Long id;
         
@@ -171,6 +199,50 @@ public class IngestionEventDTO {
         private LocalDateTime updatedAt;
     }
     
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class SlackMessageMetadataDTO {
+        @JsonProperty("channelName")
+        private String channelName;
+        
+        @JsonProperty("channelType")
+        private String channelType;
+        
+        @JsonProperty("workspaceName")
+        private String workspaceName;
+        
+        @JsonProperty("isThreadMessage")
+        private boolean isThreadMessage;
+        
+        @JsonProperty("hasAttachments")
+        private boolean hasAttachments;
+        
+        @JsonProperty("mentionedUsers")
+        private List<String> mentionedUsers;
+        
+        @JsonProperty("hasReactions")
+        private boolean hasReactions;
+        
+        @JsonProperty("messageLength")
+        private int messageLength;
+        
+        @JsonProperty("containsUrls")
+        private boolean containsUrls;
+        
+        @JsonProperty("priority")
+        private String priority;
+        
+        @JsonProperty("source")
+        private String source;
+        
+        @JsonProperty("additionalAttributes")
+        private Map<String, Object> additionalAttributes;
+    }
+    
     // Helper methods to maintain backward compatibility with existing code
     public String getMessageId() {
         return message != null ? message.getTeamId() + "_" + message.getChannelId() + "_" + message.getTs() : null;
@@ -214,34 +286,5 @@ public class IngestionEventDTO {
     
     public String getConversationGroupId() {
         return message != null ? message.getConversationGroupId() : null;
-    }
-    
-    public MessageMetadata getMetadata() {
-        if (message == null) return null;
-        
-        MessageMetadata metadata = new MessageMetadata();
-        metadata.setThreadMessage(message.getThreadTs() != null);
-        metadata.setMessageLength(message.getText() != null ? message.getText().length() : 0);
-        return metadata;
-    }
-    
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public static class MessageMetadata {
-        private String channelName;
-        private String channelType;
-        private String workspaceName;
-        private boolean isThreadMessage;
-        private boolean hasAttachments;
-        private List<String> mentionedUsers;
-        private boolean hasReactions;
-        private int messageLength;
-        private boolean containsUrls;
-        private String priority;
-        private String source;
-        private Map<String, Object> additionalAttributes;
     }
 }

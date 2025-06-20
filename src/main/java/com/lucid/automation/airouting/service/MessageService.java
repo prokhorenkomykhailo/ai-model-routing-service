@@ -1,6 +1,6 @@
 package com.lucid.automation.airouting.service;
 
-import com.lucid.automation.airouting.dto.IngestionEventDTO;
+import com.lucid.automation.slackingestion.dto.messaging.IngestionEventDTO;
 import com.lucid.automation.airouting.model.Message;
 import com.lucid.automation.airouting.repository.MessageRepository;
 import org.slf4j.Logger;

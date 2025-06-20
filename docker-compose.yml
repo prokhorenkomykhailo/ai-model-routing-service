@@ -11,15 +11,14 @@ services:
       - SPRING_PROFILES_ACTIVE=docker
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USERNAME=admin
-      - RABBITMQ_PASSWORD=admin123
-      - RABBITMQ_VHOST=/
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPRING_KAFKA_SECURITY_PROTOCOL=PLAINTEXT
+      - SPRING_KAFKA_CONSUMER_GROUP_ID=ai-routing-service-group
+      - KAFKA_TOPIC_INGESTION_MESSAGES=lucid-ingestion-messages
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-service:8761/eureka/
     depends_on:
       - redis
-      - rabbitmq
+      - kafka
     volumes:
       - ./logs:/app/logs
       - ./data:/app/data
@@ -36,16 +35,33 @@ services:
     networks:
       - lucid-network
 
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "9092:9092"
     environment:
-      - RABBITMQ_DEFAULT_USER=admin
-      - RABBITMQ_DEFAULT_PASS=admin123
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_HOST://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CREATE_TOPICS: "lucid-ingestion-messages:1:1"
+    depends_on:
+      - zookeeper
     volumes:
-      - rabbitmq-data:/var/lib/rabbitmq
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - lucid-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
     networks:
       - lucid-network
 
@@ -55,4 +71,5 @@ networks:
 
 volumes:
   redis-data:
-  rabbitmq-data:
+  kafka-data:
+  zookeeper-data:

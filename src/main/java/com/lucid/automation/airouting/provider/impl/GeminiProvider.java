@@ -12,23 +12,18 @@ import com.lucid.automation.airouting.dto.MessageEnrichment;
 import com.lucid.automation.airouting.dto.ParticipantInsight;
 import com.lucid.automation.airouting.dto.ConversationEnrichment;
 import com.lucid.automation.airouting.dto.TopicEnrichment;
-import com.lucid.automation.airouting.dto.ConversationMessage;
 import com.lucid.automation.airouting.dto.UserDTO;
 import com.lucid.automation.airouting.dto.SummaryPerPerson;
 import com.lucid.automation.airouting.dto.SuggestedReply;
-import com.lucid.automation.airouting.dto.ReplyInfo;
 import com.lucid.automation.airouting.dto.ForwardInfo;
-import com.lucid.automation.airouting.dto.CategoryDTO;
-import com.lucid.automation.airouting.dto.APIResponse;
-import com.lucid.automation.airouting.dto.AIDebugLog;
 import com.lucid.automation.airouting.util.PromptLoader;
-import com.lucid.automation.airouting.config.RabbitMQConfig;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.genai.Client;
 import com.google.genai.types.GenerateContentResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -62,18 +57,14 @@ public class GeminiProvider implements AIProvider {
     private final ObjectMapper objectMapper;
     private final DataStorageServiceClient dataStorageServiceClient;
     private final PromptLoader promptLoader;
-    private final RabbitTemplate rabbitTemplate;
-    private final RabbitMQConfig rabbitMQConfig;
     private double lastConfidence = 0.0;
     private final boolean isClientAvailable;
     
     public GeminiProvider(ObjectMapper objectMapper, DataStorageServiceClient dataStorageServiceClient, 
-                         PromptLoader promptLoader, RabbitTemplate rabbitTemplate, RabbitMQConfig rabbitMQConfig) {
+                         PromptLoader promptLoader) {
         this.objectMapper = objectMapper;
         this.dataStorageServiceClient = dataStorageServiceClient;
         this.promptLoader = promptLoader;
-        this.rabbitTemplate = rabbitTemplate;
-        this.rabbitMQConfig = rabbitMQConfig;
         
         // Try to initialize the client, but handle gracefully if API key is not available
         Client tempClient = null;
@@ -221,7 +212,6 @@ public class GeminiProvider implements AIProvider {
             logger.debug("GEMINI-DEBUG [{}]: Full prompt being sent: {}", debugId, prompt);
             
             String response = callGeminiAPI(prompt, "conversation-enrichment", debugId);
-            // put response to rabbitmq for debugging
             logger.debug("GEMINI-DEBUG [{}]: Raw response received: {}", debugId, response);
             
             ConversationEnrichment result = parseConversationEnrichmentResponse(response, messages, participants);
@@ -539,27 +529,6 @@ public class GeminiProvider implements AIProvider {
             
             String responseText = response.text();
             logger.debug("Received response from Gemini API");
-            
-            // Log raw response to RabbitMQ for debugging
-            try {
-                AIDebugLog debugLog = new AIDebugLog(
-                    "gemini", 
-                    operation, 
-                    debugId, 
-                    String.valueOf(prompt.length()), 
-                    responseText
-                );
-                
-                rabbitTemplate.convertAndSend(
-                    rabbitMQConfig.getAiDebugExchange(),
-                    rabbitMQConfig.getAiDebugRoutingKey(),
-                    debugLog
-                );
-                
-                logger.debug("GEMINI-DEBUG [{}]: Raw response published to RabbitMQ", debugId);
-            } catch (Exception e) {
-                logger.warn("Failed to publish debug log to RabbitMQ: {}", e.getMessage());
-            }
             
             return responseText;
             
@@ -1103,7 +1072,6 @@ public class GeminiProvider implements AIProvider {
             List.of(), // peopleInvolved
             List.of(), // summaryPerPerson
             Map.of(), // lastMessageDatePerPerson
-            List.of(), // conversations
             List.of(), // suggestedReplies
             null // suggestedForwardRecipient
         );
@@ -1249,14 +1217,13 @@ public class GeminiProvider implements AIProvider {
         List<UserDTO> peopleInvolved = extractPeopleInvolved(topicMap);
         List<SummaryPerPerson> summaryPerPerson = extractSummaryPerPerson(topicMap);
         Map<String, String> lastMessageDatePerPerson = extractStringMap(topicMap, "lastMessageDatePerPerson");
-        List<ConversationMessage> conversations = extractConversationMessages(topicMap);
         List<SuggestedReply> suggestedReplies = extractSuggestedReplies(topicMap);
         ForwardInfo suggestedForwardRecipient = extractForwardInfo(topicMap);
         
         return new TopicEnrichment(title, shortSummary, fullSummary, suggestedAction, 
                                  clientOrSupplier, deadline, urgency, category, subCategory,
                                  startTime, endTime, periodStartDate, periodEndDate, latestMessageDate,
-                                 peopleInvolved, summaryPerPerson, lastMessageDatePerPerson, conversations, 
+                                 peopleInvolved, summaryPerPerson, lastMessageDatePerPerson, 
                                  suggestedReplies, suggestedForwardRecipient);
     }
     
@@ -1294,60 +1261,6 @@ public class GeminiProvider implements AIProvider {
             return result;
         }
         return Map.of();
-    }
-    
-    private List<ConversationMessage> extractConversationMessages(Map<?, ?> topicMap) {
-        Object conversationsObj = topicMap.get("conversations");
-        if (conversationsObj instanceof List<?> conversationsList) {
-            List<ConversationMessage> messages = new ArrayList<>();
-            
-            for (Object convObj : conversationsList) {
-                if (convObj instanceof Map<?, ?> convMap) {
-                    // Check if this is the new format (has id, username, sender fields)
-                    if (convMap.containsKey("id") || convMap.containsKey("username") || convMap.containsKey("sender")) {
-                        // New format: full conversation message
-                        String id = extractStringValue(convMap, "id", null);
-                        String username = extractStringValue(convMap, "username", null);
-                        String displayName = extractStringValue(convMap, "displayName", null);
-                        String sender = extractStringValue(convMap, "sender", null);
-                        String imageUrl = extractStringValue(convMap, "imageUrl", null);
-                        String text = extractStringValue(convMap, "text", "");
-                        String timestamp = extractStringValue(convMap, "timestamp", null);
-                        String source = extractStringValue(convMap, "source", null);
-                        String messageType = extractStringValue(convMap, "messageType", null);
-                        Boolean isRelevantToTopic = extractBooleanValue(convMap, "isRelevantToTopic", null);
-                        String relevance = extractStringValue(convMap, "relevance", null);
-                        
-                        messages.add(new ConversationMessage(id, username, displayName, sender, imageUrl, 
-                                                           text, timestamp, source, messageType, isRelevantToTopic, relevance));
-                    } else {
-                        // Old format: just text and relevance
-                        String text = extractStringValue(convMap, "text", "");
-                        String relevance = extractStringValue(convMap, "relevance", "");
-                        messages.add(ConversationMessage.fromLegacy(text, relevance));
-                    }
-                }
-            }
-            
-            return messages;
-        }
-        return List.of();
-    }
-    
-    private ReplyInfo extractReplyInfo(Map<?, ?> topicMap) {
-        Object replyObj = topicMap.get("reply");
-        if (replyObj instanceof Map<?, ?> replyMap) {
-            String channel = extractStringValue(replyMap, "channel", null);
-            String mode = extractStringValue(replyMap, "mode", null);
-            String to = extractStringValue(replyMap, "to", null);
-            List<String> cc = extractStringList(replyMap, "cc");
-            String threadId = extractStringValue(replyMap, "threadId", null);
-            String subject = extractStringValue(replyMap, "subject", null);
-            String body = extractStringValue(replyMap, "body", null);
-            
-            return new ReplyInfo(channel, mode, to, cc, threadId, subject, body);
-        }
-        return null;
     }
     
     private ForwardInfo extractForwardInfo(Map<?, ?> topicMap) {
@@ -1417,22 +1330,51 @@ public class GeminiProvider implements AIProvider {
     
     private List<SummaryPerPerson> extractSummaryPerPerson(Map<?, ?> topicMap) {
         Object summaryPerPersonObj = topicMap.get("summaryPerPerson");
-        if (summaryPerPersonObj instanceof List<?> summaryList) {
+        
+        // Handle new format: simple map of userId -> summary
+        if (summaryPerPersonObj instanceof Map<?, ?> summaryMap) {
+            List<SummaryPerPerson> summaries = new ArrayList<>();
+            
+            for (Map.Entry<?, ?> entry : summaryMap.entrySet()) {
+                String userId = String.valueOf(entry.getKey());
+                String summary = String.valueOf(entry.getValue());
+                
+                // Create minimal SummaryPerPerson object - will be enhanced with full user data in post-processing
+                SummaryPerPerson summaryPerPerson = new SummaryPerPerson(
+                    userId,           // id
+                    null,            // username - to be filled in post-processing
+                    null,            // displayName - to be filled in post-processing  
+                    null,            // imageUrl - to be filled in post-processing
+                    summary,         // summary - from LLM response
+                    null,            // role - to be filled in post-processing
+                    0,               // messageCount - to be calculated in post-processing
+                    null,            // firstMessageDate - to be calculated in post-processing
+                    null,            // lastMessageDate - to be calculated in post-processing
+                    List.of(),       // keyContributions - to be calculated in post-processing
+                    List.of()        // actionItems - to be calculated in post-processing
+                );
+                summaries.add(summaryPerPerson);
+            }
+            return summaries;
+        }
+        
+        // Handle legacy format: array of full objects (for backward compatibility)
+        else if (summaryPerPersonObj instanceof List<?> summaryList) {
             List<SummaryPerPerson> summaries = new ArrayList<>();
             
             for (Object summaryObj : summaryList) {
-                if (summaryObj instanceof Map<?, ?> summaryMap) {
-                    String id = extractStringValue(summaryMap, "id", null);
-                    String username = extractStringValue(summaryMap, "username", null);
-                    String displayName = extractStringValue(summaryMap, "displayName", null);
-                    String imageUrl = extractStringValue(summaryMap, "imageUrl", null);
-                    String summary = extractStringValue(summaryMap, "summary", "No summary available");
-                    String role = extractStringValue(summaryMap, "role", null);
-                    Integer messageCount = extractIntegerValue(summaryMap, "messageCount", 0);
-                    LocalDateTime firstMessageDate = extractDateTime(summaryMap, "firstMessageDate");
-                    LocalDateTime lastMessageDate = extractDateTime(summaryMap, "lastMessageDate");
-                    List<String> keyContributions = extractStringList(summaryMap, "keyContributions");
-                    List<String> actionItems = extractStringList(summaryMap, "actionItems");
+                if (summaryObj instanceof Map<?, ?> summaryObjMap) {
+                    String id = extractStringValue(summaryObjMap, "id", null);
+                    String username = extractStringValue(summaryObjMap, "username", null);
+                    String displayName = extractStringValue(summaryObjMap, "displayName", null);
+                    String imageUrl = extractStringValue(summaryObjMap, "imageUrl", null);
+                    String summary = extractStringValue(summaryObjMap, "summary", "No summary available");
+                    String role = extractStringValue(summaryObjMap, "role", null);
+                    Integer messageCount = extractIntegerValue(summaryObjMap, "messageCount", 0);
+                    LocalDateTime firstMessageDate = extractDateTime(summaryObjMap, "firstMessageDate");
+                    LocalDateTime lastMessageDate = extractDateTime(summaryObjMap, "lastMessageDate");
+                    List<String> keyContributions = extractStringList(summaryObjMap, "keyContributions");
+                    List<String> actionItems = extractStringList(summaryObjMap, "actionItems");
                     
                     SummaryPerPerson summaryPerPerson = new SummaryPerPerson(
                         id, username, displayName, imageUrl, summary, role,
@@ -1444,6 +1386,7 @@ public class GeminiProvider implements AIProvider {
             }
             return summaries;
         }
+        
         return List.of();
     }
     
@@ -1475,20 +1418,5 @@ public class GeminiProvider implements AIProvider {
             return replies;
         }
         return List.of();
-    }
-    
-    private Boolean extractBooleanValue(Map<?, ?> map, String key, Boolean defaultValue) {
-        Object value = map.get(key);
-        if (value instanceof Boolean boolValue) {
-            return boolValue;
-        } else if (value instanceof String strValue) {
-            try {
-                return Boolean.parseBoolean(strValue);
-            } catch (Exception e) {
-                logger.warn("Failed to parse boolean value '{}' for key '{}', using default: {}", strValue, key, defaultValue);
-                return defaultValue;
-            }
-        }
-        return defaultValue;
     }
 }

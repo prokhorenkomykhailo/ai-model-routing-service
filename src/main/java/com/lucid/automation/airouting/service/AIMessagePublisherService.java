@@ -8,7 +8,7 @@ import com.lucid.automation.airouting.model.message.AIMessage;
 import com.lucid.automation.airouting.model.message.SlackParticipantData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -18,31 +18,28 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Service for publishing AI processing requests to RabbitMQ
+ * Service for publishing AI processing requests to Kafka
  */
 @Service
 public class AIMessagePublisherService {
     
     private static final Logger logger = LoggerFactory.getLogger(AIMessagePublisherService.class);
     
-    private final RabbitTemplate rabbitTemplate;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
     private final MessageConverterService messageConverter;
     
-    @Value("${rabbitmq.exchange.ai-requests:ai.requests}")
-    private String aiRequestsExchange;
+    @Value("${kafka.topics.ai-categorize:ai-categorize}")
+    private String categorizeTopic;
     
-    @Value("${rabbitmq.routing.categorize:ai.categorize}")
-    private String categorizeRoutingKey;
+    @Value("${kafka.topics.ai-summarize:ai-summarize}")
+    private String summarizeTopic;
     
-    @Value("${rabbitmq.routing.summarize:ai.summarize}")
-    private String summarizeRoutingKey;
+    @Value("${kafka.topics.ai-enrich:ai-enrich}")
+    private String enrichTopic;
     
-    @Value("${rabbitmq.routing.enrich:ai.enrich}")
-    private String enrichRoutingKey;
-    
-    public AIMessagePublisherService(RabbitTemplate rabbitTemplate,
+    public AIMessagePublisherService(KafkaTemplate<String, Object> kafkaTemplate,
                                    MessageConverterService messageConverter) {
-        this.rabbitTemplate = rabbitTemplate;
+        this.kafkaTemplate = kafkaTemplate;
         this.messageConverter = messageConverter;
     }
     
@@ -120,13 +117,13 @@ public class AIMessagePublisherService {
                 aiMessage.setParticipants(participantData);
             }
             
-            // Determine routing key and publish
-            String routingKey = getRoutingKeyForTaskType(taskType);
+            // Determine topic and publish
+            String topic = getTopicForTaskType(taskType);
             
-            rabbitTemplate.convertAndSend(aiRequestsExchange, routingKey, aiMessage);
+            kafkaTemplate.send(topic, aiMessage);
             
-            logger.info("Published AI request: messageId={}, taskType={}, tenantId={}, routingKey={}", 
-                       messageId, taskType, tenantId, routingKey);
+            logger.info("Published AI request: messageId={}, taskType={}, tenantId={}, topic={}", 
+                       messageId, taskType, tenantId, topic);
             
             return messageId;
             
@@ -154,14 +151,14 @@ public class AIMessagePublisherService {
     }
     
     /**
-     * Get routing key based on task type
+     * Get Kafka topic based on task type
      */
-    private String getRoutingKeyForTaskType(AITaskType taskType) {
+    private String getTopicForTaskType(AITaskType taskType) {
         return switch (taskType) {
-            case CATEGORIZE -> categorizeRoutingKey;
-            case SUMMARIZE -> summarizeRoutingKey;
+            case CATEGORIZE -> categorizeTopic;
+            case SUMMARIZE -> summarizeTopic;
             case ENRICH_CONVERSATION, ENRICH_MESSAGE, ANALYZE_PARTICIPANT, 
-                 ASSESS_URGENCY, GENERATE_TOPIC, EXTRACT_ENTITIES, SENTIMENT_ANALYSIS -> enrichRoutingKey;
+                 ASSESS_URGENCY, GENERATE_TOPIC, EXTRACT_ENTITIES, SENTIMENT_ANALYSIS -> enrichTopic;
         };
     }
 }
