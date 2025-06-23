@@ -55,9 +55,6 @@ public class MessageService {
         try {
             Message messageToSave = mapToMessage(ingestionEventDto);
             logger.debug("Saving message to Redis: {}", messageToSave.getId());
-            logger.debug("Message user data: slackUserId={}, name={}, displayName={}", 
-                messageToSave.getSlackUserId(), messageToSave.getName(), messageToSave.getDisplayName());
-            
             Message savedMessage = messageRepository.save(messageToSave);
             logger.info("Successfully saved message to Redis with user data: messageId={}, slackUserId={}, name={}", 
                 savedMessage.getId(), savedMessage.getSlackUserId(), savedMessage.getName());
@@ -171,87 +168,87 @@ public class MessageService {
     /**
      * Maps an IngestionEventDTO to a Message for Redis storage
      * 
-     * @param dto The DTO to map
+     * @param ingestionEventdto The DTO to map
      * @return The mapped Message
      */
-    private Message mapToMessage(IngestionEventDTO dto) {
-        logger.debug("Mapping IngestionEventDTO to Message: messageId={}", dto.getMessageId());
-        logger.debug("User data present: {}", dto.getUser() != null);
-        if (dto.getUser() != null) {
+    private Message mapToMessage(IngestionEventDTO ingestionEventdto) {
+        logger.debug("Mapping IngestionEventDTO to Message: messageId={}", ingestionEventdto.getMessageId());
+        logger.debug("User data present: {}", ingestionEventdto.getUser() != null);
+        if (ingestionEventdto.getUser() != null) {
             logger.debug("User details: slackUserId={}, name={}, displayName={}, email={}", 
-                dto.getUser().getSlackUserId(), dto.getUser().getName(), 
-                dto.getUser().getDisplayName(), dto.getUser().getEmail());
+                ingestionEventdto.getUser().getSlackUserId(), ingestionEventdto.getUser().getName(), 
+                ingestionEventdto.getUser().getDisplayName(), ingestionEventdto.getUser().getEmail());
         }
         
         // Extract message timestamp and thread timestamp from the message object
-        String messageTs = dto.getMessage() != null ? dto.getMessage().getTs() : null;
-        String threadTs = dto.getMessage() != null && dto.getMessage().getThreadTs() != null ? 
-            dto.getMessage().getThreadTs() : messageTs;
+        String messageTs = ingestionEventdto.getMessage() != null ? ingestionEventdto.getMessage().getTs() : null;
+        String threadTs = ingestionEventdto.getMessage() != null && ingestionEventdto.getMessage().getThreadTs() != null ? 
+            ingestionEventdto.getMessage().getThreadTs() : messageTs;
         
         // Generate a unique ID: tenantId:workspaceId:channelId:threadTs:messageTs
         String id = String.join(":", 
-                dto.getTenantId(), 
-                dto.getMessage() != null ? dto.getMessage().getTeamId() : "", 
-                dto.getMessage() != null ? dto.getMessage().getChannelId() : "", 
+                ingestionEventdto.getTenantId(), 
+                ingestionEventdto.getMessage() != null ? ingestionEventdto.getMessage().getTeamId() : "", 
+                ingestionEventdto.getMessage() != null ? ingestionEventdto.getMessage().getChannelId() : "", 
                 threadTs != null ? threadTs : "", 
                 messageTs != null ? messageTs : "");
         
         Map<String, Object> metadata = new HashMap<>();
-        if (dto.getMetadata() != null) {
-            metadata.put("channelName", dto.getMetadata().getChannelName());
-            metadata.put("channelType", dto.getMetadata().getChannelType());
-            metadata.put("workspaceName", dto.getMetadata().getWorkspaceName());
-            metadata.put("isThreadMessage", dto.getMetadata().isThreadMessage());
-            metadata.put("hasAttachments", dto.getMetadata().isHasAttachments());
-            metadata.put("mentionedUsers", dto.getMetadata().getMentionedUsers());
-            metadata.put("hasReactions", dto.getMetadata().isHasReactions());
-            metadata.put("messageLength", dto.getMetadata().getMessageLength());
-            metadata.put("containsUrls", dto.getMetadata().isContainsUrls());
-            metadata.put("priority", dto.getMetadata().getPriority());
-            metadata.put("source", dto.getMetadata().getSource());
+        if (ingestionEventdto.getMetadata() != null) {
+            metadata.put("channelName", ingestionEventdto.getMetadata().getChannelName());
+            metadata.put("channelType", ingestionEventdto.getMetadata().getChannelType());
+            metadata.put("workspaceName", ingestionEventdto.getMetadata().getWorkspaceName());
+            metadata.put("isThreadMessage", ingestionEventdto.getMetadata().isThreadMessage());
+            metadata.put("hasAttachments", ingestionEventdto.getMetadata().isHasAttachments());
+            metadata.put("mentionedUsers", ingestionEventdto.getMetadata().getMentionedUsers());
+            metadata.put("hasReactions", ingestionEventdto.getMetadata().isHasReactions());
+            metadata.put("messageLength", ingestionEventdto.getMetadata().getMessageLength());
+            metadata.put("containsUrls", ingestionEventdto.getMetadata().isContainsUrls());
+            metadata.put("priority", ingestionEventdto.getMetadata().getPriority());
+            metadata.put("source", ingestionEventdto.getMetadata().getSource());
         }
         
         Message message = Message.builder()
                 .id(id)
-                .tenantId(dto.getTenantId())
-                .workspaceId(dto.getMessage() != null ? dto.getMessage().getTeamId() : null)
-                .channelId(dto.getMessage() != null ? dto.getMessage().getChannelId() : null)
+                .tenantId(ingestionEventdto.getTenantId())
+                .workspaceId(ingestionEventdto.getMessage() != null ? ingestionEventdto.getMessage().getTeamId() : null)
+                .channelId(ingestionEventdto.getMessage() != null ? ingestionEventdto.getMessage().getChannelId() : null)
                 .threadTs(threadTs)
                 .messageTs(messageTs)
-                .userId(dto.getMessage() != null ? dto.getMessage().getUser() : null)
-                .username(dto.getUser() != null ? dto.getUser().getName() : null)
-                .text(dto.getMessage() != null ? dto.getMessage().getText() : null)
-                .messageType(dto.getMessage() != null ? dto.getMessage().getType() : null)
-                .subtype(dto.getMessage() != null ? dto.getMessage().getSubtype() : null)
+                .userId(ingestionEventdto.getMessage() != null ? ingestionEventdto.getMessage().getUser() : null)
+                .username(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getName() : null)
+                .text(ingestionEventdto.getMessage() != null ? ingestionEventdto.getMessage().getText() : null)
+                .messageType(ingestionEventdto.getMessage() != null ? ingestionEventdto.getMessage().getType() : null)
+                .subtype(ingestionEventdto.getMessage() != null ? ingestionEventdto.getMessage().getSubtype() : null)
                 .metadata(metadata)
                 .ingestedAt(Instant.now().toEpochMilli())
                 // User profile fields from UserData
-                .slackUserId(dto.getUser() != null ? dto.getUser().getSlackUserId() : null)
-                .teamId(dto.getUser() != null ? dto.getUser().getTeamId() : 
-                    (dto.getMessage() != null ? dto.getMessage().getTeamId() : null))
-                .name(dto.getUser() != null ? dto.getUser().getName() : null)
-                .emailConfirmed(dto.getUser() != null ? dto.getUser().getEmailConfirmed() : null)
-                .displayName(dto.getUser() != null ? dto.getUser().getDisplayName() : null)
-                .displayNameNormalized(dto.getUser() != null ? dto.getUser().getDisplayNameNormalized() : null)
-                .realNameNormalized(dto.getUser() != null ? dto.getUser().getRealNameNormalized() : null)
-                .email(dto.getUser() != null ? dto.getUser().getEmail() : null)
-                .title(dto.getUser() != null ? dto.getUser().getTitle() : null)
-                .phone(dto.getUser() != null ? dto.getUser().getPhone() : null)
-                .firstName(dto.getUser() != null ? dto.getUser().getFirstName() : null)
-                .lastName(dto.getUser() != null ? dto.getUser().getLastName() : null)
-                .pronouns(dto.getUser() != null ? dto.getUser().getPronouns() : null)
-                .statusText(dto.getUser() != null ? dto.getUser().getStatusText() : null)
-                .avatarHash(dto.getUser() != null ? dto.getUser().getAvatarHash() : null)
-                .imageOriginal(dto.getUser() != null ? dto.getUser().getImageOriginal() : null)
-                .image24(dto.getUser() != null ? dto.getUser().getImage24() : null)
-                .image32(dto.getUser() != null ? dto.getUser().getImage32() : null)
-                .image48(dto.getUser() != null ? dto.getUser().getImage48() : null)
-                .image72(dto.getUser() != null ? dto.getUser().getImage72() : null)
-                .image192(dto.getUser() != null ? dto.getUser().getImage192() : null)
-                .image512(dto.getUser() != null ? dto.getUser().getImage512() : null)
-                .image1024(dto.getUser() != null ? dto.getUser().getImage1024() : null)
-                .teamName(dto.getUser() != null ? dto.getUser().getTeamName() : null)
-                .slackUpdatedAt(dto.getUser() != null ? dto.getUser().getSlackUpdatedAt() : null)
+                .slackUserId(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getSlackUserId() : null)
+                .teamId(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getTeamId() : 
+                    (ingestionEventdto.getMessage() != null ? ingestionEventdto.getMessage().getTeamId() : null))
+                .name(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getName() : null)
+                .emailConfirmed(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getEmailConfirmed() : null)
+                .displayName(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getDisplayName() : null)
+                .displayNameNormalized(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getDisplayNameNormalized() : null)
+                .realNameNormalized(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getRealNameNormalized() : null)
+                .email(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getEmail() : null)
+                .title(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getTitle() : null)
+                .phone(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getPhone() : null)
+                .firstName(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getFirstName() : null)
+                .lastName(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getLastName() : null)
+                .pronouns(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getPronouns() : null)
+                .statusText(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getStatusText() : null)
+                .avatarHash(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getAvatarHash() : null)
+                .imageOriginal(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getImageOriginal() : null)
+                .image24(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getImage24() : null)
+                .image32(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getImage32() : null)
+                .image48(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getImage48() : null)
+                .image72(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getImage72() : null)
+                .image192(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getImage192() : null)
+                .image512(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getImage512() : null)
+                .image1024(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getImage1024() : null)
+                .teamName(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getTeamName() : null)
+                .slackUpdatedAt(ingestionEventdto.getUser() != null ? ingestionEventdto.getUser().getSlackUpdatedAt() : null)
                 .build();
                 
         // Update composite indexes for optimized queries

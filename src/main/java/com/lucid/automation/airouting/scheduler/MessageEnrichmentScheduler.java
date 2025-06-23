@@ -188,8 +188,7 @@ public class MessageEnrichmentScheduler {
         }
         
         try {
-            log.debug("Processing batch #{} with {} messages for workspace: {}", 
-                     batchNumber, messages.size(), workspace.getName());
+            log.debug("Processing batch #{} with {} messages for workspace: {}", batchNumber, messages.size(), workspace.getName());
             
             // Log sample of message data to verify what we're receiving
             if (!messages.isEmpty()) {

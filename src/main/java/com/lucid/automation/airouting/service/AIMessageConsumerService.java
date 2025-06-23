@@ -1,6 +1,5 @@
 package com.lucid.automation.airouting.service;
 
-import com.lucid.automation.airouting.dto.*;
 import com.lucid.automation.airouting.model.AITaskType;
 import com.lucid.automation.airouting.model.message.AIMessage;
 import com.lucid.automation.airouting.provider.AIProvider;
@@ -49,107 +48,7 @@ public class AIMessageConsumerService {
         logger.info("3. Dedicated consumer group: {}-ai-enrich", "ai-routing-service-group");
         logger.info("======================================");
     }
-    
-    /**
-     * Consume categorization requests
-     */
-    @KafkaListener(topics = "${kafka.topics.ai-categorize:ai-categorize}", 
-                   containerFactory = "aiMessageListenerContainerFactory")
-    public void handleCategorizationRequest(@Payload AIMessage message,
-                                          @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
-                                          Acknowledgment acknowledgment) {
-        logger.info("Received categorization request: messageId={}, tenantId={}", 
-                   message.getMessageId(), message.getTenantId());
-        
-        try {
-            // Set default replyTopic if not specified
-            if (message.getReplyTopic() == null || message.getReplyTopic().trim().isEmpty()) {
-                logger.info("No reply topic specified for categorization messageId={}, setting default ai-responses topic", 
-                           message.getMessageId());
-                message.setReplyTopic(aiResponsesTopic);
-            }
-            
-            // Handle null or empty preferred provider
-            String preferredProvider = message.getPreferredProvider();
-            if (preferredProvider == null || preferredProvider.trim().isEmpty()) {
-                logger.warn("No preferred provider specified for messageId={}, using default provider", message.getMessageId());
-                preferredProvider = null;
-            }
-            
-            AIProvider provider = preferredProvider != null ? 
-                providerFactory.getProvider(preferredProvider) : 
-                providerFactory.getDefaultProvider();
-                
-            if (provider == null) {
-                throw new RuntimeException("No AI provider available for processing categorization request");
-            }
-            
-            CategoryResult result = provider.categorize(message.getContent());
-            
-            // Send response back to reply topic
-            sendResponse(message, result, "categorization");
-            
-            acknowledgment.acknowledge();
-            logger.info("Successfully processed categorization request: messageId={}", message.getMessageId());
-            
-        } catch (Exception e) {
-            logger.error("Failed to process categorization request: messageId={}, error={}", 
-                        message.getMessageId(), e.getMessage(), e);
-            sendErrorResponse(message, "categorization", e.getMessage());
-            acknowledgment.acknowledge(); // Acknowledge to avoid reprocessing
-        }
-    }
-    
-    /**
-     * Consume summarization requests
-     */
-    @KafkaListener(topics = "${kafka.topics.ai-summarize:ai-summarize}", 
-                   containerFactory = "aiMessageListenerContainerFactory")
-    public void handleSummarizationRequest(@Payload AIMessage message,
-                                         @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
-                                         Acknowledgment acknowledgment) {
-        logger.info("Received summarization request: messageId={}, tenantId={}", 
-                   message.getMessageId(), message.getTenantId());
-        
-        try {
-            // Set default replyTopic if not specified
-            if (message.getReplyTopic() == null || message.getReplyTopic().trim().isEmpty()) {
-                logger.info("No reply topic specified for summarization messageId={}, setting default ai-responses topic", 
-                           message.getMessageId());
-                message.setReplyTopic(aiResponsesTopic);
-            }
-            
-            // Handle null or empty preferred provider
-            String preferredProvider = message.getPreferredProvider();
-            if (preferredProvider == null || preferredProvider.trim().isEmpty()) {
-                logger.warn("No preferred provider specified for messageId={}, using default provider", message.getMessageId());
-                preferredProvider = null;
-            }
-            
-            AIProvider provider = preferredProvider != null ? 
-                providerFactory.getProvider(preferredProvider) : 
-                providerFactory.getDefaultProvider();
-                
-            if (provider == null) {
-                throw new RuntimeException("No AI provider available for processing summarization request");
-            }
-            
-            SummaryResult result = provider.summarize(message.getContent());
-            
-            // Send response back to reply topic
-            sendResponse(message, result, "summarization");
-            
-            acknowledgment.acknowledge();
-            logger.info("Successfully processed summarization request: messageId={}", message.getMessageId());
-            
-        } catch (Exception e) {
-            logger.error("Failed to process summarization request: messageId={}, error={}", 
-                        message.getMessageId(), e.getMessage(), e);
-            sendErrorResponse(message, "summarization", e.getMessage());
-            acknowledgment.acknowledge(); // Acknowledge to avoid reprocessing
-        }
-    }
-    
+
     /**
      * Consume enrichment requests (conversation, message, participant analysis, etc.)
      * GUARANTEE: This consumer ALWAYS processes ai-enrich topic from the beginning
@@ -158,24 +57,23 @@ public class AIMessageConsumerService {
      */
     @KafkaListener(topics = "${kafka.topics.ai-enrich:ai-enrich}", 
                    containerFactory = "aiMessageListenerContainerFactory")
-    public void handleEnrichmentRequest(@Payload AIMessage message,
+    public void handleEnrichmentRequest(@Payload AIMessage messageRequest,
                                       @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
                                       Acknowledgment acknowledgment) {
         
         // VERIFICATION: Log that we're ALWAYS processing ai-enrich from the start
         logger.info("=== HANDLE-ENRICHMENT-START === Topic: {}, MessageId: {}, Thread: {}", 
-                   topic, message != null ? message.getMessageId() : "NULL-MESSAGE", 
+                   topic, messageRequest != null ? messageRequest.getMessageId() : "NULL-MESSAGE", 
                    Thread.currentThread().getName());
         
         // FORCE CONSOLE OUTPUT - This should ALWAYS appear when processing ai-enrich
-        System.out.println(">>>>>>> CONSOLE DEBUG: handleEnrichmentRequest called! Topic: " + topic + 
-                          ", MessageId: " + (message != null ? message.getMessageId() : "NULL") + 
+        System.out.println(">>>>>>> CONSOLE DEBUG: handleEnrichmentRequest called! Topic: " + topic + ", MessageId: " + (messageRequest != null ? messageRequest.getMessageId() : "NULL") + 
                           ", Thread: " + Thread.currentThread().getName());
         System.out.println(">>>>>>> GUARANTEE: ai-enrich topic is ALWAYS processed from the beginning");
         System.out.println(">>>>>>> This is ensured by: 1) auto-offset-reset=earliest, 2) KafkaOffsetResetService");
         
         // Early null check
-        if (message == null) {
+        if (messageRequest == null) {
             logger.error("=== HANDLE-ENRICHMENT-ERROR === Received NULL message from topic: {}", topic);
             System.out.println(">>>>>>> CONSOLE DEBUG: NULL MESSAGE RECEIVED!");
             acknowledgment.acknowledge();
@@ -183,57 +81,57 @@ public class AIMessageConsumerService {
         }
                    
         logger.info("[X] Received enrichment request: messageId={}, taskType={}, tenantId={}", 
-                   message.getMessageId(), message.getTaskType(), message.getTenantId());
+                   messageRequest.getMessageId(), messageRequest.getTaskType(), messageRequest.getTenantId());
         
         // Set default replyTopic if not specified
-        if (message.getReplyTopic() == null || message.getReplyTopic().trim().isEmpty()) {
+        if (messageRequest.getReplyTopic() == null || messageRequest.getReplyTopic().trim().isEmpty()) {
             logger.info("No reply topic specified for messageId={}, setting default ai-responses topic", 
-                       message.getMessageId());
-            message.setReplyTopic(aiResponsesTopic);
+                       messageRequest.getMessageId());
+            messageRequest.setReplyTopic(aiResponsesTopic);
             System.out.println(">>>>>>> CONSOLE DEBUG: Set default replyTopic to: " + aiResponsesTopic + 
-                             " for messageId: " + message.getMessageId());
+                             " for messageId: " + messageRequest.getMessageId());
         }
         
         // CONSOLE RAW MESSAGE DEBUG - ALL FIELDS
         System.out.println("===========================================");
         System.out.println(">>>>>>> RAW AI MESSAGE - ALL FIELDS:");
         System.out.println("===========================================");
-        System.out.println("  MessageId: " + message.getMessageId());
-        System.out.println("  TaskType: " + message.getTaskType());
-        System.out.println("  Content: '" + message.getContent() + "'");
-        System.out.println("  ConversationId: " + message.getConversationId());
-        System.out.println("  TenantId: " + message.getTenantId());
-        System.out.println("  TenantSchema: " + message.getTenantSchema());
-        System.out.println("  UserId: " + message.getUserId());
-        System.out.println("  PreferredProvider: " + message.getPreferredProvider());
-        System.out.println("  ReplyTopic: " + message.getReplyTopic());
-        System.out.println("  CorrelationId: " + message.getCorrelationId());
-        System.out.println("  Priority: " + message.getPriority());
-        System.out.println("  RequestedAt: " + message.getRequestedAt());
+        System.out.println("  MessageId: " + messageRequest.getMessageId());
+        System.out.println("  TaskType: " + messageRequest.getTaskType());
+        System.out.println("  Content: '" + messageRequest.getContent() + "'");
+        System.out.println("  ConversationId: " + messageRequest.getConversationId());
+        System.out.println("  TenantId: " + messageRequest.getTenantId());
+        System.out.println("  TenantSchema: " + messageRequest.getTenantSchema());
+        System.out.println("  UserId: " + messageRequest.getUserId());
+        System.out.println("  PreferredProvider: " + messageRequest.getPreferredProvider());
+        System.out.println("  ReplyTopic: " + messageRequest.getReplyTopic());
+        System.out.println("  CorrelationId: " + messageRequest.getCorrelationId());
+        System.out.println("  Priority: " + messageRequest.getPriority());
+        System.out.println("  RequestedAt: " + messageRequest.getRequestedAt());
         
         // Messages collection
-        if (message.getMessages() != null) {
-            System.out.println("  Messages: [" + message.getMessages().size() + " total]");
-            for (int i = 0; i < Math.min(3, message.getMessages().size()); i++) {
-                var msg = message.getMessages().get(i);
+        if (messageRequest.getMessages() != null) {
+            System.out.println("  Messages: [" + messageRequest.getMessages().size() + " total]");
+            for (int i = 0; i < Math.min(3, messageRequest.getMessages().size()); i++) {
+                var msg = messageRequest.getMessages().get(i);
                 System.out.println("    Message[" + i + "]:");
                 System.out.println("      UserId: " + msg.getUserId());
                 System.out.println("      Content: '" + (msg.getContent() != null ? 
                                  msg.getContent().substring(0, Math.min(100, msg.getContent().length())) : "null") + "'");
                 System.out.println("      Timestamp: " + msg.getTimestamp());
             }
-            if (message.getMessages().size() > 3) {
-                System.out.println("    ... and " + (message.getMessages().size() - 3) + " more messages");
+            if (messageRequest.getMessages().size() > 3) {
+                System.out.println("    ... and " + (messageRequest.getMessages().size() - 3) + " more messages");
             }
         } else {
             System.out.println("  Messages: null");
         }
         
         // Participants collection  
-        if (message.getParticipants() != null) {
-            System.out.println("  Participants: [" + message.getParticipants().size() + " total]");
-            for (int i = 0; i < Math.min(3, message.getParticipants().size()); i++) {
-                var participant = message.getParticipants().get(i);
+        if (messageRequest.getParticipants() != null) {
+            System.out.println("  Participants: [" + messageRequest.getParticipants().size() + " total]");
+            for (int i = 0; i < Math.min(3, messageRequest.getParticipants().size()); i++) {
+                var participant = messageRequest.getParticipants().get(i);
                 System.out.println("    Participant[" + i + "]:");
                 System.out.println("      Id: " + participant.getId());
                 System.out.println("      Name: " + participant.getName());
@@ -244,66 +142,66 @@ public class AIMessageConsumerService {
         }
         
         // Context
-        if (message.getContext() != null) {
-            System.out.println("  Context: " + message.getContext());
+        if (messageRequest.getContext() != null) {
+            System.out.println("  Context: " + messageRequest.getContext());
         } else {
             System.out.println("  Context: null");
         }
         System.out.println("===========================================");
-        System.out.println("  TenantId: " + message.getTenantId());
-        System.out.println("  PreferredProvider: " + message.getPreferredProvider());
-        System.out.println("  Messages count: " + (message.getMessages() != null ? message.getMessages().size() : "null"));
-        System.out.println("  Participants count: " + (message.getParticipants() != null ? message.getParticipants().size() : "null"));
+        System.out.println("  TenantId: " + messageRequest.getTenantId());
+        System.out.println("  PreferredProvider: " + messageRequest.getPreferredProvider());
+        System.out.println("  Messages count: " + (messageRequest.getMessages() != null ? messageRequest.getMessages().size() : "null"));
+        System.out.println("  Participants count: " + (messageRequest.getParticipants() != null ? messageRequest.getParticipants().size() : "null"));
         
-        if (message.getMessages() != null && !message.getMessages().isEmpty()) {
+        if (messageRequest.getMessages() != null && !messageRequest.getMessages().isEmpty()) {
             System.out.println("  First message content: '" + 
-                (message.getMessages().get(0).getText() != null ? 
-                    message.getMessages().get(0).getText().substring(0, Math.min(100, message.getMessages().get(0).getContent().length())) : 
+                (messageRequest.getMessages().get(0).getText() != null ? 
+                    messageRequest.getMessages().get(0).getText().substring(0, Math.min(100, messageRequest.getMessages().get(0).getContent().length())) : 
                     "null") + "'");
         }
         System.out.println(">>>>>>> END RAW MESSAGE DEBUG");
         
         // Add detailed logging to debug empty/null content issues - ALWAYS at INFO level
         logger.info("ENRICH-INPUT-DEBUG: messageId={}, taskType={}, content='{}', conversationId={}, messagesCount={}, participantsCount={}", 
-                message.getMessageId(), 
-                message.getTaskType(), 
-                message.getContent() != null ? message.getContent() : "NULL", 
-                message.getConversationId(),
-                message.getMessages() != null ? message.getMessages().size() : "null",
-                message.getParticipants() != null ? message.getParticipants().size() : "null");
+                messageRequest.getMessageId(), 
+                messageRequest.getTaskType(), 
+                messageRequest.getContent() != null ? messageRequest.getContent() : "NULL", 
+                messageRequest.getConversationId(),
+                messageRequest.getMessages() != null ? messageRequest.getMessages().size() : "null",
+                messageRequest.getParticipants() != null ? messageRequest.getParticipants().size() : "null");
         
         // Log the complete message structure for debugging
-        if (message.getMessages() != null && !message.getMessages().isEmpty()) {
+        if (messageRequest.getMessages() != null && !messageRequest.getMessages().isEmpty()) {
             logger.info("ENRICH-MESSAGES-DEBUG: First 2 messages for messageId={}: [{}]", 
-                       message.getMessageId(),
-                       message.getMessages().stream()
+                       messageRequest.getMessageId(),
+                       messageRequest.getMessages().stream()
                            .limit(2)
                            .map(msg -> "content='" + (msg.getText() != null ? msg.getText().substring(0, Math.min(50, msg.getContent().length())) : "null") + "'")
                            .collect(java.util.stream.Collectors.joining(", ")));
         }
         
         // Log null/empty checks
-        if (message.getContent() == null) {
+        if (messageRequest.getContent() == null) {
             logger.warn("ENRICH-DEBUG: Message content is NULL for messageId={}, taskType={}", 
-                       message.getMessageId(), message.getTaskType());
-        } else if (message.getContent().trim().isEmpty()) {
+                       messageRequest.getMessageId(), messageRequest.getTaskType());
+        } else if (messageRequest.getContent().trim().isEmpty()) {
             logger.warn("ENRICH-DEBUG: Message content is EMPTY after trim for messageId={}, taskType={}", 
-                       message.getMessageId(), message.getTaskType());
+                       messageRequest.getMessageId(), messageRequest.getTaskType());
         }
         
         try {
             // Add detailed logging to identify NPE source
             logger.debug("Message details: messageId={}, taskType={}, preferredProvider={}, hasMessages={}, hasParticipants={}", 
-                        message.getMessageId(), 
-                        message.getTaskType(), 
-                        message.getPreferredProvider(),
-                        message.getMessages() != null ? message.getMessages().size() : "null",
-                        message.getParticipants() != null ? message.getParticipants().size() : "null");
+                        messageRequest.getMessageId(), 
+                        messageRequest.getTaskType(), 
+                        messageRequest.getPreferredProvider(),
+                        messageRequest.getMessages() != null ? messageRequest.getMessages().size() : "null",
+                        messageRequest.getParticipants() != null ? messageRequest.getParticipants().size() : "null");
             
             // Handle null or empty preferred provider
-            String preferredProvider = message.getPreferredProvider();
+            String preferredProvider = messageRequest.getPreferredProvider();
             if (preferredProvider == null || preferredProvider.trim().isEmpty()) {
-                logger.warn("No preferred provider specified for messageId={}, using default provider", message.getMessageId());
+                logger.warn("No preferred provider specified for messageId={}, using default provider", messageRequest.getMessageId());
                 preferredProvider = null; // This will trigger default provider selection
             }
             
@@ -317,43 +215,43 @@ public class AIMessageConsumerService {
             
             logger.debug("AI Provider obtained: {}", provider.getClass().getSimpleName());
             
-            Object result = processEnrichmentTask(provider, message);
-            logger.debug("Enrichment task completed successfully for messageId={}", message.getMessageId());
+            Object result = processEnrichmentTask(provider, messageRequest);
+            logger.debug("Enrichment task completed successfully for messageId={}", messageRequest.getMessageId());
             
             // Special logging for conversation enrichment
-            if (message.getTaskType() == AITaskType.ENRICH_CONVERSATION) {
+            if (messageRequest.getTaskType() == AITaskType.ENRICH_CONVERSATION) {
                 logger.info("CONVERSATION-ENRICHMENT-RESPONSE: Sending conversation enrichment result to ai-responses topic - messageId={}", 
-                           message.getMessageId());
+                           messageRequest.getMessageId());
                 System.out.println(">>>>>>> CONSOLE DEBUG: CONVERSATION ENRICHMENT COMPLETE! Sending to ai-responses topic. MessageId: " + 
-                                 message.getMessageId());
+                                 messageRequest.getMessageId());
             }
             
             // Send response back to reply topic
-            sendResponse(message, result, message.getTaskType().toString().toLowerCase());
+            sendResponse(messageRequest, result, messageRequest.getTaskType().toString().toLowerCase());
             
             acknowledgment.acknowledge();
             logger.info("Successfully processed enrichment request: messageId={}, taskType={}", 
-                       message.getMessageId(), message.getTaskType());
+                       messageRequest.getMessageId(), messageRequest.getTaskType());
             logger.info("=== HANDLE-ENRICHMENT-SUCCESS === MessageId: {}, TaskType: {}", 
-                       message.getMessageId(), message.getTaskType());
+                       messageRequest.getMessageId(), messageRequest.getTaskType());
             
             // CONSOLE SUCCESS OUTPUT
             System.out.println(">>>>>>> CONSOLE DEBUG: ENRICHMENT SUCCESS! MessageId: " + 
-                             message.getMessageId() + ", TaskType: " + message.getTaskType());
+                             messageRequest.getMessageId() + ", TaskType: " + messageRequest.getTaskType());
             
         } catch (Exception e) {
             logger.error("Failed to process enrichment request: messageId={}, taskType={}, error={}", 
-                        message.getMessageId(), message.getTaskType(), e.getMessage(), e);
+                        messageRequest.getMessageId(), messageRequest.getTaskType(), e.getMessage(), e);
             logger.error("=== HANDLE-ENRICHMENT-ERROR === MessageId: {}, TaskType: {}, Error: {}", 
-                        message.getMessageId(), message.getTaskType(), e.getMessage());
+                        messageRequest.getMessageId(), messageRequest.getTaskType(), e.getMessage());
             
             // CONSOLE ERROR OUTPUT
             System.out.println(">>>>>>> CONSOLE DEBUG: ENRICHMENT ERROR! MessageId: " + 
-                             message.getMessageId() + ", TaskType: " + message.getTaskType() + 
+                             messageRequest.getMessageId() + ", TaskType: " + messageRequest.getTaskType() + 
                              ", Error: " + e.getMessage());
             e.printStackTrace(); // Print full stack trace to console
             
-            sendErrorResponse(message, message.getTaskType().toString().toLowerCase(), e.getMessage());
+            sendErrorResponse(messageRequest, messageRequest.getTaskType().toString().toLowerCase(), e.getMessage());
             acknowledgment.acknowledge(); // Acknowledge to avoid reprocessing
         }
     }

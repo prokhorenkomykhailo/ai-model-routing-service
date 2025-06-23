@@ -32,20 +32,20 @@ spring:
     
     # Consumer Configuration - Default for IngestionEventDTO
     consumer:
-      group-id: ${SPRING_KAFKA_CONSUMER_GROUP_ID:ai-routing-service-group}
+      group-id: ${SPRING_KAFKA_CONSUMER_GROUP_ID:ai-service-group}
       key-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
       auto-offset-reset: earliest
       enable-auto-commit: false
       properties:
-        "[spring.json.trusted.packages]": "*"
-        "[spring.deserializer.key.delegate.class]": org.apache.kafka.common.serialization.StringDeserializer
-        "[spring.deserializer.value.delegate.class]": org.springframework.kafka.support.serializer.JsonDeserializer
-        "[spring.json.use.type.headers]": false
-        "[spring.json.fail.on.unknown.properties]": false
-        "[spring.deserializer.value.function]": "org.springframework.kafka.support.serializer.FailedDeserializationInfo::getException"
-        "[spring.kafka.consumer.enable-auto-commit]": false
-        "[spring.kafka.listener.ack-mode]": manual_immediate
+        "spring.json.trusted.packages": "*"
+        "spring.deserializer.key.delegate.class": org.apache.kafka.common.serialization.StringDeserializer
+        "spring.deserializer.value.delegate.class": org.springframework.kafka.support.serializer.JsonDeserializer
+        "spring.json.use.type.headers": false
+        "spring.json.fail.on.unknown.properties": false
+        "spring.deserializer.value.function": "org.springframework.kafka.support.serializer.FailedDeserializationInfo::getException"
+        "spring.kafka.consumer.enable-auto-commit": false
+        "spring.kafka.listener.ack-mode": manual_immediate
     
     # Producer Configuration (for publishing responses/results if needed)
     producer:

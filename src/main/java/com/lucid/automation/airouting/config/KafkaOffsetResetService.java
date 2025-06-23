@@ -75,6 +75,16 @@ public class KafkaOffsetResetService {
      * Reset offsets for the ai-enrich topic to ensure processing from beginning
      */
     private void resetAiEnrichTopicOffsets() {
+        // TODO: randomly generated consumer group name to reset offsets
+        // this ensures that ai-enrich topic is always read from the beginning
+        // on every application startup
+        // this is useful for debugging and testing purposes
+        // in production, this should be set to false to avoid data loss
+        // and ensure that ai-enrich topic is processed normally
+        // by the main consumer group
+        // ai-enrich topic is used for enriching conversations with AI
+        // String randomSufix = String.valueOf(System.currentTimeMillis() % 1000);
+        // String aiEnrichConsumerGroup = groupId + "-ai-enrich" + randomSufix;
         String aiEnrichConsumerGroup = groupId + "-ai-enrich";
         
         try {
