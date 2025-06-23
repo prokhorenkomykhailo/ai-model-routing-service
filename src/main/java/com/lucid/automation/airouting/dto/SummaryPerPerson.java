@@ -9,7 +9,6 @@ public record SummaryPerPerson(
     String displayName,
     String imageUrl,
     String summary,
-    String role,
     Integer messageCount,
     LocalDateTime firstMessageDate,
     LocalDateTime lastMessageDate,

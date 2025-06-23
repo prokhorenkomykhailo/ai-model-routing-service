@@ -4,7 +4,6 @@ import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.SlackParticipant;
 import com.lucid.automation.airouting.model.User;
-import com.lucid.automation.airouting.client.DataStorageServiceClient;
 import com.lucid.automation.airouting.dto.CategoryResult;
 import com.lucid.automation.airouting.dto.SummaryResult;
 import com.lucid.automation.airouting.dto.SentimentResult;
@@ -19,7 +18,9 @@ import com.lucid.automation.airouting.dto.SuggestedReply;
 import com.lucid.automation.airouting.dto.ForwardInfo;
 import com.lucid.automation.airouting.service.UserService;
 import com.lucid.automation.airouting.util.PromptLoader;
-
+import com.lucid.automation.airouting.util.JsonUtils;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.genai.Client;
 import com.google.genai.types.GenerateContentResponse;
@@ -45,8 +46,8 @@ public class GeminiProvider implements AIProvider {
     @Value("${ai.providers.gemini.endpoint:https://generativelanguage.googleapis.com/v1/models}")
     private String apiEndpoint;
     
-    @Value("${ai.providers.gemini.model:gemini-2.0-flash}")
-    // @Value("${ai.providers.gemini.model:gemini-2.5-pro}")
+    // @Value("${ai.providers.gemini.model:gemini-2.0-flash}")
+    @Value("${ai.providers.gemini.model:gemini-2.5-pro}")
     private String model;
     
     @Value("${app.tenant.default-id:default}")
@@ -57,16 +58,14 @@ public class GeminiProvider implements AIProvider {
     
     private final Client geminiClient;
     private final ObjectMapper objectMapper;
-    private final DataStorageServiceClient dataStorageServiceClient;
     private final PromptLoader promptLoader;
     private final UserService userService;
     private double lastConfidence = 0.0;
     private final boolean isClientAvailable;
     
-    public GeminiProvider(ObjectMapper objectMapper, DataStorageServiceClient dataStorageServiceClient, 
+    public GeminiProvider(ObjectMapper objectMapper, 
                          PromptLoader promptLoader, UserService userService) {
         this.objectMapper = objectMapper;
-        this.dataStorageServiceClient = dataStorageServiceClient;
         this.promptLoader = promptLoader;
         this.userService = userService;
         
@@ -232,12 +231,9 @@ public class GeminiProvider implements AIProvider {
 
             String response = callGeminiAPI(prompt, "conversation-enrichment", debugId);
             logger.info("GEMINI-ENRICH [{}]: Received response from Gemini API, length: {}", debugId, response);
-            
-            logger.info("GEMINI-ENRICH [{}]: Parsing conversation enrichment response", debugId);
             ConversationEnrichment result = parseConversationEnrichmentResponse(response, messages, participants);
             
             // Log the parsed result details
-            logger.info("GEMINI-ENRICH [{}]: Conversation enrichment completed successfully", debugId);
             logger.info("GEMINI-ENRICH [{}]: Result summary - {} topics, {} participant insights, {} message enrichments", 
                        debugId, 
                        result.topics() != null ? result.topics().size() : 0,
@@ -321,17 +317,17 @@ public class GeminiProvider implements AIProvider {
             // Input validation
             if (participant == null) {
                 logger.warn("GEMINI-DEBUG [{}]: Null participant provided for analysis", debugId);
-                return new ParticipantInsight("Unknown Participant", 0.0, "Neutral", 0);
+                return new ParticipantInsight(0.0, "Neutral", 0);
             }
             
             if (messages == null || messages.isEmpty()) {
                 logger.warn("GEMINI-DEBUG [{}]: No messages provided for participant analysis", debugId);
-                return new ParticipantInsight("Participant", 0.0, "Neutral", 0);
+                return new ParticipantInsight(0.0, "Neutral", 0);
             }
             
             if (!isClientAvailable) {
                 logger.warn("GEMINI-DEBUG [{}]: Client not available for participant analysis", debugId);
-                return new ParticipantInsight("Participant", 0.0, "Neutral", 0);
+                return new ParticipantInsight(0.0, "Neutral", 0);
             }
             
             List<SlackMessage> userMessages = messages.stream()
@@ -354,13 +350,13 @@ public class GeminiProvider implements AIProvider {
             
         } catch (IllegalArgumentException e) {
             logger.error("GEMINI-DEBUG [{}]: Invalid input for participant analysis: {}", debugId, e.getMessage(), e);
-            return new ParticipantInsight("Participant", 0.0, "Neutral", 0);
+            return new ParticipantInsight(0.0, "Neutral", 0);
         } catch (RuntimeException e) {
             logger.error("GEMINI-DEBUG [{}]: API error during participant analysis: {}", debugId, e.getMessage(), e);
-            return new ParticipantInsight("Participant", 0.0, "Neutral", 0);
+            return new ParticipantInsight(0.0, "Neutral", 0);
         } catch (Exception e) {
             logger.error("GEMINI-DEBUG [{}]: Unexpected error during participant analysis: {}", debugId, e.getMessage(), e);
-            return new ParticipantInsight("Participant", 0.0, "Neutral", 0);
+            return new ParticipantInsight(0.0, "Neutral", 0);
         }
     }
     
@@ -641,7 +637,6 @@ public class GeminiProvider implements AIProvider {
             %s
             
             Provide analysis in format:
-            Role: [participant role in conversation]
             Engagement: [engagement level 0.0-1.0]
             Sentiment: [dominant sentiment]
             """, participant.getUsername(), messages.size(), messagesText);
@@ -718,88 +713,28 @@ public class GeminiProvider implements AIProvider {
             List<SlackMessage> messages, List<SlackParticipant> participants) {
         
         try {
-            logger.info("GEMINI-PARSE: Starting to parse conversation enrichment response");
-            logger.debug("GEMINI-PARSE: Original response before cleaning (length: {}):\n{}", 
-                        response.length(), response);
-            
-            String cleanedResponse = cleanJsonResponse(response);
-            logger.info("GEMINI-PARSE: Response cleaned, length: {} -> {}", 
-                       response.length(), cleanedResponse.length());
-            logger.debug("GEMINI-PARSE: Cleaned response:\n{}", cleanedResponse);
+            logger.info("GEMINI-PARSE: Starting to parse conversation enrichment response");            
+            String cleanedResponse = JsonUtils.cleanJsonResponse(response);
+            logger.info("GEMINI-PARSE: Cleaned response:\n{}", cleanedResponse);
             
             // Check if the cleaned response is a JSON array (starts with '[')
             if (cleanedResponse.trim().startsWith("[")) {
-                logger.info("GEMINI-PARSE: Detected JSON array format - parsing as array of topics");
-                
-                // Parse as array of topics directly
-                List<?> topicsArray = objectMapper.readValue(cleanedResponse, List.class);
-                logger.info("GEMINI-PARSE: Successfully parsed {} topics from array", topicsArray.size());
-                
-                List<TopicEnrichment> topics = new ArrayList<>();
-                
-                for (int i = 0; i < topicsArray.size(); i++) {
-                    Object topicObj = topicsArray.get(i);
-                    logger.debug("GEMINI-PARSE: Processing topic {} of type: {}", i, topicObj.getClass().getSimpleName());
-                    
-                    if (topicObj instanceof Map<?, ?> topicMap) {
-                        logger.debug("GEMINI-PARSE: Topic {} map keys: {}", i, topicMap.keySet());
-                        TopicEnrichment topic = parseTopicFromMap(topicMap, messages);
-                        topics.add(topic);
-                        logger.info("GEMINI-PARSE: Successfully parsed topic {}: '{}'", i, topic.title());
-                    } else {
-                        logger.warn("GEMINI-PARSE: Topic {} is not a Map, skipping. Type: {}", i, topicObj.getClass());
-                    }
-                }
-                
-                // logger.info("GEMINI-PARSE: Parsed {} topics successfully", topics.size());
-                
-                // List<ParticipantInsight> participantInsights = participants != null ? 
-                //     participants.stream()
-                //         .map(p -> analyzeParticipant(p, messages))
-                //         .toList() : 
-                //     List.of();
-                
-                // List<MessageEnrichment> messageEnrichments = messages.stream()
-                //     .map(msg -> enrichMessage(msg.getContent(), Map.of()))
-                //     .toList();
-                
-                // // Create an empty analysis map since we're parsing the topics directly
-                // Map<String, Object> analysis = Map.of("topics", topics);
-                
-                // logger.info("GEMINI-PARSE: Conversation enrichment parsing completed successfully with {} topics, {} participant insights, {} message enrichments", 
-                //            topics.size(), participantInsights.size(), messageEnrichments.size());
-                
-                // return new ConversationEnrichment(topics, participantInsights, messageEnrichments, analysis);
-                return new ConversationEnrichment(topics, List.of(), List.of(), null);
+                return parseTopicsFromText(cleanedResponse, messages);
             } else {
-                logger.info("GEMINI-PARSE: Detected JSON object format - parsing as analysis map");
-                
-                // Original parsing logic for Map-based responses
-                @SuppressWarnings("unchecked")
-                Map<String, Object> analysis = objectMapper.readValue(cleanedResponse, Map.class);
-                
-                logger.info("GEMINI-PARSE: Successfully parsed analysis map with keys: {}", analysis.keySet());
-                logger.debug("GEMINI-PARSE: Analysis map contents: {}", analysis);
-                
-                List<TopicEnrichment> topics = extractTopicsFromResponse(analysis, messages);
-                logger.info("GEMINI-PARSE: Extracted {} topics from analysis map", topics.size());
-                
-                List<ParticipantInsight> participantInsights = participants != null ? 
-                    participants.stream()
-                        .map(p -> analyzeParticipant(p, messages))
-                        .toList() : 
-                    List.of();
-                
-                List<MessageEnrichment> messageEnrichments = messages.stream()
-                    .map(msg -> enrichMessage(msg.getContent(), Map.of()))
-                    .toList();
-                
-                logger.info("GEMINI-PARSE: Conversation enrichment parsing completed successfully with {} topics, {} participant insights, {} message enrichments", 
-                           topics.size(), participantInsights.size(), messageEnrichments.size());
-                
-                return new ConversationEnrichment(topics, participantInsights, messageEnrichments, analysis);
+                logger.info("GEMINI-PARSE: Response is not a JSON array, parsing as object: {}", cleanedResponse);
             }
-                                            
+            // build default conversation enrichment if no topics found
+            logger.info("GEMINI-PARSE: No topics found in response, building default conversation enrichment");
+            List<ParticipantInsight> participantsInsights = new ArrayList<>();
+            return new ConversationEnrichment(
+                List.of(), // No topics
+                participantsInsights, // Participant insights
+                messages.stream()
+                    .map(msg -> new MessageEnrichment("General Error parsing AI response", 0.0, "Unknown", List.of(), 0.0))
+                    .toList(), // Default message enrichments
+
+                null // No urgency level
+            );
         } catch (Exception e) {
             logger.error("GEMINI-PARSE: Failed to parse conversation enrichment response. Error: {}", e.getMessage(), e);
             logger.error("GEMINI-PARSE: Original response (first 500 chars): {}", 
@@ -808,6 +743,30 @@ public class GeminiProvider implements AIProvider {
             return getDefaultConversationEnrichment();
         }
     }
+
+    private ConversationEnrichment parseTopicsFromText(String topicsText, List<SlackMessage> messages) throws JsonMappingException, JsonProcessingException {
+        logger.info("GEMINI-PARSE: Detected JSON array format - parsing as array of topics");
+
+        // Parse as array of topics directly
+        List<?> topicsArray = objectMapper.readValue(topicsText, List.class);
+        logger.info("GEMINI-PARSE: Successfully parsed {} topics from array", topicsArray.size());
+        List<TopicEnrichment> topics = new ArrayList<>();
+        for (int i = 0; i < topicsArray.size(); i++) {
+            Object topicObj = topicsArray.get(i);
+            logger.debug("GEMINI-PARSE: Processing topic {} of type: {}", i, topicObj.getClass().getSimpleName());
+            
+            if (topicObj instanceof Map<?, ?> topicMap) {
+                logger.debug("GEMINI-PARSE: Topic {} map keys: {}", i, topicMap.keySet());
+                TopicEnrichment topic = parseTopicFromMap(topicMap, messages);
+                topics.add(topic);
+                logger.info("GEMINI-PARSE: Successfully parsed topic {}: '{}'", i, topic.title());
+            } else {
+                logger.warn("GEMINI-PARSE: Topic {} is not a Map, skipping. Type: {}", i, topicObj.getClass());
+            }
+        }
+        return new ConversationEnrichment(topics, List.of(), List.of(), null);
+    }
+
     
     private String extractStringValue(Map<?, ?> map, String key, String defaultValue) {
         Object value = map.get(key);
@@ -864,14 +823,11 @@ public class GeminiProvider implements AIProvider {
     private ParticipantInsight parseParticipantAnalysisResponse(String response) {
         try {
             String[] lines = response.split("\n");
-            String role = "Participant";
             double engagement = 0.5;
             String sentiment = "Neutral";
             
             for (String line : lines) {
-                if (line.startsWith("Role:")) {
-                    role = line.substring(5).trim();
-                } else if (line.startsWith("Engagement:")) {
+                if (line.startsWith("Engagement:")) {
                     String engagementStr = line.substring(11).trim();
                     engagement = parseEngagementValue(engagementStr);
                 } else if (line.startsWith("Sentiment:")) {
@@ -879,11 +835,11 @@ public class GeminiProvider implements AIProvider {
                 }
             }
             
-            return new ParticipantInsight(role, engagement, sentiment, 0);
+            return new ParticipantInsight(engagement, sentiment, 0);
             
         } catch (Exception e) {
             logger.warn("Failed to parse participant analysis response: {}", response, e);
-            return new ParticipantInsight("Participant", 0.5, "Neutral", 0);
+            return new ParticipantInsight(0.5, "Neutral", 0);
         }
     }
     
@@ -1014,7 +970,7 @@ public class GeminiProvider implements AIProvider {
             // Basic message info
             messageMap.put("MESSAGE_ID", safeString(msg.getId()));
             messageMap.put("TIMESTAMP", msg.getTimestamp());
-            String userId = msg.getUserId();
+            String userId = msg.getSlackUserId();
             if (userId == null) {
                 userId = msg.getUsername(); // Fallback to username if userId is null
             }
@@ -1039,16 +995,7 @@ public class GeminiProvider implements AIProvider {
             if (content == null || content.trim().isEmpty()) {
                 content = msg.getText();
             }
-            messageMap.put("CONTENT", safeString(content));
-
-            // Tenant and workspace context
-            // if (msg.getTenantId() != null) {
-            //     messageMap.put("TENANT", msg.getTenantId());
-            // }
-            // if (msg.getWorkspaceId() != null) {
-            //     messageMap.put("WORKSPACE", msg.getWorkspaceId());
-            // }
-            
+            messageMap.put("CONTENT", safeString(content));            
             return objectMapper.writeValueAsString(messageMap);
         } catch (Exception e) {
             logger.warn("Failed to format message as JSON: {}", e.getMessage());
@@ -1089,101 +1036,6 @@ public class GeminiProvider implements AIProvider {
             List.of(),
             Map.of("error", "Failed to analyze conversation")
         );
-    }
-    
-    /**
-     * Cleans JSON response by removing markdown code block formatting if present.
-     * Handles responses that start with ```json or ``` and end with ```
-     */
-    private String cleanJsonResponse(String response) {
-        if (response == null || response.trim().isEmpty()) {
-            logger.warn("GEMINI-CLEAN: Received null or empty response to clean");
-            return response;
-        }
-        
-        String trimmed = response.trim();
-        logger.debug("GEMINI-CLEAN: Starting to clean response of length: {}", trimmed.length());
-        
-        // Check if response contains markdown code blocks with ```json
-        if (trimmed.contains("```json")) {
-            logger.debug("GEMINI-CLEAN: Found ```json markdown block");
-            int jsonStart = trimmed.indexOf("```json");
-            if (jsonStart >= 0) {
-                // Find the first newline after ```json
-                int firstNewline = trimmed.indexOf('\n', jsonStart);
-                if (firstNewline > 0) {
-                    // Extract content after ```json
-                    String jsonContent = trimmed.substring(firstNewline + 1);
-                    
-                    // Find the closing ```
-                    int closingIndex = jsonContent.indexOf("```");
-                    if (closingIndex > 0) {
-                        jsonContent = jsonContent.substring(0, closingIndex);
-                    }
-                    
-                    logger.debug("GEMINI-CLEAN: Extracted JSON from markdown code block, length: {}", jsonContent.length());
-                    return jsonContent.trim();
-                }
-            }
-        }
-        
-        // Check if response is wrapped in markdown code blocks
-        if (trimmed.startsWith("```")) {
-            logger.debug("GEMINI-CLEAN: Found generic markdown code block");
-            // Find the first newline after the opening ```
-            int firstNewline = trimmed.indexOf('\n');
-            if (firstNewline > 0) {
-                // Remove the opening ``` line
-                trimmed = trimmed.substring(firstNewline + 1);
-            }
-            
-            // Remove closing ``` if present
-            if (trimmed.endsWith("```")) {
-                trimmed = trimmed.substring(0, trimmed.length() - 3).trim();
-            }
-            logger.debug("GEMINI-CLEAN: Removed markdown formatting, new length: {}", trimmed.length());
-        }
-        
-        // Look for JSON content by finding the first { or [
-        int jsonStart = -1;
-        for (int i = 0; i < trimmed.length(); i++) {
-            char c = trimmed.charAt(i);
-            if (c == '{' || c == '[') {
-                jsonStart = i;
-                break;
-            }
-        }
-        
-        if (jsonStart > 0) {
-            // Found JSON content after some text, extract from that point
-            trimmed = trimmed.substring(jsonStart);
-            logger.debug("GEMINI-CLEAN: Extracted JSON content starting from position {}, new length: {}", jsonStart, trimmed.length());
-        } else if (jsonStart == -1) {
-            // No JSON structure found, log the response for debugging
-            logger.warn("GEMINI-CLEAN: No JSON structure found in response (length: {}): {}", 
-                       trimmed.length(), 
-                       trimmed.length() > 200 ? trimmed.substring(0, 200) + "..." : trimmed);
-            return trimmed; // Return as-is and let the parsing fail gracefully
-        }
-        
-        // Find the last } or ] to handle any trailing text
-        int jsonEnd = -1;
-        for (int i = trimmed.length() - 1; i >= 0; i--) {
-            char c = trimmed.charAt(i);
-            if (c == '}' || c == ']') {
-                jsonEnd = i;
-                break;
-            }
-        }
-        
-        if (jsonEnd > 0 && jsonEnd < trimmed.length() - 1) {
-            // Found trailing text after JSON, remove it
-            trimmed = trimmed.substring(0, jsonEnd + 1);
-            logger.debug("GEMINI-CLEAN: Removed trailing text after JSON, final length: {}", trimmed.length());
-        }
-        
-        logger.debug("GEMINI-CLEAN: Cleaning completed, final response length: {}", trimmed.length());
-        return trimmed.trim();
     }
     
     private List<TopicEnrichment> extractTopicsFromResponse(Map<String, Object> analysis, List<SlackMessage> messages) {
@@ -1297,30 +1149,76 @@ public class GeminiProvider implements AIProvider {
     /**
      * Extract people involved with backward compatibility and user enrichment from Redis
      * Handles both old format (array of strings) and new format (array of user objects)
+    *  "peopleInvolved": [
+        {
+          "id": "U08SABCH6R3",
+          "username": "Benoit",
+          "displayName": "Benoit",
+          "imageUrl": null
+        },
+        {
+          "id": "U08SY01U88L",
+          "username": "User B",
+          "displayName": "User B",
+          "imageUrl": null
+        },
+        {
+          "id": "U08SA5URCHL",
+          "username": "User D",
+          "displayName": "User D",
+          "imageUrl": null
+        },
+        {
+          "id": "U08SA5RGSDC",
+          "username": "User A",
+          "displayName": "User A",
+          "imageUrl": null
+        },
+        {
+          "id": "U08S36A8A15",
+          "username": "User C",
+          "displayName": "User C",
+          "imageUrl": null
+        }
+      ],
      */
-    private List<UserDTO> extractPeopleInvolved(Map<?, ?> map, String tenantId, String workspaceId) {
-        Object value = map.get("peopleInvolved");
+    private List<UserDTO> extractPeopleInvolved(Map<?, ?> topicMap, String tenantId, String workspaceId) {
+        Object value = topicMap.get("peopleInvolved");
         if (value instanceof List<?> list) {
             List<UserDTO> result = new ArrayList<>();
             for (Object item : list) {
                 if (item instanceof Map<?, ?> userMap) {
                     // New format: user object
                     String id = extractStringValue(userMap, "id", null);
-                    String username = extractStringValue(userMap, "username", null);
-                    String displayName = extractStringValue(userMap, "displayName", null);
-                    String imageUrl = extractStringValue(userMap, "imageUrl", null);
-                    
                     // Enrich with data from Redis if available
-                    UserDTO enrichedUser = enrichUserDTO(id, username, displayName, imageUrl, tenantId, workspaceId);
-                    result.add(enrichedUser);
+                    UserDTO enrichedUser = enrichUserDTO(id, tenantId, workspaceId);
+                    // check if user ID is not null and not N/A
+                    if (enrichedUser.id() != null && !enrichedUser.id().equals("N/A")) {
+                        result.add(enrichedUser);
+                    }
                 } else if (item instanceof String userString) {
-                    // Old format: just a string (user ID/name)
-                    UserDTO basicUser = UserDTO.fromString(userString);
-                    // Try to enrich with Redis data
-                    UserDTO enrichedUser = enrichUserDTO(basicUser.id(), basicUser.username(), 
-                                                        basicUser.displayName(), basicUser.imageUrl(), 
-                                                        tenantId, workspaceId);
-                    result.add(enrichedUser);
+                    // First try to parse as a UserDTO
+                    if (userString.startsWith("{") && userString.endsWith("}")) {
+                        try {
+                            UserDTO user = objectMapper.readValue(userString, UserDTO.class);
+                            // Enrich with Redis data
+                            UserDTO enrichedUser = enrichUserDTO(user.id(), tenantId, workspaceId);
+                            // check if user ID is not null and not N/A
+                            if (enrichedUser.id() != null && !enrichedUser.id().equals("N/A")) {
+                                result.add(enrichedUser);
+                            }
+                        } catch (JsonProcessingException e) {
+                            logger.warn("Failed to parse user string as UserDTO: {}", userString, e);
+                            // Fallback to old format handling
+                            UserDTO basicUser = UserDTO.fromString(userString);
+                            // Try to enrich with Redis data
+                            UserDTO enrichedUser = enrichUserDTO(basicUser.id(), tenantId, workspaceId);
+                            // check if user ID is not null and not N/A
+                            if (enrichedUser.id() != null && !enrichedUser.id().equals("N/A")) {
+                                result.add(enrichedUser);
+                            }
+                        }
+                    }
                 }
             }
             return result;
@@ -1331,13 +1229,8 @@ public class GeminiProvider implements AIProvider {
     /**
      * Enriches UserDTO with data from Redis
      */
-    private UserDTO enrichUserDTO(String userId, String username, String displayName, String imageUrl, String tenantId, String workspaceId) {
-        try {
-            // If we already have complete data, no need to query Redis
-            if (username != null && displayName != null && imageUrl != null) {
-                return new UserDTO(userId, username, displayName, imageUrl);
-            }
-            
+    private UserDTO enrichUserDTO(String userId, String tenantId, String workspaceId) {
+        try {            
             // Get user details from Redis
             if (tenantId != null && workspaceId != null && userId != null) {
                 Optional<User> userOptional = userService.getUser(tenantId, workspaceId, userId);
@@ -1345,20 +1238,18 @@ public class GeminiProvider implements AIProvider {
                     User user = userOptional.get();
                     return new UserDTO(
                         userId,
-                        username != null ? username : user.getName(),
-                        displayName != null ? displayName : user.getDisplayName(),
-                        imageUrl != null ? imageUrl : user.getImageOriginal()
+                        user.getName(),
+                        user.getDisplayName(),
+                        user.getImageOriginal()
                     );
                 }
             }
-            
-            // Return original data if Redis lookup fails
-            return new UserDTO(userId, username, displayName, imageUrl);
-            
+            logger.warn("Tenant ID or Workspace ID is null, cannot enrich user data for userId: {}", userId);
+            return new UserDTO(userId, "N/A", "N/A", null);
         } catch (Exception e) {
             logger.warn("Failed to enrich UserDTO for user {}: {}", userId, e.getMessage());
             // Return original data on error
-            return new UserDTO(userId, username, displayName, imageUrl);
+            return new UserDTO(userId, "N/A", "N/A", null);
         }
     }
     
@@ -1419,7 +1310,6 @@ public class GeminiProvider implements AIProvider {
                     String displayName = extractStringValue(summaryObjMap, "displayName", null);
                     String imageUrl = extractStringValue(summaryObjMap, "imageUrl", null);
                     String summary = extractStringValue(summaryObjMap, "summary", "No summary available");
-                    String role = extractStringValue(summaryObjMap, "role", null);
                     Integer messageCount = extractIntegerValue(summaryObjMap, "messageCount", 0);
                     LocalDateTime firstMessageDate = extractDateTime(summaryObjMap, "firstMessageDate");
                     LocalDateTime lastMessageDate = extractDateTime(summaryObjMap, "lastMessageDate");
@@ -1427,7 +1317,7 @@ public class GeminiProvider implements AIProvider {
                     List<String> actionItems = extractStringList(summaryObjMap, "actionItems");
                     
                     SummaryPerPerson summaryPerPerson = new SummaryPerPerson(
-                        id, username, displayName, imageUrl, summary, role,
+                        id, username, displayName, imageUrl, summary,
                         messageCount, firstMessageDate, lastMessageDate,
                         keyContributions, actionItems
                     );
@@ -1451,12 +1341,10 @@ public class GeminiProvider implements AIProvider {
                 Optional<User> userOptional = userService.getUser(tenantId, workspaceId, userId);
                 user = userOptional.orElse(null);
             }
-            
             // Calculate message statistics for this user
             List<SlackMessage> userMessages = messages.stream()
                 .filter(msg -> userId.equals(msg.getUserId()))
                 .collect(Collectors.toList());
-            
             int messageCount = userMessages.size();
             LocalDateTime firstMessageDate = userMessages.stream()
                 .map(SlackMessage::getTimestamp)
@@ -1468,27 +1356,22 @@ public class GeminiProvider implements AIProvider {
                 .filter(Objects::nonNull)
                 .max(LocalDateTime::compareTo)
                 .orElse(null);
-            
             // Extract user details from Redis or fall back to basic info
             String username = user != null ? user.getName() : null;
             String displayName = user != null ? user.getDisplayName() : null;
             String imageUrl = user != null ? user.getImageOriginal() : null;
-            String role = user != null ? user.getTitle() : null;
-            
             return new SummaryPerPerson(
                 userId,
                 username,
                 displayName,
                 imageUrl,
                 summary,
-                role,
                 messageCount,
                 firstMessageDate,
                 lastMessageDate,
                 List.of(), // keyContributions - could be enhanced later
                 List.of()  // actionItems - could be enhanced later
             );
-            
         } catch (Exception e) {
             logger.warn("Failed to enrich summary for user {}: {}", userId, e.getMessage());
             // Return basic summary without enrichment
@@ -1498,7 +1381,6 @@ public class GeminiProvider implements AIProvider {
                 null,  // displayName
                 null,  // imageUrl
                 summary,
-                null,  // role
                 0,     // messageCount
                 null,  // firstMessageDate
                 null,  // lastMessageDate
