@@ -55,7 +55,7 @@ public class MessageEnrichmentScheduler {
      * Scheduled method that runs based on the cron expression in application.yml.
      * Gets all workspaces from Redis and processes messages for each workspace.
      */
-    @Scheduled(cron = "${ai.enrichment.scheduler.cron:0 */5 * * * ?}")
+    // @Scheduled(cron = "${ai.enrichment.scheduler.cron:0 * */8 * * ?}")
     public void processMessageEnrichment() {
         log.info("Starting scheduled message enrichment process");
         
@@ -295,6 +295,8 @@ public class MessageEnrichmentScheduler {
                         participant.setEmail(message.getEmail());
                         // Set role based on title or other logic if available
                         participant.setRole(message.getTitle());
+                        participant.setDisplayName(message.getDisplayName());
+                        participant.setImageUrl(message.getImage72());
                         
                         participants.add(participant);
                         

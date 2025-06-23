@@ -8,6 +8,7 @@ public class SlackParticipant {
     private String realName;
     private String email;
     private String role;
+    private String imageUrl;
     private boolean isBot;
     private boolean active;
     private boolean deleted;
@@ -44,6 +45,9 @@ public class SlackParticipant {
     
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }
+    
+    public String getImageUrl() { return imageUrl; }
+    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
     
     public boolean isBot() { return isBot; }
     public void setBot(boolean bot) { isBot = bot; }

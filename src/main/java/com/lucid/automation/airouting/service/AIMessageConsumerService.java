@@ -261,21 +261,14 @@ public class AIMessageConsumerService {
      */
     private Object processEnrichmentTask(AIProvider provider, AIMessage message) {
         AITaskType taskType = message.getTaskType();
-        logger.info("PROCESS-TASK-DEBUG: Processing enrichment task: messageId={}, taskType={}", message.getMessageId(), taskType);
-        
-        // CONSOLE OUTPUT for task processing
-        System.out.println(">>>>>>> CONSOLE DEBUG: processEnrichmentTask called! TaskType: " + taskType + 
-                          ", MessageId: " + message.getMessageId());
         
         return switch (taskType) {
             case ENRICH_CONVERSATION -> {
-                logger.info("PROCESS-TASK-DEBUG: Processing ENRICH_CONVERSATION for messageId={}", message.getMessageId());
-                System.out.println(">>>>>>> CONSOLE DEBUG: Processing ENRICH_CONVERSATION for messageId: " + message.getMessageId());
                 if (message.getMessages() == null || message.getMessages().isEmpty()) {
                     throw new IllegalArgumentException("Messages are required for conversation enrichment");
                 }
+
                 var participants = convertToSlackParticipants(message);
-                logger.info("PROCESS-TASK-DEBUG: Converted {} participants for messageId={}", participants.size(), message.getMessageId());
                 yield provider.enrichConversation(message.getMessages(), participants, null);
             }
             case ENRICH_MESSAGE -> {
@@ -432,15 +425,15 @@ public class AIMessageConsumerService {
     
     private com.lucid.automation.airouting.model.SlackParticipant convertToSlackParticipant(
             com.lucid.automation.airouting.model.message.SlackParticipantData participantData) {
-        // Convert SlackParticipantData to SlackParticipant
-        com.lucid.automation.airouting.model.SlackParticipant participant = 
+
+                com.lucid.automation.airouting.model.SlackParticipant participant = 
             new com.lucid.automation.airouting.model.SlackParticipant();
         participant.setId(participantData.getId());
         participant.setName(participantData.getName());
         participant.setDisplayName(participantData.getName()); // Use name as display name if not available
         participant.setEmail(participantData.getEmail());
         participant.setRole(participantData.getRole());
-        // Set default values for fields not available in SlackParticipantData
+        participant.setImageUrl(participantData.getImageUrl());
         participant.setBot(false);
         participant.setActive(true);
         participant.setDeleted(false);

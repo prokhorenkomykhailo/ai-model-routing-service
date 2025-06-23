@@ -83,9 +83,10 @@ public class KafkaOffsetResetService {
         // and ensure that ai-enrich topic is processed normally
         // by the main consumer group
         // ai-enrich topic is used for enriching conversations with AI
-        // String randomSufix = String.valueOf(System.currentTimeMillis() % 1000);
-        // String aiEnrichConsumerGroup = groupId + "-ai-enrich" + randomSufix;
-        String aiEnrichConsumerGroup = groupId + "-ai-enrich";
+
+        String randomSufix = String.valueOf(System.currentTimeMillis() % 1000);
+        String aiEnrichConsumerGroup = groupId + "-ai-enrich" + randomSufix;
+        // String aiEnrichConsumerGroup = groupId + "-ai-enrich";
         
         try {
             logger.info("Attempting to reset offsets for consumer group: {} on topic: {}", 

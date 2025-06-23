@@ -46,7 +46,7 @@ public class GeminiProvider implements AIProvider {
     private String apiEndpoint;
     
     @Value("${ai.providers.gemini.model:gemini-2.0-flash}")
-    //@Value("${ai.providers.gemini.model:gemini-2.5-pro}")
+    // @Value("${ai.providers.gemini.model:gemini-2.5-pro}")
     private String model;
     
     @Value("${app.tenant.default-id:default}")
@@ -195,17 +195,9 @@ public class GeminiProvider implements AIProvider {
                                                    List<SlackParticipant> participants, 
                                                    List<String> availableCategories) {
         String debugId = "ENRICH-CONV-" + System.currentTimeMillis();
+        logger.info("GEMINI-ENRICH [{}]: Starting conversation enrichment", debugId);
         try {
-            int messagesCount = messages != null ? messages.size() : 0;
-            int participantsCount = participants != null ? participants.size() : 0;
-            int categoriesCount = availableCategories != null ? availableCategories.size() : 0;
-            
-            logger.info("GEMINI-ENRICH [{}]: Starting conversation enrichment", debugId);
-            logger.info("GEMINI-ENRICH [{}]: Input summary - {} messages, {} participants, {} categories", 
-                       debugId, messagesCount, participantsCount, categoriesCount);
-            
             if (messages != null) {
-                logger.debug("GEMINI-ENRICH [{}]: Message details:", debugId);
                 for (int i = 0; i < Math.min(messages.size(), 5); i++) {
                     SlackMessage msg = messages.get(i);
                     logger.debug("GEMINI-ENRICH [{}]: Message {}: {} chars from user {} at {}", 
@@ -217,15 +209,6 @@ public class GeminiProvider implements AIProvider {
                 if (messages.size() > 5) {
                     logger.debug("GEMINI-ENRICH [{}]: ... and {} more messages", debugId, messages.size() - 5);
                 }
-            }
-            
-            if (participants != null) {
-                logger.debug("GEMINI-ENRICH [{}]: Participants: {}", debugId, 
-                            participants.stream().map(SlackParticipant::getUsername).toList());
-            }
-            
-            if (availableCategories != null) {
-                logger.debug("GEMINI-ENRICH [{}]: Available categories: {}", debugId, availableCategories);
             }
             
             // Input validation
@@ -241,21 +224,14 @@ public class GeminiProvider implements AIProvider {
             
             logger.info("GEMINI-ENRICH [{}]: Formatting conversation for analysis", debugId);
             String conversationText = formatConversationForAnalysis(messages);
-            logger.info("GEMINI-ENRICH [{}]: Formatted conversation text length: {}", debugId, conversationText.length());
-            logger.debug("GEMINI-ENRICH [{}]: Formatted conversation text (first 1000 chars):\n{}", 
-                        debugId, conversationText.length() > 1000 ? 
-                        conversationText.substring(0, 1000) + "\n... [truncated]" : conversationText);
+            // logger.info("GEMINI-ENRICH [{}]: Formatted conversation text \n\n: {}", debugId, conversationText);
             
             List<String> categoriesToUse = List.of();
-            logger.info("GEMINI-ENRICH [{}]: Building enrichment prompt", debugId);
             String prompt = buildConversationEnrichmentPrompt(conversationText, participants, categoriesToUse);
-            logger.info("GEMINI-ENRICH [{}]: Prompt built, length: {}", debugId, prompt.length());
-            logger.debug("GEMINI-ENRICH [{}]: Full prompt being sent:\n{}", debugId, prompt);
-            
-            logger.info("GEMINI-ENRICH [{}]: Calling Gemini API for conversation enrichment", debugId);
+            // logger.info("GEMINI-ENRICH [{}]: Prompt built, \n\n: {}", debugId, prompt);
+
             String response = callGeminiAPI(prompt, "conversation-enrichment", debugId);
-            logger.info("GEMINI-ENRICH [{}]: Received response from Gemini API, length: {}", debugId, response.length());
-            logger.debug("GEMINI-ENRICH [{}]: Raw response received:\n{}", debugId, response);
+            logger.info("GEMINI-ENRICH [{}]: Received response from Gemini API, length: {}", debugId, response);
             
             logger.info("GEMINI-ENRICH [{}]: Parsing conversation enrichment response", debugId);
             ConversationEnrichment result = parseConversationEnrichmentResponse(response, messages, participants);
@@ -580,11 +556,8 @@ public class GeminiProvider implements AIProvider {
                 throw new RuntimeException("Gemini client is not available - API key not configured");
             }
             
-            logger.info("GEMINI-API [{}]: Starting {} operation with prompt length: {}", debugId, operation, prompt.length());
-            logger.debug("GEMINI-API [{}]: Full prompt being sent:\n{}", debugId, prompt);
-            
+            logger.info("GEMINI-API [{}]: Starting {} operation with prompt prompt:\n\n {}", debugId, operation, prompt);
             long startTime = System.currentTimeMillis();
-            
             GenerateContentResponse response = geminiClient.models.generateContent(
                 model, 
                 prompt, 
@@ -594,9 +567,8 @@ public class GeminiProvider implements AIProvider {
             long duration = System.currentTimeMillis() - startTime;
             String responseText = response.text();
             
-            logger.info("GEMINI-API [{}]: {} operation completed in {}ms, response length: {}", 
-                       debugId, operation, duration, responseText != null ? responseText.length() : 0);
-            logger.debug("GEMINI-API [{}]: Full raw response received:\n{}", debugId, responseText);
+            logger.info("GEMINI-API [{}]: {} operation completed in {}ms, response: \n\n: {}", 
+                       debugId, operation, duration, responseText);
             
             if (responseText == null || responseText.trim().isEmpty()) {
                 logger.warn("GEMINI-API [{}]: Received empty or null response from Gemini API", debugId);
@@ -1036,76 +1008,52 @@ public class GeminiProvider implements AIProvider {
     }
     
     private String formatMessageForAnalysis(SlackMessage msg) {
-        StringBuilder formatted = new StringBuilder();
-        
-        // Basic message info
-        formatted.append(String.format("MESSAGE ID: %s\n", safeString(msg.getId())));
-        formatted.append(String.format("TIMESTAMP: %s\n", msg.getTimestamp()));
-        formatted.append(String.format("USER: %s", safeString(msg.getUsername())));
-        
-        // User profile info if available
-        if (msg.getDisplayName() != null && !msg.getDisplayName().equals(msg.getUsername())) {
-            formatted.append(String.format(" (Display: %s)", msg.getDisplayName()));
+        try {
+            Map<String, Object> messageMap = new LinkedHashMap<>();
+            
+            // Basic message info
+            messageMap.put("MESSAGE_ID", safeString(msg.getId()));
+            messageMap.put("TIMESTAMP", msg.getTimestamp());
+            String userId = msg.getUserId();
+            if (userId == null) {
+                userId = msg.getUsername(); // Fallback to username if userId is null
+            }
+            messageMap.put("USER_ID", safeString(userId));
+            
+            // Channel and thread context
+            messageMap.put("CHANNEL", safeString(msg.getChannelId()));
+            if (msg.getThreadTs() != null) {
+                messageMap.put("THREAD", msg.getThreadTs());
+            }
+            
+            // Message type and metadata
+            if (msg.getMessageType() != null) {
+                messageMap.put("TYPE", msg.getMessageType());
+            }
+            if (msg.getSubtype() != null) {
+                messageMap.put("SUBTYPE", msg.getSubtype());
+            }
+            
+            // Message content (prioritize content over text)
+            String content = msg.getContent();
+            if (content == null || content.trim().isEmpty()) {
+                content = msg.getText();
+            }
+            messageMap.put("CONTENT", safeString(content));
+
+            // Tenant and workspace context
+            // if (msg.getTenantId() != null) {
+            //     messageMap.put("TENANT", msg.getTenantId());
+            // }
+            // if (msg.getWorkspaceId() != null) {
+            //     messageMap.put("WORKSPACE", msg.getWorkspaceId());
+            // }
+            
+            return objectMapper.writeValueAsString(messageMap);
+        } catch (Exception e) {
+            logger.warn("Failed to format message as JSON: {}", e.getMessage());
+            return "{}";
         }
-        if (msg.getEmail() != null) {
-            formatted.append(String.format(" <%s>", msg.getEmail()));
-        }
-        if (msg.getTitle() != null) {
-            formatted.append(String.format(" [%s]", msg.getTitle()));
-        }
-        formatted.append("\n");
-        
-        // Channel and thread context
-        formatted.append(String.format("CHANNEL: %s\n", safeString(msg.getChannelId())));
-        if (msg.getThreadTs() != null) {
-            formatted.append(String.format("THREAD: %s\n", msg.getThreadTs()));
-        }
-        
-        // Message type and metadata
-        if (msg.getMessageType() != null) {
-            formatted.append(String.format("TYPE: %s\n", msg.getMessageType()));
-        }
-        if (msg.getSubtype() != null) {
-            formatted.append(String.format("SUBTYPE: %s\n", msg.getSubtype()));
-        }
-        
-        // Message content (prioritize content over text)
-        String content = msg.getContent();
-        if (content == null || content.trim().isEmpty()) {
-            content = msg.getText();
-        }
-        formatted.append(String.format("CONTENT: %s\n", safeString(content)));
-        
-        // Attachments and files info
-        if (msg.getFiles() != null && !msg.getFiles().isEmpty()) {
-            formatted.append(String.format("FILES: %d attached\n", msg.getFiles().size()));
-        }
-        if (msg.getAttachments() != null && !msg.getAttachments().isEmpty()) {
-            formatted.append(String.format("ATTACHMENTS: %d attached\n", msg.getAttachments().size()));
-        }
-        
-        // Reactions and replies
-        if (msg.getReactions() != null && !msg.getReactions().isEmpty()) {
-            formatted.append(String.format("REACTIONS: %d reactions\n", msg.getReactions().size()));
-        }
-        if (msg.getReplyCount() > 0) {
-            formatted.append(String.format("REPLIES: %d replies\n", msg.getReplyCount()));
-        }
-        
-        // Tenant and workspace context
-        if (msg.getTenantId() != null) {
-            formatted.append(String.format("TENANT: %s\n", msg.getTenantId()));
-        }
-        if (msg.getWorkspaceId() != null) {
-            formatted.append(String.format("WORKSPACE: %s\n", msg.getWorkspaceId()));
-        }
-        
-        // Additional metadata
-        if (msg.getMetadata() != null && !msg.getMetadata().isEmpty()) {
-            formatted.append("METADATA: ").append(msg.getMetadata().toString()).append("\n");
-        }
-        
-        return formatted.toString().trim();
     }
     
     private String safeString(String value) {

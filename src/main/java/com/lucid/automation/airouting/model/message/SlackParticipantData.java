@@ -18,6 +18,9 @@ public class SlackParticipantData {
     
     @JsonProperty("role")
     private String role;
+
+    @JsonProperty("imageUrl")
+    private String imageUrl;
     
     // Constructors
     public SlackParticipantData() {}
@@ -39,6 +42,9 @@ public class SlackParticipantData {
     
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }
+
+    public String getImageUrl() { return imageUrl; }
+    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
     
     @Override
     public String toString() {
@@ -46,6 +52,7 @@ public class SlackParticipantData {
                 "id='" + id + '\'' +
                 ", name='" + name + '\'' +
                 ", role='" + role + '\'' +
+                ", imageUrl='" + imageUrl + '\'' +
                 '}';
     }
 }
