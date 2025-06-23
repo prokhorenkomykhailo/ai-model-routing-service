@@ -18,12 +18,14 @@ import com.lucid.automation.airouting.dto.SuggestedReply;
 import com.lucid.automation.airouting.dto.ForwardInfo;
 import com.lucid.automation.airouting.service.UserService;
 import com.lucid.automation.airouting.util.PromptLoader;
+import com.lucid.automation.airouting.util.TextUtils;
 import com.lucid.automation.airouting.util.JsonUtils;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.genai.Client;
 import com.google.genai.types.GenerateContentResponse;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -1062,10 +1064,24 @@ public class GeminiProvider implements AIProvider {
     }
     
     private TopicEnrichment parseTopicFromMap(Map<?, ?> topicMap, List<SlackMessage> messages) {
+        // extract userInfo from messages for user enrichment
+        Map<String, UserDTO> userInfos = messages.stream()
+            .collect(Collectors.toMap(
+                msg -> msg.getSlackUserId() != null ? msg.getSlackUserId() : msg.getUsername(),
+                msg -> new UserDTO(msg.getSlackUserId(), msg.getUsername(), msg.getDisplayName(), msg.getImage72()),
+                (existing, replacement) -> existing // Keep existing if duplicate
+            ));
+
         String title = extractStringValue(topicMap, "title", "Untitled Topic");
         String shortSummary = extractStringValue(topicMap, "shortSummary", "No summary available");
+        shortSummary = TextUtils.replaceSlackMentions(shortSummary, userInfos);
+        
         String fullSummary = extractStringValue(topicMap, "fullSummary", "No detailed summary available");
+        fullSummary = TextUtils.replaceSlackMentions(fullSummary, userInfos);
+        
         String suggestedAction = extractStringValue(topicMap, "suggestedAction", "No action suggested");
+        suggestedAction = TextUtils.replaceSlackMentions(suggestedAction, userInfos);
+
         String clientOrSupplier = extractStringValue(topicMap, "clientOrSupplier", null);
         String deadline = extractStringValue(topicMap, "deadline", null);
         String urgencyStr = extractStringValue(topicMap, "urgency", "Low");
