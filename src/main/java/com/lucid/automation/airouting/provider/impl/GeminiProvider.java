@@ -43,6 +43,7 @@ public class GeminiProvider implements AIProvider {
     
     private static final Logger logger = LoggerFactory.getLogger(GeminiProvider.class);
     private static final String UNCATEGORIZED = "Uncategorized";
+    private static final String messagePlaceholder = "##messages##";
     
     @Value("${ai.providers.gemini.api-key:}")
     private String apiKey;
@@ -206,8 +207,7 @@ public class GeminiProvider implements AIProvider {
             logger.info("GEMINI-ENRICH [{}]: Formatting conversation for analysis", debugId);
             String conversationText = formatConversationForAnalysis(messages);
             
-            List<String> categoriesToUse = List.of();
-            String prompt = buildConversationEnrichmentPrompt(conversationText, participants, categoriesToUse);
+            String prompt = buildConversationEnrichmentPrompt(conversationText);
 
             String response = callGeminiAPI(prompt, "conversation-enrichment", debugId);
             ConversationEnrichment result = parseConversationEnrichmentResponse(response, messages, participants);
@@ -545,10 +545,11 @@ public class GeminiProvider implements AIProvider {
         return String.format(template, content);
     }
     
-    private String buildConversationEnrichmentPrompt(String conversationText, 
-                                                    List<SlackParticipant> participants, 
-                                                    List<String> availableCategories) {
+    private String buildConversationEnrichmentPrompt(String conversationText) {
         String template = promptLoader.loadPromptTemplate("conversation-enrichment") + "%s";
+        if (template.contains(messagePlaceholder)) {
+            template = template.replace(messagePlaceholder, messagePlaceholder + "\n" +conversationText);
+        }
         return String.format(template, conversationText);
     }
     
@@ -860,38 +861,34 @@ public class GeminiProvider implements AIProvider {
     }
     
     private String formatMessageForAnalysis(SlackMessage msg) {
+        //  {
+        //   “role”: “user”,
+        //   “content”: “...“,
+        //   “author”: “Benoit”,
+        //   “timestamp”: ...,
+        //   “channel_id”: “...“,
+        //   “thread_ts”: ...
+        //  },
+
         try {
             Map<String, Object> messageMap = new LinkedHashMap<>();
-            
-            // Basic message info
-            messageMap.put("MESSAGE_ID", safeString(msg.getId()));
-            messageMap.put("TIMESTAMP", msg.getTimestamp());
-            String userId = msg.getSlackUserId();
-            if (userId == null) {
-                userId = msg.getUsername(); // Fallback to username if userId is null
-            }
-            messageMap.put("USER_ID", safeString(userId));
-            
-            // Channel and thread context
-            messageMap.put("CHANNEL", safeString(msg.getChannelId()));
-            if (msg.getThreadTs() != null) {
-                messageMap.put("THREAD", msg.getThreadTs());
-            }
-            
-            // Message type and metadata
-            if (msg.getMessageType() != null) {
-                messageMap.put("TYPE", msg.getMessageType());
-            }
-            if (msg.getSubtype() != null) {
-                messageMap.put("SUBTYPE", msg.getSubtype());
-            }
+            messageMap.put("ROLE", safeString("user"));
             
             // Message content (prioritize content over text)
             String content = msg.getContent();
             if (content == null || content.trim().isEmpty()) {
                 content = msg.getText();
             }
-            messageMap.put("CONTENT", safeString(content));            
+            messageMap.put("CONTENT", safeString(content));
+            messageMap.put("AUTHOR", safeString(msg.getDisplayName()));
+
+            messageMap.put("TIMESTAMP", msg.getTimestamp());
+            // Channel and thread context
+            messageMap.put("CHANNEL_ID", safeString(msg.getChannelId()));
+
+            if (msg.getThreadTs() != null) {
+                messageMap.put("THREAD_TS", msg.getThreadTs());
+            }            
             return objectMapper.writeValueAsString(messageMap);
         } catch (Exception e) {
             logger.warn("Failed to format message as JSON: {}", e.getMessage());
