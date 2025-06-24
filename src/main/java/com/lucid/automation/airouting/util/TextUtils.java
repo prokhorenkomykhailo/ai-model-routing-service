@@ -1,7 +1,6 @@
 package com.lucid.automation.airouting.util;
 
 import java.util.Map;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -25,31 +24,51 @@ public class TextUtils {
      * @param userInfos Map of userId to UserDTO.
      * @return The text with Slack mentions replaced.
      */
-    public static String replaceSlackMentions(String text,  Map<String, UserDTO> userInfos) {
+    public static String replaceSlackMentions(String text, Map<String, UserDTO> userInfos) {
         if (text == null) return null;
         if (userInfos == null || userInfos.isEmpty()) return text;
-        
-        Set<String> keys = userInfos.keySet();
-        for (String key : keys) {
-            // Skip null or empty keys
-            if (key == null || key.trim().isEmpty()) {
+
+        for (String key : userInfos.keySet()) {
+
+            // Skip null / empty keys
+            if (key == null || key.isBlank()) {
                 logger.warn("Found null or empty key in userInfos map, skipping");
                 continue;
             }
-            
+
             try {
-                // Replace <@key> with displayName or username
-                String mentionPattern = "\\s*(<@" + Pattern.quote(key) + ">|" + Pattern.quote(key) + ")\\s*";
+                //   (?<=^|\\s)     – phía trước phải là đầu dòng hoặc khoảng trắng
+                //   (<@ID>|ID)     – chính mention (ID bọc <> hoặc trần)
+                //   (?=[\\s.,!?]|$)– phía sau là khoảng trắng, dấu câu, hoặc kết thúc chuỗi
+                String mentionPattern =
+                        "(?<=^|\\s)(<@" + Pattern.quote(key) + ">|" + Pattern.quote(key) + ")(?=[\\s.,!?]|$)";
                 Pattern pattern = Pattern.compile(mentionPattern);
                 Matcher matcher = pattern.matcher(text);
-                UserDTO user = userInfos.get(key);
-                String displayName = user != null && user.displayName() != null ? user.displayName() : (user != null ? user.username() : key);
-                text = matcher.replaceAll(displayName);
+
+                UserDTO user   = userInfos.get(key);
+                String name;
+                if (user != null) {
+                    if (user.displayName() != null) {
+                        name = user.displayName();
+                    } else if (user.username() != null) {
+                        name = user.username();
+                    } else {
+                        name = key;
+                    }
+                } else {
+                    name = key;
+                }
+
+                // Thay thế bằng " name " (một dấu cách hai bên)
+                text = matcher.replaceAll(" " + name + " ");
+
             } catch (Exception e) {
-                // Log and continue with next key if pattern compilation fails
                 logger.warn("Failed to process mention for key: {}, error: {}", key, e.getMessage());
             }
         }
+
+        // Gộp các cụm >=2 dấu cách thành 1, rồi trim hai đầu
+        text = text.replaceAll("\\s{2,}", " ").trim();
         return text;
     }
 }
