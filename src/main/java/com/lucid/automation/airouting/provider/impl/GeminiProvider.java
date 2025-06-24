@@ -1,6 +1,7 @@
 package com.lucid.automation.airouting.provider.impl;
 
 import com.lucid.automation.airouting.provider.AIProvider;
+import com.lucid.automation.airouting.provider.ProviderUtils;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.SlackParticipant;
 import com.lucid.automation.airouting.model.User;
@@ -41,6 +42,7 @@ import java.util.stream.Collectors;
 public class GeminiProvider implements AIProvider {
     
     private static final Logger logger = LoggerFactory.getLogger(GeminiProvider.class);
+    private static final String UNCATEGORIZED = "Uncategorized";
     
     @Value("${ai.providers.gemini.api-key:}")
     private String apiKey;
@@ -103,13 +105,13 @@ public class GeminiProvider implements AIProvider {
             if (content == null || content.trim().isEmpty()) {
                 logger.warn("GEMINI-DEBUG [{}]: Empty or null content provided for categorization", debugId);
                 this.lastConfidence = 0.0;
-                return new CategoryResult("Uncategorized", 0.0);
+                return new CategoryResult(UNCATEGORIZED, 0.0);
             }
             
             if (!isClientAvailable) {
                 logger.warn("GEMINI-DEBUG [{}]: Client not available for categorization", debugId);
                 this.lastConfidence = 0.0;
-                return new CategoryResult("Uncategorized", 0.0);
+                return new CategoryResult(UNCATEGORIZED, 0.0);
             }
             
             String prompt = buildCategorizationPrompt(content);
@@ -129,15 +131,15 @@ public class GeminiProvider implements AIProvider {
         } catch (IllegalArgumentException e) {
             logger.error("GEMINI-DEBUG [{}]: Invalid input for categorization: {}", debugId, e.getMessage(), e);
             this.lastConfidence = 0.0;
-            return new CategoryResult("Uncategorized", 0.0);
+            return new CategoryResult(UNCATEGORIZED, 0.0);
         } catch (RuntimeException e) {
             logger.error("GEMINI-DEBUG [{}]: API error during categorization: {}", debugId, e.getMessage(), e);
             this.lastConfidence = 0.0;
-            return new CategoryResult("Uncategorized", 0.0);
+            return new CategoryResult(UNCATEGORIZED, 0.0);
         } catch (Exception e) {
             logger.error("GEMINI-DEBUG [{}]: Unexpected error during categorization: {}", debugId, e.getMessage(), e);
             this.lastConfidence = 0.0;
-            return new CategoryResult("Uncategorized", 0.0);
+            return new CategoryResult(UNCATEGORIZED, 0.0);
         }
     }
     
@@ -696,7 +698,7 @@ public class GeminiProvider implements AIProvider {
             String[] parts = response.trim().split("\\|");
             if (parts.length >= 2) {
                 String category = parts[0].trim();
-                double confidence = parseNumericValue(parts[1].trim(), 0.8);
+                double confidence = ProviderUtils.parseNumericValue(parts[1].trim(), 0.8);
                 return new CategoryResult(category, confidence);
             } else {
                 return new CategoryResult(response.trim(), 0.8);
@@ -809,14 +811,14 @@ public class GeminiProvider implements AIProvider {
                 if (line.startsWith("Category:")) {
                     category = line.substring(9).trim();
                 } else if (line.startsWith("Sentiment:")) {
-                    sentiment = parseNumericValue(line.substring(10).trim(), 0.0);
+                    sentiment = ProviderUtils.parseNumericValue(line.substring(10).trim(), 0.0);
                 } else if (line.startsWith("Intent:")) {
                     intent = line.substring(7).trim();
                 } else if (line.startsWith("Entities:")) {
                     String entitiesStr = line.substring(9).trim();
                     entities = Arrays.asList(entitiesStr.split(",\\s*"));
                 } else if (line.startsWith("Confidence:")) {
-                    confidence = parseNumericValue(line.substring(11).trim(), 0.5);
+                    confidence = ProviderUtils.parseNumericValue(line.substring(11).trim(), 0.5);
                 }
             }
             
@@ -884,37 +886,7 @@ public class GeminiProvider implements AIProvider {
         }
     }
     
-    /**
-     * Extracts numeric value from a string that may contain descriptive text.
-     * Handles formats like:
-     * - "0.8"
-     * - "0.8 (High confidence)"
-     * - "0.2 - Low value with description"
-     */
-    private double parseNumericValue(String valueStr, double defaultValue) {
-        try {
-            // First, try to parse directly in case it's just a number
-            return Double.parseDouble(valueStr);
-        } catch (NumberFormatException e) {
-            // If that fails, extract the first numeric value from the string
-            try {
-                // Use regex to find first decimal number (including integers)
-                java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("([0-9]*\\.?[0-9]+)");
-                java.util.regex.Matcher matcher = pattern.matcher(valueStr);
-                
-                if (matcher.find()) {
-                    double value = Double.parseDouble(matcher.group(1));
-                    return value;
-                } else {
-                    logger.warn("No numeric value found in string: {}", valueStr);
-                    return defaultValue; // Default fallback
-                }
-            } catch (Exception parseException) {
-                logger.warn("Failed to extract numeric value from string: {}", valueStr, parseException);
-                return defaultValue; // Default fallback
-            }
-        }
-    }
+    
     
     private UrgencyLevel parseUrgencyResponse(String response) {
         try {
@@ -950,9 +922,9 @@ public class GeminiProvider implements AIProvider {
                 if (line.startsWith("Sentiment:")) {
                     sentiment = line.substring(10).trim();
                 } else if (line.startsWith("Score:")) {
-                    score = parseNumericValue(line.substring(6).trim(), 0.0);
+                    score = ProviderUtils.parseNumericValue(line.substring(6).trim(), 0.0);
                 } else if (line.startsWith("Confidence:")) {
-                    confidence = parseNumericValue(line.substring(11).trim(), 0.5);
+                    confidence = ProviderUtils.parseNumericValue(line.substring(11).trim(), 0.5);
                 }
             }
             
@@ -1046,29 +1018,6 @@ public class GeminiProvider implements AIProvider {
         );
     }
     
-    private List<TopicEnrichment> extractTopicsFromResponse(Map<String, Object> analysis, List<SlackMessage> messages) {
-        try {
-            if (analysis.containsKey("topics") && analysis.get("topics") instanceof List<?> topicsList) {
-                List<TopicEnrichment> topics = new ArrayList<>();
-                
-                for (Object topicObj : topicsList) {
-                    if (topicObj instanceof Map<?, ?> topicMap) {
-                        TopicEnrichment topic = parseTopicFromMap(topicMap, messages);
-                        topics.add(topic);
-                    }
-                }
-                
-                return topics;
-            } else {
-                logger.warn("No topics array found in response, returning empty list");
-                return List.of();
-            }
-        } catch (Exception e) {
-            logger.error("Failed to extract topics from response", e);
-            return List.of();
-        }
-    }
-    
     private TopicEnrichment parseTopicFromMap(Map<?, ?> topicMap, List<SlackMessage> messages) {
         // extract userInfo from messages for user enrichment
         Map<String, UserDTO> userInfos = messages.stream()
@@ -1144,7 +1093,7 @@ public class GeminiProvider implements AIProvider {
         List<UserDTO> peopleInvolved = extractPeopleInvolved(topicMap, tenantId, workspaceId);
         List<SummaryPerPerson> summaryPerPerson = extractSummaryPerPerson(topicMap, tenantId, workspaceId, messages);
         Map<String, String> lastMessageDatePerPerson = extractStringMap(topicMap, "lastMessageDatePerPerson");
-        List<SuggestedReply> suggestedReplies = extractSuggestedReplies(topicMap);
+        List<SuggestedReply> suggestedReplies = ProviderUtils.extractSuggestedReplies(topicMap);
         ForwardInfo suggestedForwardRecipient = extractForwardInfo(topicMap);
         
         return new TopicEnrichment(title, shortSummary, fullSummary, suggestedAction, 
@@ -1202,43 +1151,7 @@ public class GeminiProvider implements AIProvider {
         }
         return null;
     }
-    
-    /**
-     * Extract people involved with backward compatibility and user enrichment from Redis
-     * Handles both old format (array of strings) and new format (array of user objects)
-    *  "peopleInvolved": [
-        {
-          "id": "U08SABCH6R3",
-          "username": "Benoit",
-          "displayName": "Benoit",
-          "imageUrl": null
-        },
-        {
-          "id": "U08SY01U88L",
-          "username": "User B",
-          "displayName": "User B",
-          "imageUrl": null
-        },
-        {
-          "id": "U08SA5URCHL",
-          "username": "User D",
-          "displayName": "User D",
-          "imageUrl": null
-        },
-        {
-          "id": "U08SA5RGSDC",
-          "username": "User A",
-          "displayName": "User A",
-          "imageUrl": null
-        },
-        {
-          "id": "U08S36A8A15",
-          "username": "User C",
-          "displayName": "User C",
-          "imageUrl": null
-        }
-      ],
-     */
+
     private List<UserDTO> extractPeopleInvolved(Map<?, ?> topicMap, String tenantId, String workspaceId) {
         Object value = topicMap.get("peopleInvolved");
         if (value instanceof List<?> list) {
@@ -1402,7 +1315,7 @@ public class GeminiProvider implements AIProvider {
             // Calculate message statistics for this user
             List<SlackMessage> userMessages = messages.stream()
                 .filter(msg -> userId.equals(msg.getUserId()))
-                .collect(Collectors.toList());
+                .toList();
             int messageCount = userMessages.size();
             LocalDateTime firstMessageDate = userMessages.stream()
                 .map(SlackMessage::getTimestamp)
@@ -1446,35 +1359,5 @@ public class GeminiProvider implements AIProvider {
                 List.of()
             );
         }
-    }
-    
-    private List<SuggestedReply> extractSuggestedReplies(Map<?, ?> topicMap) {
-        Object suggestedRepliesObj = topicMap.get("suggestedReplies");
-        if (suggestedRepliesObj instanceof List<?> repliesList) {
-            List<SuggestedReply> replies = new ArrayList<>();
-            
-            for (Object replyObj : repliesList) {
-                if (replyObj instanceof Map<?, ?> replyMap) {
-                    String tone = extractStringValue(replyMap, "tone", null);
-                    String replyMethod = extractStringValue(replyMap, "replyMethod", null);
-                    String recipientHandle = extractStringValue(replyMap, "recipientHandle", null);
-                    String channelName = extractStringValue(replyMap, "channelName", null);
-                    String channelId = extractStringValue(replyMap, "channelId", null);
-                    String threadId = extractStringValue(replyMap, "threadId", null);
-                    String to = extractStringValue(replyMap, "to", null);
-                    List<String> cc = extractStringList(replyMap, "cc");
-                    String subject = extractStringValue(replyMap, "subject", null);
-                    String messageBody = extractStringValue(replyMap, "messageBody", "");
-                    
-                    SuggestedReply suggestedReply = new SuggestedReply(
-                        tone, replyMethod, recipientHandle, channelName, channelId,
-                        threadId, to, cc, subject, messageBody
-                    );
-                    replies.add(suggestedReply);
-                }
-            }
-            return replies;
-        }
-        return List.of();
     }
 }

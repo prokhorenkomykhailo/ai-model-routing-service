@@ -12,6 +12,11 @@ import com.lucid.automation.airouting.dto.UserDTO;
 
 public class TextUtils {
     
+    // Private constructor to prevent instantiation
+    private TextUtils() {
+        throw new AssertionError("Utility class should not be instantiated");
+    }
+
     private static final Logger logger = LoggerFactory.getLogger(TextUtils.class);
     
     /**
