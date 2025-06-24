@@ -740,8 +740,14 @@ public class GeminiProvider implements AIProvider {
         } catch (Exception e) {
             logger.error("GEMINI-PARSE: Failed to parse conversation enrichment response. Error: {}", e.getMessage(), e);
             logger.error("GEMINI-PARSE: Original response (first 500 chars): {}", 
-                        response.length() > 500 ? response.substring(0, 500) + "..." : response);
+                        response != null && response.length() > 500 ? response.substring(0, 500) + "..." : response);
             logger.error("GEMINI-PARSE: Exception details: {}", e.toString());
+            
+            // Check if it's a Redis-related issue
+            if (e.getMessage() != null && e.getMessage().contains("array") && e.getMessage().contains("null")) {
+                logger.error("GEMINI-PARSE: Detected Redis query issue with null parameters");
+            }
+            
             return getDefaultConversationEnrichment();
         }
     }
@@ -1066,21 +1072,60 @@ public class GeminiProvider implements AIProvider {
     private TopicEnrichment parseTopicFromMap(Map<?, ?> topicMap, List<SlackMessage> messages) {
         // extract userInfo from messages for user enrichment
         Map<String, UserDTO> userInfos = messages.stream()
+            .filter(msg -> {
+                // Filter out messages where both slackUserId and username are null
+                String key = msg.getSlackUserId() != null ? msg.getSlackUserId() : msg.getUsername();
+                return key != null && !key.trim().isEmpty();
+            })
             .collect(Collectors.toMap(
                 msg -> msg.getSlackUserId() != null ? msg.getSlackUserId() : msg.getUsername(),
                 msg -> new UserDTO(msg.getSlackUserId(), msg.getUsername(), msg.getDisplayName(), msg.getImage72()),
                 (existing, replacement) -> existing // Keep existing if duplicate
             ));
 
+        // let get information from userService and update userInfos
+        // loop through userInfos and update with userService if needed
+        String tenantId = messages.isEmpty() ? null : messages.get(0).getTenantId();
+        String workspaceId = messages.isEmpty() ? null : messages.get(0).getWorkspaceId();
+        
+        // Add defensive checks for null values before calling userService
+        if (tenantId != null && workspaceId != null) {
+            userInfos.forEach((slackId, user) -> {
+                try {
+                    // Only call userService if slackId is not null
+                    if (slackId != null && !slackId.trim().isEmpty()) {
+                        User updatedUser = userService.getUser(tenantId, workspaceId, slackId).orElse(null);
+                        if (updatedUser != null) {
+                            UserDTO updatedUserDTO = new UserDTO(
+                                updatedUser.getId(),
+                                updatedUser.getName(),
+                                updatedUser.getDisplayName(),
+                                updatedUser.getImage72()
+                            );
+                            userInfos.put(slackId, updatedUserDTO);
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.warn("Failed to update user info for slackId {}: {}", slackId, e.getMessage());
+                }
+            });
+        } else {
+            logger.warn("Cannot update user info: tenantId={}, workspaceId={}", tenantId, workspaceId);
+        }
+
         String title = extractStringValue(topicMap, "title", "Untitled Topic");
         String shortSummary = extractStringValue(topicMap, "shortSummary", "No summary available");
-        shortSummary = TextUtils.replaceSlackMentions(shortSummary, userInfos);
+        // Ensure we don't pass null to TextUtils.replaceSlackMentions
+        logger.debug("GEMINI-PARSE: Processing shortSummary: {}", shortSummary);
+        shortSummary = shortSummary != null ? TextUtils.replaceSlackMentions(shortSummary, userInfos) : "No summary available";
         
         String fullSummary = extractStringValue(topicMap, "fullSummary", "No detailed summary available");
-        fullSummary = TextUtils.replaceSlackMentions(fullSummary, userInfos);
+        logger.debug("GEMINI-PARSE: Processing fullSummary: {}", fullSummary);
+        fullSummary = fullSummary != null ? TextUtils.replaceSlackMentions(fullSummary, userInfos) : "No detailed summary available";
         
         String suggestedAction = extractStringValue(topicMap, "suggestedAction", "No action suggested");
-        suggestedAction = TextUtils.replaceSlackMentions(suggestedAction, userInfos);
+        logger.debug("GEMINI-PARSE: Processing suggestedAction: {}", suggestedAction);
+        suggestedAction = suggestedAction != null ? TextUtils.replaceSlackMentions(suggestedAction, userInfos) : "No action suggested";
 
         String clientOrSupplier = extractStringValue(topicMap, "clientOrSupplier", null);
         String deadline = extractStringValue(topicMap, "deadline", null);
@@ -1095,11 +1140,7 @@ public class GeminiProvider implements AIProvider {
         
         LocalDateTime startTime = extractDateTime(topicMap, "startTime");
         LocalDateTime endTime = extractDateTime(topicMap, "endTime");
-        
-        // Extract tenant and workspace info from messages for user enrichment
-        String tenantId = messages.isEmpty() ? null : messages.get(0).getTenantId();
-        String workspaceId = messages.isEmpty() ? null : messages.get(0).getWorkspaceId();
-        
+                
         List<UserDTO> peopleInvolved = extractPeopleInvolved(topicMap, tenantId, workspaceId);
         List<SummaryPerPerson> summaryPerPerson = extractSummaryPerPerson(topicMap, tenantId, workspaceId, messages);
         Map<String, String> lastMessageDatePerPerson = extractStringMap(topicMap, "lastMessageDatePerPerson");
@@ -1247,8 +1288,8 @@ public class GeminiProvider implements AIProvider {
      */
     private UserDTO enrichUserDTO(String userId, String tenantId, String workspaceId) {
         try {            
-            // Get user details from Redis
-            if (tenantId != null && workspaceId != null && userId != null) {
+            // Get user details from Redis - add null checks
+            if (tenantId != null && workspaceId != null && userId != null && !userId.trim().isEmpty()) {
                 Optional<User> userOptional = userService.getUser(tenantId, workspaceId, userId);
                 if (userOptional.isPresent()) {
                     User user = userOptional.get();
@@ -1260,7 +1301,8 @@ public class GeminiProvider implements AIProvider {
                     );
                 }
             }
-            logger.warn("Tenant ID or Workspace ID is null, cannot enrich user data for userId: {}", userId);
+            logger.warn("Cannot enrich user data due to null/empty parameters: tenantId={}, workspaceId={}, userId={}", 
+                       tenantId, workspaceId, userId);
             return new UserDTO(userId, "N/A", "N/A", null);
         } catch (Exception e) {
             logger.warn("Failed to enrich UserDTO for user {}: {}", userId, e.getMessage());

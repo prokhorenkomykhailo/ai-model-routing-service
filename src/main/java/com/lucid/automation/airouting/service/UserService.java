@@ -178,7 +178,20 @@ public class UserService {
      * Get user by tenant, workspace, and slack user ID
      */
     public Optional<User> getUser(String tenantId, String workspaceId, String slackUserId) {
-        return userRepository.findByTenantIdAndWorkspaceIdAndSlackUserId(tenantId, workspaceId, slackUserId);
+        // Add null checks to prevent Redis query issues
+        if (tenantId == null || workspaceId == null || slackUserId == null) {
+            logger.warn("Cannot query user with null parameters: tenantId={}, workspaceId={}, slackUserId={}", 
+                       tenantId, workspaceId, slackUserId);
+            return Optional.empty();
+        }
+        
+        try {
+            return userRepository.findByTenantIdAndWorkspaceIdAndSlackUserId(tenantId, workspaceId, slackUserId);
+        } catch (Exception e) {
+            logger.error("Error querying user with tenantId={}, workspaceId={}, slackUserId={}: {}", 
+                        tenantId, workspaceId, slackUserId, e.getMessage());
+            return Optional.empty();
+        }
     }
     
     /**
