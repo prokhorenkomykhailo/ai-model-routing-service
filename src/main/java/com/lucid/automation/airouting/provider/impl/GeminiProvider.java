@@ -147,8 +147,6 @@ public class GeminiProvider implements AIProvider {
     public SummaryResult summarize(String content) {
         String debugId = "SUMMARIZE-" + System.currentTimeMillis();
         try {
-            logger.debug("GEMINI-DEBUG [{}]: Starting summarization - content length: {}", debugId, content != null ? content.length() : 0);
-            
             // Input validation
             if (content == null || content.trim().isEmpty()) {
                 logger.warn("GEMINI-DEBUG [{}]: Empty or null content provided for summarization", debugId);
@@ -160,15 +158,9 @@ public class GeminiProvider implements AIProvider {
                 return new SummaryResult("Summary unavailable", "AI service unavailable");
             }
             
-            String prompt = buildSummarizationPrompt(content);
-            logger.debug("GEMINI-DEBUG [{}]: Built summarization prompt, length: {}", debugId, prompt.length());
-            
+            String prompt = buildSummarizationPrompt(content);            
             String response = callGeminiAPI(prompt, "summarization", debugId);
-            logger.debug("GEMINI-DEBUG [{}]: Received API response for summarization", debugId);
-            
             SummaryResult result = parseSummaryResponse(response);
-            logger.debug("GEMINI-DEBUG [{}]: Summarization successful", debugId);
-            
             return result;
             
         } catch (IllegalArgumentException e) {
@@ -200,20 +192,6 @@ public class GeminiProvider implements AIProvider {
         String debugId = "ENRICH-CONV-" + System.currentTimeMillis();
         logger.info("GEMINI-ENRICH [{}]: Starting conversation enrichment", debugId);
         try {
-            if (messages != null) {
-                for (int i = 0; i < Math.min(messages.size(), 5); i++) {
-                    SlackMessage msg = messages.get(i);
-                    logger.debug("GEMINI-ENRICH [{}]: Message {}: {} chars from user {} at {}", 
-                                debugId, i+1, 
-                                msg.getContent() != null ? msg.getContent().length() : 0,
-                                msg.getUsername(),
-                                msg.getTimestamp());
-                }
-                if (messages.size() > 5) {
-                    logger.debug("GEMINI-ENRICH [{}]: ... and {} more messages", debugId, messages.size() - 5);
-                }
-            }
-            
             // Input validation
             if (messages == null || messages.isEmpty()) {
                 logger.warn("GEMINI-ENRICH [{}]: No messages provided, returning default enrichment", debugId);
@@ -227,34 +205,13 @@ public class GeminiProvider implements AIProvider {
             
             logger.info("GEMINI-ENRICH [{}]: Formatting conversation for analysis", debugId);
             String conversationText = formatConversationForAnalysis(messages);
-            // logger.info("GEMINI-ENRICH [{}]: Formatted conversation text \n\n: {}", debugId, conversationText);
             
             List<String> categoriesToUse = List.of();
             String prompt = buildConversationEnrichmentPrompt(conversationText, participants, categoriesToUse);
-            // logger.info("GEMINI-ENRICH [{}]: Prompt built, \n\n: {}", debugId, prompt);
 
             String response = callGeminiAPI(prompt, "conversation-enrichment", debugId);
-            logger.info("GEMINI-ENRICH [{}]: Received response from Gemini API, length: {}", debugId, response);
             ConversationEnrichment result = parseConversationEnrichmentResponse(response, messages, participants);
-            
-            // Log the parsed result details
-            logger.info("GEMINI-ENRICH [{}]: Result summary - {} topics, {} participant insights, {} message enrichments", 
-                       debugId, 
-                       result.topics() != null ? result.topics().size() : 0,
-                       result.participants() != null ? result.participants().size() : 0,
-                       result.messages() != null ? result.messages().size() : 0);
-            
-            if (result.topics() != null) {
-                for (int i = 0; i < result.topics().size(); i++) {
-                    TopicEnrichment topic = result.topics().get(i);
-                    logger.info("GEMINI-ENRICH [{}]: Topic {}: '{}' (urgency: {}, category: {})", 
-                               debugId, i+1, topic.title(), topic.urgency(), topic.category());
-                    logger.debug("GEMINI-ENRICH [{}]: Topic {} summary: {}", debugId, i+1, topic.shortSummary());
-                }
-            }
-            
             return result;
-            
         } catch (IllegalArgumentException e) {
             logger.error("GEMINI-ENRICH [{}]: Invalid input for conversation enrichment: {}", debugId, e.getMessage(), e);
             return getDefaultConversationEnrichment();
@@ -555,8 +512,7 @@ public class GeminiProvider implements AIProvider {
                 logger.error("GEMINI-API [{}]: Client is not available - API key not configured", debugId);
                 throw new RuntimeException("Gemini client is not available - API key not configured");
             }
-            
-            logger.info("GEMINI-API [{}]: Starting {} operation with prompt prompt:\n\n {}", debugId, operation, prompt);
+
             long startTime = System.currentTimeMillis();
             GenerateContentResponse response = geminiClient.models.generateContent(
                 model, 
@@ -566,17 +522,12 @@ public class GeminiProvider implements AIProvider {
             
             long duration = System.currentTimeMillis() - startTime;
             String responseText = response.text();
-            
-            logger.info("GEMINI-API [{}]: {} operation completed in {}ms, response: \n\n: {}", 
-                       debugId, operation, duration, responseText);
-            
+            logger.info("GEMINI-API [{}]: {} operation completed in {}ms, response: \n\n: {}", debugId, operation, duration, responseText);
             if (responseText == null || responseText.trim().isEmpty()) {
                 logger.warn("GEMINI-API [{}]: Received empty or null response from Gemini API", debugId);
                 throw new RuntimeException("Received empty response from Gemini API");
             }
-            
-            return responseText;
-            
+            return responseText;            
         } catch (Exception e) {
             logger.error("GEMINI-API [{}]: Error calling Gemini API for {} operation: {}", debugId, operation, e.getMessage(), e);
             throw new RuntimeException("Failed to call Gemini API: " + e.getMessage(), e);
@@ -597,19 +548,8 @@ public class GeminiProvider implements AIProvider {
     private String buildConversationEnrichmentPrompt(String conversationText, 
                                                     List<SlackParticipant> participants, 
                                                     List<String> availableCategories) {
-        // Build participant names list
-        List<String> participantNames = new ArrayList<>();
-        if (participants != null) {
-            participantNames = participants.stream()
-                .map(SlackParticipant::getUsername)
-                .toList();
-        }
-        
-        String template = promptLoader.loadPromptTemplate("conversation-enrichment");
-        return String.format(template, 
-            conversationText,
-            participantNames.isEmpty() ? "[]" : participantNames.toString()
-        );
+        String template = promptLoader.loadPromptTemplate("conversation-enrichment") + "%s";
+        return String.format(template, conversationText);
     }
     
     private String buildMessageEnrichmentPrompt(String content, Map<String, Object> context) {
@@ -715,20 +655,14 @@ public class GeminiProvider implements AIProvider {
     
     private ConversationEnrichment parseConversationEnrichmentResponse(String response, 
             List<SlackMessage> messages, List<SlackParticipant> participants) {
-        
         try {
-            logger.info("GEMINI-PARSE: Starting to parse conversation enrichment response");            
             String cleanedResponse = JsonUtils.cleanJsonResponse(response);
             logger.info("GEMINI-PARSE: Cleaned response:\n{}", cleanedResponse);
-            
-            // Check if the cleaned response is a JSON array (starts with '[')
+
             if (cleanedResponse.trim().startsWith("[")) {
                 return parseTopicsFromText(cleanedResponse, messages);
-            } else {
-                logger.info("GEMINI-PARSE: Response is not a JSON array, parsing as object: {}", cleanedResponse);
             }
-            // build default conversation enrichment if no topics found
-            logger.info("GEMINI-PARSE: No topics found in response, building default conversation enrichment");
+
             List<ParticipantInsight> participantsInsights = new ArrayList<>();
             return new ConversationEnrichment(
                 List.of(), // No topics
@@ -741,37 +675,19 @@ public class GeminiProvider implements AIProvider {
             );
         } catch (Exception e) {
             logger.error("GEMINI-PARSE: Failed to parse conversation enrichment response. Error: {}", e.getMessage(), e);
-            logger.error("GEMINI-PARSE: Original response (first 500 chars): {}", 
-                        response != null && response.length() > 500 ? response.substring(0, 500) + "..." : response);
-            logger.error("GEMINI-PARSE: Exception details: {}", e.toString());
-            
-            // Check if it's a Redis-related issue
-            if (e.getMessage() != null && e.getMessage().contains("array") && e.getMessage().contains("null")) {
-                logger.error("GEMINI-PARSE: Detected Redis query issue with null parameters");
-            }
-            
             return getDefaultConversationEnrichment();
         }
     }
 
     private ConversationEnrichment parseTopicsFromText(String topicsText, List<SlackMessage> messages) throws JsonMappingException, JsonProcessingException {
-        logger.info("GEMINI-PARSE: Detected JSON array format - parsing as array of topics");
-
-        // Parse as array of topics directly
         List<?> topicsArray = objectMapper.readValue(topicsText, List.class);
-        logger.info("GEMINI-PARSE: Successfully parsed {} topics from array", topicsArray.size());
         List<TopicEnrichment> topics = new ArrayList<>();
         for (int i = 0; i < topicsArray.size(); i++) {
-            Object topicObj = topicsArray.get(i);
-            logger.debug("GEMINI-PARSE: Processing topic {} of type: {}", i, topicObj.getClass().getSimpleName());
-            
+            Object topicObj = topicsArray.get(i);            
             if (topicObj instanceof Map<?, ?> topicMap) {
-                logger.debug("GEMINI-PARSE: Topic {} map keys: {}", i, topicMap.keySet());
                 TopicEnrichment topic = parseTopicFromMap(topicMap, messages);
                 topics.add(topic);
                 logger.info("GEMINI-PARSE: Successfully parsed topic {}: '{}'", i, topic.title());
-            } else {
-                logger.warn("GEMINI-PARSE: Topic {} is not a Map, skipping. Type: {}", i, topicObj.getClass());
             }
         }
         return new ConversationEnrichment(topics, List.of(), List.of(), null);
@@ -940,7 +856,7 @@ public class GeminiProvider implements AIProvider {
     private String formatConversationForAnalysis(List<SlackMessage> messages) {
         return messages.stream()
             .map(this::formatMessageForAnalysis)
-            .collect(Collectors.joining("\n\n"));
+            .collect(Collectors.joining("\n"));
     }
     
     private String formatMessageForAnalysis(SlackMessage msg) {
@@ -1019,25 +935,69 @@ public class GeminiProvider implements AIProvider {
     }
     
     private TopicEnrichment parseTopicFromMap(Map<?, ?> topicMap, List<SlackMessage> messages) {
-        // extract userInfo from messages for user enrichment
-        Map<String, UserDTO> userInfos = messages.stream()
-            .filter(msg -> {
-                // Filter out messages where both slackUserId and username are null
+        Map<String, UserDTO> userInfos = messages.stream().filter(msg -> {
                 String key = msg.getSlackUserId() != null ? msg.getSlackUserId() : msg.getUsername();
                 return key != null && !key.trim().isEmpty();
-            })
-            .collect(Collectors.toMap(
+            }).collect(Collectors.toMap(
                 msg -> msg.getSlackUserId() != null ? msg.getSlackUserId() : msg.getUsername(),
                 msg -> new UserDTO(msg.getSlackUserId(), msg.getUsername(), msg.getDisplayName(), msg.getImage72()),
                 (existing, replacement) -> existing // Keep existing if duplicate
             ));
 
-        // let get information from userService and update userInfos
-        // loop through userInfos and update with userService if needed
         String tenantId = messages.isEmpty() ? null : messages.get(0).getTenantId();
         String workspaceId = messages.isEmpty() ? null : messages.get(0).getWorkspaceId();
+        updateUserInformation(userInfos, tenantId, workspaceId);
+
+        String title = extractStringValue(topicMap, "title", "Untitled Topic");
+        String shortSummary = extractStringValue(topicMap, "shortSummary", "No summary available");
+        shortSummary = TextUtils.replaceSlackMentions(shortSummary, userInfos);
         
-        // Add defensive checks for null values before calling userService
+        String fullSummary = extractStringValue(topicMap, "fullSummary", "No detailed summary available");
+        fullSummary = TextUtils.replaceSlackMentions(fullSummary, userInfos);
+
+        String suggestedAction = extractStringValue(topicMap, "suggestedAction", "No action suggested");
+        suggestedAction = TextUtils.replaceSlackMentions(suggestedAction, userInfos);
+
+        String clientOrSupplier = extractStringValue(topicMap, "clientOrSupplier", null);
+        String deadline = extractStringValue(topicMap, "deadline", null);
+        String urgencyStr = extractStringValue(topicMap, "urgency", "Low");
+        String category = extractStringValue(topicMap, "category", "General");
+        String subCategory = extractStringValue(topicMap, "subCategory", null);
+        String periodStartDate = extractStringValue(topicMap, "periodStartDate", null);
+        String periodEndDate = extractStringValue(topicMap, "periodEndDate", null);
+        String latestMessageDate = extractStringValue(topicMap, "latestMessageDate", null);
+
+        // Update periodStartDate to first message date if null
+        if (periodStartDate == null && !messages.isEmpty()) {
+            periodStartDate = messages.get(0).getTimestamp().toString();
+        }
+        // Update periodEndDate to last message date if null
+        if (periodEndDate == null && !messages.isEmpty()) {
+            periodEndDate = messages.get(messages.size() - 1).getTimestamp().toString();
+        }
+        
+        UrgencyLevel urgency = mapStringToUrgency(urgencyStr);
+        
+        LocalDateTime startTime = extractDateTime(topicMap, "startTime");
+        LocalDateTime endTime = extractDateTime(topicMap, "endTime");
+                
+        List<UserDTO> peopleInvolved = extractPeopleInvolved(topicMap, tenantId, workspaceId);
+        List<SummaryPerPerson> summaryPerPerson = extractSummaryPerPerson(topicMap, tenantId, workspaceId, messages);
+        Map<String, String> lastMessageDatePerPerson = extractStringMap(topicMap, "lastMessageDatePerPerson");
+        List<SuggestedReply> suggestedReplies = ProviderUtils.extractSuggestedReplies(topicMap);
+        ForwardInfo suggestedForwardRecipient = extractForwardInfo(topicMap);
+        
+        return new TopicEnrichment(title, shortSummary, fullSummary, suggestedAction, 
+                                 clientOrSupplier, deadline, urgency, category, subCategory,
+                                 startTime, endTime, periodStartDate, periodEndDate, latestMessageDate,
+                                 peopleInvolved, summaryPerPerson, lastMessageDatePerPerson, 
+                                 suggestedReplies, suggestedForwardRecipient);
+    }
+    
+
+    private void updateUserInformation(Map<String, UserDTO> userInfos, String tenantId, String workspaceId) {
+        if (tenantId == null || workspaceId == null) return;
+        
         if (tenantId != null && workspaceId != null) {
             userInfos.forEach((slackId, user) -> {
                 try {
@@ -1061,48 +1021,8 @@ public class GeminiProvider implements AIProvider {
         } else {
             logger.warn("Cannot update user info: tenantId={}, workspaceId={}", tenantId, workspaceId);
         }
-
-        String title = extractStringValue(topicMap, "title", "Untitled Topic");
-        String shortSummary = extractStringValue(topicMap, "shortSummary", "No summary available");
-        // Ensure we don't pass null to TextUtils.replaceSlackMentions
-        logger.debug("GEMINI-PARSE: Processing shortSummary: {}", shortSummary);
-        shortSummary = shortSummary != null ? TextUtils.replaceSlackMentions(shortSummary, userInfos) : "No summary available";
-        
-        String fullSummary = extractStringValue(topicMap, "fullSummary", "No detailed summary available");
-        logger.debug("GEMINI-PARSE: Processing fullSummary: {}", fullSummary);
-        fullSummary = fullSummary != null ? TextUtils.replaceSlackMentions(fullSummary, userInfos) : "No detailed summary available";
-        
-        String suggestedAction = extractStringValue(topicMap, "suggestedAction", "No action suggested");
-        logger.debug("GEMINI-PARSE: Processing suggestedAction: {}", suggestedAction);
-        suggestedAction = suggestedAction != null ? TextUtils.replaceSlackMentions(suggestedAction, userInfos) : "No action suggested";
-
-        String clientOrSupplier = extractStringValue(topicMap, "clientOrSupplier", null);
-        String deadline = extractStringValue(topicMap, "deadline", null);
-        String urgencyStr = extractStringValue(topicMap, "urgency", "Low");
-        String category = extractStringValue(topicMap, "category", "General");
-        String subCategory = extractStringValue(topicMap, "subCategory", null);
-        String periodStartDate = extractStringValue(topicMap, "periodStartDate", null);
-        String periodEndDate = extractStringValue(topicMap, "periodEndDate", null);
-        String latestMessageDate = extractStringValue(topicMap, "latestMessageDate", null);
-        
-        UrgencyLevel urgency = mapStringToUrgency(urgencyStr);
-        
-        LocalDateTime startTime = extractDateTime(topicMap, "startTime");
-        LocalDateTime endTime = extractDateTime(topicMap, "endTime");
-                
-        List<UserDTO> peopleInvolved = extractPeopleInvolved(topicMap, tenantId, workspaceId);
-        List<SummaryPerPerson> summaryPerPerson = extractSummaryPerPerson(topicMap, tenantId, workspaceId, messages);
-        Map<String, String> lastMessageDatePerPerson = extractStringMap(topicMap, "lastMessageDatePerPerson");
-        List<SuggestedReply> suggestedReplies = ProviderUtils.extractSuggestedReplies(topicMap);
-        ForwardInfo suggestedForwardRecipient = extractForwardInfo(topicMap);
-        
-        return new TopicEnrichment(title, shortSummary, fullSummary, suggestedAction, 
-                                 clientOrSupplier, deadline, urgency, category, subCategory,
-                                 startTime, endTime, periodStartDate, periodEndDate, latestMessageDate,
-                                 peopleInvolved, summaryPerPerson, lastMessageDatePerPerson, 
-                                 suggestedReplies, suggestedForwardRecipient);
     }
-    
+
     private UrgencyLevel mapStringToUrgency(String urgencyStr) {
         if (urgencyStr == null) return UrgencyLevel.LOW;
         
