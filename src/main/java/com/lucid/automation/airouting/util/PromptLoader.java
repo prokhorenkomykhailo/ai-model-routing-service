@@ -34,28 +34,16 @@ public class PromptLoader {
                 }
                 
                 String content = resource.getContentAsString(StandardCharsets.UTF_8);
-                logger.debug("Loaded prompt template: {}", fileName);
-                
-                // Remove markdown heading if present and return the actual prompt content
                 String[] lines = content.split("\n");
                 StringBuilder promptContent = new StringBuilder();
-                boolean foundContent = false;
                 
                 for (String line : lines) {
-                    // Skip markdown headings (lines starting with #)
-                    if (line.trim().startsWith("#")) {
+                    if (line.trim().isEmpty()) {
                         continue;
                     }
-                    // Skip empty lines at the beginning
-                    if (!foundContent && line.trim().isEmpty()) {
-                        continue;
-                    }
-                    foundContent = true;
                     promptContent.append(line).append("\n");
                 }
-                
                 return promptContent.toString().trim();
-                
             } catch (IOException e) {
                 logger.error("Failed to load prompt template '{}': {}", name, e.getMessage(), e);
                 return getDefaultPrompt(name);
