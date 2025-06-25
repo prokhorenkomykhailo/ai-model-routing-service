@@ -135,7 +135,7 @@ public class AIRoutingService {
                 if (request.getMessages() == null || request.getMessages().isEmpty()) {
                     throw new IllegalArgumentException("Messages are required for conversation enrichment");
                 }
-                yield provider.enrichConversation(request.getMessages(), request.getParticipants(), request.getAvailableCategories());
+                yield provider.enrichConversation(request.getMessages());
             }
             
             case ENRICH_MESSAGE -> {

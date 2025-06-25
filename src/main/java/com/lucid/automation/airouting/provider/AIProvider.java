@@ -28,9 +28,7 @@ public interface AIProvider {
      *                           If null or empty, implementations should use their default behavior.
      * @return ConversationEnrichment object containing the analysis results
      */
-    ConversationEnrichment enrichConversation(List<SlackMessage> messages, 
-                                             List<SlackParticipant> participants, 
-                                             List<String> availableCategories);
+    Map<String, Object> enrichConversation(List<SlackMessage> messages);
     
     /**
      * Enrich a single message

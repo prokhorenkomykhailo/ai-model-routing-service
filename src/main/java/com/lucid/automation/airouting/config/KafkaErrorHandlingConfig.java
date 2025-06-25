@@ -133,6 +133,42 @@ public class KafkaErrorHandlingConfig {
     }
     
     @Bean
+    public ConsumerFactory<String, Object> genericObjectConsumerFactory() {
+        Map<String, Object> configProps = new HashMap<>();
+        configProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        configProps.put(ConsumerConfig.GROUP_ID_CONFIG, groupId + "-pre-ai-responses");
+        configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        
+        // Add security configuration if needed
+        if (!"PLAINTEXT".equals(securityProtocol)) {
+            configProps.put("security.protocol", securityProtocol);
+            if (!saslMechanism.isEmpty()) {
+                configProps.put("sasl.mechanism", saslMechanism);
+            }
+            if (!saslJaasConfig.isEmpty()) {
+                configProps.put("sasl.jaas.config", saslJaasConfig);
+            }
+        }
+        
+        // Configure ErrorHandlingDeserializer properly for generic objects
+        configProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
+        configProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
+        configProps.put(ErrorHandlingDeserializer.KEY_DESERIALIZER_CLASS, StringDeserializer.class);
+        configProps.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class);
+        
+        // JsonDeserializer specific configuration for generic objects
+        configProps.put(JsonDeserializer.TRUSTED_PACKAGES, "*");
+        configProps.put("spring.json.use.type.headers", false);
+        configProps.put("spring.json.fail.on.unknown.properties", false);
+        // Set default type to LinkedHashMap for generic object deserialization
+        configProps.put("spring.json.value.default.type", "java.util.LinkedHashMap");
+        configProps.put(JsonDeserializer.REMOVE_TYPE_INFO_HEADERS, true);
+        
+        return new DefaultKafkaConsumerFactory<>(configProps);
+    }
+
+    @Bean
     public DefaultErrorHandler defaultErrorHandler() {
         DefaultErrorHandler errorHandler = new DefaultErrorHandler(
             (record, exception) -> {
@@ -192,6 +228,19 @@ public class KafkaErrorHandlingConfig {
         ConcurrentKafkaListenerContainerFactory<String, AIMessage> factory = 
             new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(aiMessageConsumerFactory());
+        factory.setCommonErrorHandler(defaultErrorHandler());
+        
+        // Configure manual acknowledgment mode
+        factory.getContainerProperties().setAckMode(org.springframework.kafka.listener.ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        
+        return factory;
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, Object> genericObjectListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, Object> factory = 
+            new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(genericObjectConsumerFactory());
         factory.setCommonErrorHandler(defaultErrorHandler());
         
         // Configure manual acknowledgment mode

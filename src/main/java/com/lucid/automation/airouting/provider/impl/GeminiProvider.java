@@ -109,21 +109,28 @@ public class GeminiProvider implements AIProvider {
     }
     
     @Override
-    public ConversationEnrichment enrichConversation(List<SlackMessage> messages,
-                                                   List<SlackParticipant> participants, 
-                                                   List<String> availableCategories) {
+    public Map<String, Object> enrichConversation(List<SlackMessage> messages) {
         String debugId = "ENRICH-CONV-" + System.currentTimeMillis();
         logger.info("GEMINI-ENRICH [{}]: Starting conversation enrichment", debugId);
         try {
             // Input validation
             if (messages == null || messages.isEmpty()) {
                 logger.warn("GEMINI-ENRICH [{}]: No messages provided, returning default enrichment", debugId);
-                return getDefaultConversationEnrichment();
+                
+                // return getDefaultConversationEnrichment();
+                return Map.of(
+                    "response", "No messages provided for enrichment",
+                    "request", messages
+                );
             }
             
             if (!isClientAvailable) {
                 logger.warn("GEMINI-ENRICH [{}]: Gemini client not available, returning default enrichment", debugId);
-                return getDefaultConversationEnrichment();
+                // return getDefaultConversationEnrichment();
+                return Map.of(
+                    "response", "Gemini client not available",
+                    "request", messages
+                );
             }
             
             logger.info("GEMINI-ENRICH [{}]: Formatting conversation for analysis", debugId);
@@ -131,17 +138,28 @@ public class GeminiProvider implements AIProvider {
             String prompt = buildConversationEnrichmentPrompt(conversationText);
             System.out.println("GEMINI-ENRICH [" + debugId + "]: Built conversation enrichment prompt: \n" + prompt);
             String response = callGeminiAPI(prompt, "conversation-enrichment", debugId);
-            ConversationEnrichment result = parseConversationEnrichmentResponse(response, messages);
-            return result;
+            return Map.of(
+                "response", response,
+                "request", messages
+            );
         } catch (IllegalArgumentException e) {
             logger.error("GEMINI-ENRICH [{}]: Invalid input for conversation enrichment: {}", debugId, e.getMessage(), e);
-            return getDefaultConversationEnrichment();
+            return Map.of(
+                "response", "Invalid input for conversation enrichment: " + e.getMessage(),
+                "request", messages
+            );
         } catch (RuntimeException e) {
             logger.error("GEMINI-ENRICH [{}]: API error during conversation enrichment: {}", debugId, e.getMessage(), e);
-            return getDefaultConversationEnrichment();
+            return Map.of(
+                "response", "API error during conversation enrichment: " + e.getMessage(),
+                "request", messages
+            );
         } catch (Exception e) {
             logger.error("GEMINI-ENRICH [{}]: Unexpected error during conversation enrichment: {}", debugId, e.getMessage(), e);
-            return getDefaultConversationEnrichment();
+            return Map.of(
+                "response", "Unexpected error during conversation enrichment: " + e.getMessage(),
+                "request", messages
+            );
         }
     }
     
