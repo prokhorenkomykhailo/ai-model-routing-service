@@ -33,8 +33,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -956,7 +958,8 @@ public class GeminiProvider implements AIProvider {
         suggestedAction = TextUtils.replaceSlackMentions(suggestedAction, userInfos);
 
         String clientOrSupplier = extractStringValue(topicMap, "clientOrSupplier", null);
-        String deadline = extractStringValue(topicMap, "deadline", null);
+        String deadlineStr = extractStringValue(topicMap, "deadline", null);
+        LocalDateTime deadline = parseDeadline(deadlineStr);
         String urgencyStr = extractStringValue(topicMap, "urgency", "Low");
         String category = extractStringValue(topicMap, "category", "General");
         String subCategory = extractStringValue(topicMap, "subCategory", null);
@@ -1272,6 +1275,56 @@ public class GeminiProvider implements AIProvider {
                 List.of(),
                 List.of()
             );
+        }
+    }
+    
+    /**
+     * Parse deadline string into LocalDateTime
+     * Supports various date formats commonly used in AI responses
+     */
+    private LocalDateTime parseDeadline(String deadlineStr) {
+        if (deadlineStr == null || deadlineStr.trim().isEmpty()) {
+            return null;
+        }
+        
+        try {
+            // Try ISO date-time format first
+            if (deadlineStr.contains("T")) {
+                return LocalDateTime.parse(deadlineStr);
+            }
+            
+            // Try date-only format (assume end of day)
+            if (deadlineStr.matches("\\d{4}-\\d{2}-\\d{2}")) {
+                return LocalDate.parse(deadlineStr).atTime(23, 59, 59);
+            }
+            
+            // Try other common formats
+            DateTimeFormatter[] formatters = {
+                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
+                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"),
+                DateTimeFormatter.ofPattern("MM/dd/yyyy HH:mm"),
+                DateTimeFormatter.ofPattern("MM/dd/yyyy"),
+                DateTimeFormatter.ofPattern("dd/MM/yyyy"),
+                DateTimeFormatter.ofPattern("yyyy/MM/dd")
+            };
+            
+            for (DateTimeFormatter formatter : formatters) {
+                try {
+                    if (formatter.toString().contains("HH")) {
+                        return LocalDateTime.parse(deadlineStr, formatter);
+                    } else {
+                        return LocalDate.parse(deadlineStr, formatter).atTime(23, 59, 59);
+                    }
+                } catch (DateTimeParseException ignored) {
+                    // Try next formatter
+                }
+            }
+            
+            logger.warn("Could not parse deadline string: {}", deadlineStr);
+            return null;
+        } catch (Exception e) {
+            logger.warn("Error parsing deadline string '{}': {}", deadlineStr, e.getMessage());
+            return null;
         }
     }
 }

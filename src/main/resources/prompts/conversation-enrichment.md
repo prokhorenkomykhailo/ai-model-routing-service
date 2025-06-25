@@ -140,9 +140,15 @@ Examples of valid topic titles:
 
 ##people_involved## 
 • List of all names or handles of participants in the conversation
+• List only the people who made meaningful contributions to the conversation related to the topic
+• A meaningful contribution includes: providing information, asking important questions, making decisions, or proposing solutions
+• Do NOT include people who were only tagged, reacted with emojis, or gave generic acknowledgments (e.g., “ok”, “thanks”)
+• Include their Slack user_id, username, and displayName if available
+• This list must exactly match the people included in summaryPerPerson — do not add others
 
 ##summary_per_person## 
-• For each participant, include a 2–3 sentence summary of what they contributed
+• For each person in the summary, include their Slack user_id
+• For each person, create a 2–3 sentence summary of what they contributed
 • Do not write in first-person voice. Never use “I,” “me,” or “my.”
 • Always describe the situation neutrally or in third person, even if the user is involved.
 • If the user (e.g. Benoit) took actions, refer to them as “Benoit”.

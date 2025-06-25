@@ -10,7 +10,7 @@ public record TopicEnrichment(
     String fullSummary,
     String suggestedAction,
     String clientOrSupplier,
-    String deadline,
+    LocalDateTime deadline,
     UrgencyLevel urgency,
     String category,
     String subCategory,
