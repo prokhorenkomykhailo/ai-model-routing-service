@@ -39,7 +39,7 @@ public class MessageEnrichmentScheduler {
     private final WorkspaceService workspaceService;
     private final SlidingWindowService slidingWindowService;
 
-    @Value("${ai.enrichment.scheduler.batch-size:50}")
+    @Value("${ai.enrichment.scheduler.batch-size:1000}")
     private int batchSize;
 
     @Value("${ai.enrichment.scheduler.max-retries:3}")
@@ -51,16 +51,10 @@ public class MessageEnrichmentScheduler {
     @Value("${ai.enrichment.scheduler.default-tenant-schema:public}")
     private String defaultTenantSchema;
 
-    /**
-     * Scheduled method that runs based on the cron expression in application.yml.
-     * Gets all workspaces from Redis and processes messages for each workspace.
-     */
+
     @Scheduled(cron = "${ai.enrichment.scheduler.cron:0 */5 * * * ?}")
-    public void processMessageEnrichment() {
-        log.info("Starting scheduled message enrichment process");
-        
+    public void processMessageEnrichment() {        
         try {
-            // Step 1: Get all workspaces from Redis
             List<Workspace> workspaces = workspaceService.getAllWorkspaces();
             log.info("Found {} workspaces to process for enrichment", workspaces.size());
 
@@ -75,25 +69,19 @@ public class MessageEnrichmentScheduler {
 
             // Step 2: Process each workspace using SlidingWindowService
             for (Workspace workspace : workspaces) {
-                try {
-                    log.info("Processing workspace: {} (ID: {}) - tenant: {} schema: {}", 
-                            workspace.getName(), workspace.getId(), workspace.getTenantId(), workspace.getTenantSchema());
-                    
-                    int[] results = processWorkspace(workspace);
-                    int workspaceBatches = results[0];
-                    int workspaceMessages = results[1];
-                    
-                    totalBatches += workspaceBatches;
-                    totalMessages += workspaceMessages;
-                    processedWorkspaces++;
-                    
-                    log.debug("Processed {} batches with {} messages for workspace: {}", 
-                             workspaceBatches, workspaceMessages, workspace.getName());
-                } catch (Exception e) {
-                    log.error("Failed to process workspace: {} ({}). Error: {}", 
-                             workspace.getName(), workspace.getId(), e.getMessage(), e);
-                    // Continue processing other workspaces even if one fails
-                }
+                log.info("Processing workspace: {} (ID: {}) - tenant: {} schema: {}", workspace.getName(), workspace.getId(), workspace.getTenantId(), workspace.getTenantSchema());
+
+                int[] results = processWorkspace(workspace);
+                int workspaceBatches = results[0];
+                int workspaceMessages = results[1];
+                
+                totalBatches += workspaceBatches;
+                totalMessages += workspaceMessages;
+                processedWorkspaces++;
+                
+                log.debug("Processed {} batches with {} messages for workspace: {}", 
+                            workspaceBatches, workspaceMessages, workspace.getName());
+            
             }
 
             log.info("Completed scheduled message enrichment process using SlidingWindowService. " +
@@ -115,12 +103,11 @@ public class MessageEnrichmentScheduler {
     private int[] processWorkspace(Workspace workspace) {
         try {
             String workspaceId = workspace.getId();
-            
+
             log.info("Processing workspace: {} using SlidingWindowService", workspace.getName());
             
             // Get workspace statistics first
-            SlidingWindowService.WorkspaceMessageStats stats = 
-                    slidingWindowService.getWorkspaceStats(workspaceId);
+            SlidingWindowService.WorkspaceMessageStats stats = slidingWindowService.getWorkspaceStats(workspaceId);
             
             log.info("Workspace {} stats: {}", workspace.getName(), stats);
             
@@ -188,18 +175,6 @@ public class MessageEnrichmentScheduler {
         }
         
         try {
-            log.debug("Processing batch #{} with {} messages for workspace: {}", batchNumber, messages.size(), workspace.getName());
-            
-            // Log sample of message data to verify what we're receiving
-            if (!messages.isEmpty()) {
-                Message sampleMessage = messages.get(0);
-                log.debug("Sample message data - ID: {}, Username: {}, DisplayName: {}, Email: {}, Title: {}, Text length: {}", 
-                         sampleMessage.getId(), sampleMessage.getUsername(), sampleMessage.getDisplayName(),
-                         sampleMessage.getEmail(), sampleMessage.getTitle(), 
-                         sampleMessage.getText() != null ? sampleMessage.getText().length() : 0);
-            }
-            
-            // Convert all Redis Message objects to SlackMessage format
             List<SlackMessage> slackMessages = new ArrayList<>();
             List<SlackParticipant> participants = new ArrayList<>();
             

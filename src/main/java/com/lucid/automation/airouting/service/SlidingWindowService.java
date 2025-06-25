@@ -1,7 +1,10 @@
 package com.lucid.automation.airouting.service;
 
 import com.lucid.automation.airouting.model.Message;
+import com.lucid.automation.airouting.model.User;
 import com.lucid.automation.airouting.repository.MessageRepository;
+import com.lucid.automation.airouting.repository.UserRepository;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +27,7 @@ public class SlidingWindowService {
     private static final Logger logger = LoggerFactory.getLogger(SlidingWindowService.class);
     
     private final MessageRepository messageRepository;
+    private final UserRepository userRepository;
     
     @Value("${sliding.window.default.batch.size:1000}")
     private int defaultBatchSize;
@@ -34,8 +38,9 @@ public class SlidingWindowService {
     @Value("${sliding.window.cleanup.enabled:true}")
     private boolean cleanupEnabled;
     
-    public SlidingWindowService(MessageRepository messageRepository) {
+    public SlidingWindowService(MessageRepository messageRepository, UserRepository userRepository) {
         this.messageRepository = messageRepository;
+        this.userRepository = userRepository;
     }
     
     /**
@@ -88,11 +93,15 @@ public class SlidingWindowService {
             
             logger.info("Loaded {} messages for workspaceId: {}", allMessages.size(), workspaceId);
             
-            // Sort messages chronologically by messageTs
+            // Sort messages chronologically by messageTs Ascending
+            // This ensures we process messages in the order they were sent from oldest to newest
+            logger.debug("Sorting messages chronologically by messageTs");
             allMessages.sort(Comparator.comparing(Message::getMessageTs));
             
-            // Calculate overlap size
+            
+            // Calculate overlap size, minimum of 200 messages or 20% of maxMessage
             int overlapSize = (maxMessage * overlaping) / 100;
+            overlapSize = Math.max(overlapSize, 200);
             
             logger.debug("Processing with batchSize: {}, overlapSize: {}", maxMessage, overlapSize);
             
@@ -126,6 +135,27 @@ public class SlidingWindowService {
             logger.debug("Loading messages for workspaceId: {}", workspaceId);
             
             List<Message> messages = messageRepository.findByWorkspaceId(workspaceId);
+            // add user information to messages
+            messages.forEach(message -> {
+                if (message.getUserId() != null && !message.getUserId().trim().isEmpty()) {
+                    // Assuming UserData is a class that contains user information
+                    String slackUserId = message.getUserId();
+                    if (slackUserId != null && !slackUserId.trim().isEmpty()) {
+                        List<User> userList = userRepository.findBySlackUserId(slackUserId);
+                        if (userList.isEmpty()) {
+                            logger.warn("No user data found for slackUserId: {}", slackUserId);
+                            return;
+                        }
+                        User userData = userList.get(0);
+                        message = upateMessageWithUserData(message, userData);                        
+                        logger.debug("Loaded user data for message: {}", slackUserId);
+                    } else {
+                        logger.warn("Message with ID {} has empty userId", message.getId());
+                        
+                    }
+                    // 
+                }
+            });
             
             logger.debug("Found {} messages for workspaceId: {}", messages.size(), workspaceId);
             
@@ -137,6 +167,60 @@ public class SlidingWindowService {
         }
     }
     
+    private Message upateMessageWithUserData(Message message, User userData) {
+        if (userData == null) {
+            logger.warn("User data is null for message ID: {}", message.getId());
+            return message;
+        }
+        
+        try {
+            // Basic user identification
+            message.setSlackUserId(userData.getSlackUserId());
+            message.setTeamId(userData.getTeamId());
+            message.setTeamName(userData.getTeamName());
+            
+            // User names and display information
+            message.setName(userData.getName());
+            message.setDisplayName(userData.getDisplayName());
+            message.setDisplayNameNormalized(userData.getDisplayNameNormalized());
+            message.setRealNameNormalized(userData.getRealNameNormalized());
+            message.setFirstName(userData.getFirstName());
+            message.setLastName(userData.getLastName());
+            
+            // Contact information
+            message.setEmail(userData.getEmail());
+            message.setEmailConfirmed(userData.getEmailConfirmed());
+            message.setPhone(userData.getPhone());
+            message.setTitle(userData.getTitle());
+            message.setPronouns(userData.getPronouns());
+            
+            // Status and avatar information
+            message.setStatusText(userData.getStatusText());
+            message.setAvatarHash(userData.getAvatarHash());
+            
+            // Profile images (all sizes)
+            message.setImageOriginal(userData.getImageOriginal());
+            message.setImage24(userData.getImage24());
+            message.setImage32(userData.getImage32());
+            message.setImage48(userData.getImage48());
+            message.setImage72(userData.getImage72());
+            message.setImage192(userData.getImage192());
+            message.setImage512(userData.getImage512());
+            message.setImage1024(userData.getImage1024());
+            
+            // Slack metadata
+            message.setSlackUpdatedAt(userData.getSlackUpdatedAt());
+            
+            logger.debug("Successfully updated message {} with user data for slackUserId: {}", 
+                        message.getId(), userData.getSlackUserId());
+            return message;
+        } catch (Exception e) {
+            logger.error("Error updating message {} with user data for slackUserId: {}", 
+                        message.getId(), userData.getSlackUserId(), e);
+            return message;
+        }
+    }
+
     /**
      * Process messages in batches with sliding window overlap.
      * After processing all batches, deletes all processed messages from Redis and keeps only the latest N messages
