@@ -106,7 +106,7 @@ Examples of valid topic titles:
  	3- Confirm revised product specs with supplier
  	4- Align internal team on new asset delivery timeline
 
-##short_summary## 
+##shortSummary## 
 • Must be 18 words or fewer, under 120 characters
 • Do not include names unless essential for understanding  
 • Focus on the issue or next step — no full context, no explanations
@@ -114,17 +114,17 @@ Examples of valid topic titles:
 • Always describe the situation neutrally or in third person, even if the user is involved.
 • Summary must be readable independently of who is logged in.
 
-##full_summary## 
+##fullSummary## 
 • 3–5 sentence explanation of the discussion, what is pending, what’s unclear, who said what
 • Do not write in first-person voice. Never use “I,” “me,” or “my.”
 • Always describe the situation neutrally or in third person, even if the user is involved.
 • If the user (e.g. Benoit) took actions, refer to them as “Benoit”.
 • Summary must be readable independently of who is logged in.
 
-##suggested_action## 
+##suggestedAction## 
 • The next step the user should take
 
-##client_or_supplier##
+##clientOrSupplier##
 • Company name of the external party involved
 • If internal-only, return the user’s company name
 • Never use a person’s name — always return a business name
@@ -138,20 +138,21 @@ Examples of valid topic titles:
 • One of: low, medium, high, critical
 • Based on message tone, urgency words, blocking status, or deadline proximity
 
-##people_involved## 
-• List of all names or handles of participants in the conversation
-• List only the people who made meaningful contributions to the conversation related to the topic
-• A meaningful contribution includes: providing information, asking important questions, making decisions, or proposing solutions
-• Do NOT include people who were only tagged, reacted with emojis, or gave generic acknowledgments (e.g., “ok”, “thanks”)
-• Include their Slack user_id, username, and displayName if available
-• This list must exactly match the people included in summaryPerPerson — do not add others
+##peopleInvolved##  
+• Return a list of all participants who made meaningful contributions to the conversation related to the topic  
+• A meaningful contribution includes: providing information, asking important questions, making decisions, or proposing solutions  
+• Do NOT include users who were only tagged, reacted with emojis, or gave generic acknowledgments (e.g., “ok”, “thanks”)  
+• For each person, return only their Slack `"user_id"` (e.g., "U091MJ6ME3S")  
+• This list must exactly match the participants included in `summaryPerPerson` — do not add or omit anyone
 
-##summary_per_person## 
-• For each person in the summary, include their Slack user_id
-• For each person, create a 2–3 sentence summary of what they contributed
+##summaryPerPerson## 
+• For each person who contributed meaningfully, return a key-value pair:
+  → the key must be their Slack `user_id`  
+  → the value is a 2–3 sentence summary of what they said or did
+• Do not use names or display names as keys — always use the Slack `user_id` (e.g. "U02FB4HRF")
 • Do not write in first-person voice. Never use “I,” “me,” or “my.”
 • Always describe the situation neutrally or in third person, even if the user is involved.
-• If the user (e.g. Benoit) took actions, refer to them as “Benoit”.
+• If the user took actions, refer to them with their user_id (e.g. "U02FB4HRF").
 • Summary must be readable independently of who is logged in.
 • Include only people who made meaningful contributions to the topic.
 • These contributions should involve: sharing information, making decisions, asking important questions, or proposing solutions.
@@ -159,21 +160,21 @@ Examples of valid topic titles:
 • Each summary must include all key points mentioned by the person — not just the main one.
 • Make summaries specific and complete. Avoid vague or minimal output.
 
-	Example format:	1-"Alex Smith": "Explained the supplier delay on PO#334 due to customs clearance, suggested switching to air 				freight for urgent units, and confirmed he would update the lead time once DHL responds.",
-  			2-"Nina Johnson": "Raised concerns about the revised ad spend allocation for Q3, asked for performance data from 			the last campaign, and proposed splitting the influencer budget between two new platforms.",
-  			3- "David Lee": "Flagged a discrepancy in the product specs sent to the factory, reminded the team that the 				material code CEWF56945 was outdated, and shared the updated version to be uploaded to the shared drive."
+	Example format:	1-"U02FB4HRF": "Explained the supplier delay on PO#334 due to customs clearance, suggested switching to air 				freight for urgent units, and confirmed he would update the lead time once DHL responds.",
+  			2-"U01DSKUS2AU": "Raised concerns about the revised ad spend allocation for Q3, asked for performance data from 			the last campaign, and proposed splitting the influencer budget between two new platforms.",
+  			3- "U091MJ6ME3S": "Flagged a discrepancy in the product specs sent to the factory, reminded the team that the 				material code CEWF56945 was outdated, and shared the updated version to be uploaded to the shared drive."
 
-##last_message_date_per_person##
+##lastMessageDatePerPerson##
 • For each participant, provide the date of their most recent message (format: YYYY-MM-DD)
 • This must be a separate field from the summary
 
-##period_start_date## 
+##periodStartDate## 
 • Date of the first message in the topic (format: YYYY-MM-DD)
 
-##period_end_date## 
+##periodEndDate## 
 • Date of the last message in the topic (format: YYYY-MM-DD)
 
-##suggested_replies##
+##suggestedReplies##
 • Generate three reply options per topic using the following tone labels:
 	• Pro → tone_pro
 	• Formal → tone_formal
@@ -183,10 +184,10 @@ Examples of valid topic titles:
 
 Each reply must contain the following structured elements based on the selected method (Slack or Email):
 
-#reply_method#
+#replyMethod#
 • Either “slack” or “email”
 
-#recipient_handle (for Slack)# 
+#recipientHandle (for Slack)# 
 • Slack handle of the recipient (e.g. @john)
 
 #channel_name and channel_id (for Slack)# 
@@ -209,7 +210,7 @@ Each reply must contain the following structured elements based on the selected 
 #subject (for Email)# 
 • Short, clear subject summarizing the message context
 
-#message_body#
+#messageBody#
 • Full message body, written in the tone defined (tone_pro, tone_formal, or tone_friendly)
 • Email replies must include a greeting ("Hi John," or "Dear Ms. Liu,") and close with:
   Sincerely,  
@@ -239,7 +240,7 @@ The message body must:
 • Pick the most descriptive label based on the content of the topic
 • If no meaningful label is possible, return “Miscellaneous” — do not leave empty.
 
-##sub_category##  
+##subCategory##  
 • Provide a short, descriptive label for the sub-topic focus **within the main category**  
 • Must be specific enough to help group similar topics, but general enough to reuse across clients  
 • Use Title Case (e.g. “Ad Creative Feedback”, “Budget Split Discussion”, “CPC Performance Review”)  
@@ -298,23 +299,15 @@ For each topic extracted, return a JSON object with the following fields:
 "clientOrSupplier": "Name of external company or null if internal only (never use person names)",
 "deadline": "YYYY-MM-DD date if explicit or null",
 "urgency": "One of Low, Medium, High, Critical — based on tone, deadlines, or blockers",
-"peopleInvolved": [
-  {
-    "id": "user123",
-    "username": "alex.smith",
-    "displayName": "Alex Smith",
-    "imageUrl": "https://example.com/profile/alex.jpg"
-  },
-  ...
-],
+"peopleInvolved": ["U02FB4HRF", "U01DSKUS2AU", "U01DCV0U6UU"],
 "summaryPerPerson": {
- "Alex Smith": "Explained the supplier delay on PO#334 due to customs clearance, suggested switching to air freight for urgent units, and confirmed he would update the lead time once DHL responds.",
-  "Nina Johnson": "Raised concerns about the revised ad spend allocation for Q3, asked for performance data from the last campaign, and proposed splitting the influencer budget between two new platforms.",
-  "David Lee": "Flagged a discrepancy in the product specs sent to the factory, reminded the team that the material code CEWF56945 was outdated, and shared the updated version to be uploaded to the shared drive."
+ "U02FB4HRF": "Explained the supplier delay on PO#334 due to customs clearance, suggested switching to air freight for urgent units, and confirmed he would update the lead time once DHL responds.",
+  "U01DSKUS2AU": "Raised concerns about the revised ad spend allocation for Q3, asked for performance data from the last campaign, and proposed splitting the influencer budget between two new platforms.",
+  "U01DCV0U6UU": "Flagged a discrepancy in the product specs sent to the factory, reminded the team that the material code CEWF56945 was outdated, and shared the updated version to be uploaded to the shared drive."
 },
 "lastMessageDatePerPerson": {
-  "Alex Smith": "2025-06-10",
-  "Nina Johnson": "2025-06-09"
+  "U079W83SXGD": "2025-06-10",
+  "U08SA5URCHL": "2025-06-09"
 },
 "periodStartDate": "YYYY-MM-DD when topic started or null",
 "periodEndDate": "YYYY-MM-DD when topic ended or null",

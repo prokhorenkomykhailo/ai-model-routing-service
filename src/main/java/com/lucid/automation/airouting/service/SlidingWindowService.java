@@ -148,12 +148,10 @@ public class SlidingWindowService {
                         }
                         User userData = userList.get(0);
                         message = upateMessageWithUserData(message, userData);                        
-                        logger.debug("Loaded user data for message: {}", slackUserId);
+                        // logger.debug("Loaded user data for message: {}", slackUserId);
                     } else {
                         logger.warn("Message with ID {} has empty userId", message.getId());
-                        
                     }
-                    // 
                 }
             });
             

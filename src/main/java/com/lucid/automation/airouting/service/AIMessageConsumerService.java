@@ -625,10 +625,12 @@ public class AIMessageConsumerService {
                 Optional<User> userOptional = userService.getUser(tenantId, workspaceId, userId);
                 if (userOptional.isPresent()) {
                     User user = userOptional.get();
+                    String displayName = user.getDisplayName();
+                    displayName = displayName != null ? displayName : user.getName();
                     return new UserDTO(
                         userId,
                         user.getName(),
-                        user.getDisplayName(),
+                        displayName,
                         user.getImageOriginal()
                     );
                 }
@@ -702,7 +704,14 @@ public class AIMessageConsumerService {
                     LocalDateTime lastMessageDate = extractDateTime(summaryObjMap, "lastMessageDate");
                     List<String> keyContributions = extractStringList(summaryObjMap, "keyContributions");
                     List<String> actionItems = extractStringList(summaryObjMap, "actionItems");
-                    
+                    // check if username is empty or null, fallback to id
+                    if (username == null || username.trim().isEmpty()) {
+                        username = id;
+                    }
+                    // check if displayName is empty or null, fallback to username
+                    if (displayName == null || displayName.trim().isEmpty()) {
+                        displayName = username;
+                    }
                     SummaryPerPerson summaryPerPerson = new SummaryPerPerson(
                         id, username, displayName, imageUrl, summary,
                         messageCount, firstMessageDate, lastMessageDate,
@@ -745,7 +754,14 @@ public class AIMessageConsumerService {
                 .orElse(null);
             // Extract user details from Redis or fall back to basic info
             String username = user != null ? user.getName() : null;
+            if (username == null || username.trim().isEmpty()) {
+                username = userId; // Fallback to userId if username is not available
+            }
             String displayName = user != null ? user.getDisplayName() : null;
+            // check if displayName is empty or null, fallback to username
+            if (displayName == null || displayName.trim().isEmpty()) {
+                displayName = username;
+            }
             String imageUrl = user != null ? user.getImageOriginal() : null;
             return new SummaryPerPerson(
                 userId,
@@ -764,8 +780,8 @@ public class AIMessageConsumerService {
             // Return basic summary without enrichment
             return new SummaryPerPerson(
                 userId,
-                null,  // username
-                null,  // displayName
+                userId,  // username
+                userId,  // displayName
                 null,  // imageUrl
                 summary,
                 0,     // messageCount
