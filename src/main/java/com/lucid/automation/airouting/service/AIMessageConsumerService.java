@@ -576,42 +576,22 @@ public class AIMessageConsumerService {
         if (value instanceof List<?> list) {
             List<UserDTO> result = new ArrayList<>();
             for (Object item : list) {
-                if (item instanceof Map<?, ?> userMap) {
-                    // New format: user object
-                    String id = extractStringValue(userMap, "id", null);
-                    // Enrich with data from Redis if available
-                    UserDTO enrichedUser = enrichUserDTO(id, tenantId, workspaceId);
-                    // check if user ID is not null and not N/A
+                if (item instanceof String userId) {
+                    // Process only string user IDs like "U08SABCH6R3"
+                    UserDTO enrichedUser = enrichUserDTO(userId, tenantId, workspaceId);
+                    // Add user only if ID is valid (not null and not N/A)
                     if (enrichedUser.id() != null && !enrichedUser.id().equals("N/A")) {
                         result.add(enrichedUser);
                     }
-                } else if (item instanceof String userString) {
-                    // First try to parse as a UserDTO
-                    if (userString.startsWith("{") && userString.endsWith("}")) {
-                        try {
-                            UserDTO user = objectMapper.readValue(userString, UserDTO.class);
-                            // Enrich with Redis data
-                            UserDTO enrichedUser = enrichUserDTO(user.id(), tenantId, workspaceId);
-                            // check if user ID is not null and not N/A
-                            if (enrichedUser.id() != null && !enrichedUser.id().equals("N/A")) {
-                                result.add(enrichedUser);
-                            }
-                        } catch (JsonProcessingException e) {
-                            logger.warn("Failed to parse user string as UserDTO: {}", userString, e);
-                            // Fallback to old format handling
-                            UserDTO basicUser = UserDTO.fromString(userString);
-                            // Try to enrich with Redis data
-                            UserDTO enrichedUser = enrichUserDTO(basicUser.id(), tenantId, workspaceId);
-                            // check if user ID is not null and not N/A
-                            if (enrichedUser.id() != null && !enrichedUser.id().equals("N/A")) {
-                                result.add(enrichedUser);
-                            }
-                        }
-                    }
+                } else {
+                    logger.warn("Skipping non-string item in peopleInvolved: {} (type: {})", 
+                               item, item != null ? item.getClass().getSimpleName() : "null");
                 }
             }
             return result;
         }
+        logger.debug("peopleInvolved is not a List, returning empty list. Value type: {}", 
+                    value != null ? value.getClass().getSimpleName() : "null");
         return List.of();
     }
     
