@@ -186,4 +186,9 @@ public class WorkspaceService {
             return Collections.emptyList();
         }
     }
+
+    public boolean deleteWorkspaceById(String id) {
+        workspaceRepository.deleteById(id);
+        return true;
+    }
 }

@@ -54,4 +54,28 @@ public class WorkspaceController {
             return ResponseEntity.internalServerError().build();
         }
     }
+    
+    /**
+     * Delete a workspace by ID
+     */
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Delete workspace by ID", description = "Deletes a workspace by its ID")
+    @ApiResponse(responseCode = "204", description = "Workspace deleted successfully")
+    @ApiResponse(responseCode = "404", description = "Workspace not found")
+    public ResponseEntity<Void> deleteWorkspaceById(@PathVariable String id) {
+        logger.info("Deleting workspace with ID: {}", id);
+        try {
+            boolean deleted = workspaceService.deleteWorkspaceById(id);
+            if (deleted) {
+                logger.info("Workspace with ID {} deleted", id);
+                return ResponseEntity.noContent().build();
+            } else {
+                logger.warn("Workspace with ID {} not found", id);
+                return ResponseEntity.notFound().build();
+            }
+        } catch (Exception e) {
+            logger.error("Error deleting workspace with ID: {}", id, e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
 }
