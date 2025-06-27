@@ -96,8 +96,11 @@ public class GeminiProvider implements AIProvider {
         logger.info("GEMINI-ENRICH [{}]: Starting conversation enrichment", debugId);
         List<SlackMessage> messages = request.getMessages();
         Map<String, Object> context = request.getContext();
-        String deemergeUserName = context.getOrDefault("deemergeUserName", "Unknown").toString();
-
+        String deemergeUserName = (String)context.get("deemergeUserName");
+        if (deemergeUserName == null || deemergeUserName.trim().isEmpty()) {
+            deemergeUserName = "Unknown";
+        }
+        logger.info("[X] GEMINI-ENRICH [{}]: Using deemerge user name: {}", debugId, context);
         try {
             // Input validation
             if (messages == null || messages.isEmpty()) {
@@ -112,7 +115,6 @@ public class GeminiProvider implements AIProvider {
             
             if (!isClientAvailable) {
                 logger.warn("GEMINI-ENRICH [{}]: Gemini client not available, returning default enrichment", debugId);
-                // return getDefaultConversationEnrichment();
                 return Map.of(
                     "response", "Gemini client not available",
                     "request", messages

@@ -100,13 +100,13 @@ public class AIMessageConsumerService {
         }
                    
         logger.info("[X] Received enrichment request: messageId={}, taskType={}, tenantId={}", messageRequest.getMessageId(), messageRequest.getTaskType(), messageRequest.getTenantId());
-        
-        // Set default replyTopic if not specified
+        logger.info("[X] context: {}", messageRequest.getContext());
+
         if (messageRequest.getReplyTopic() == null || messageRequest.getReplyTopic().trim().isEmpty()) {
             logger.info("No reply topic specified for messageId={}, setting default ai-responses topic", messageRequest.getMessageId());
             messageRequest.setReplyTopic(preAiResponsesTopic);
         }
-        
+
         try {            
             // Handle null or empty preferred provider
             String preferredProvider = messageRequest.getPreferredProvider();
@@ -169,9 +169,11 @@ public class AIMessageConsumerService {
             response.put("tenantSchema", originalMessage.getTenantSchema());
             response.put("userId", originalMessage.getUserId());
             Map<String, Object> context = originalMessage.getContext();
-            response.put("deemergeUserId", context.getOrDefault("deemergeUserId", "").toString());
-            response.put("deemergeUserName", context.getOrDefault("deemergeUserName", "").toString());
-            response.put("teamId", context.getOrDefault("teamId", "").toString());
+            Object deemergeUserIdObj = context != null ? context.get("deemergeUserId") : null;
+            Object deemergeUserNameObj = context != null ? context.get("deemergeUserName") : null;
+            response.put("deemergeUserId", deemergeUserIdObj != null ? deemergeUserIdObj.toString() : "NoId");
+            response.put("deemergeUserName", deemergeUserNameObj != null ? deemergeUserNameObj.toString() : "NoUser");
+            response.put("teamId", context != null && context.get("teamId") != null ? context.get("teamId").toString() : "");
             
             kafkaTemplate.send(replyTopic, response);
         } catch (Exception e) {
@@ -278,9 +280,15 @@ public class AIMessageConsumerService {
         String tenantId = (String) responseMap.get("tenantId");
         String tenantSchema = (String) responseMap.get("tenantSchema");
         String userId = (String) responseMap.get("userId");
+        String deemergeUserId = (String) responseMap.get("deemergeUserId");
+        String deemergeUserName = (String) responseMap.get("deemergeUserName");
         
         // extract result as a String
         Map<String, Object> aiResultMap = (Map<String, Object>) responseMap.get("result");
+        if (aiResultMap == null) {
+            logger.error("Result map is null in pre-AI response: {}", responseMap);
+            return Map.of("error", "Result map is null in pre-AI response");
+        }
 
         // Convert the request objects from LinkedHashMap to SlackMessage objects
         List<Map<String, Object>> requestMapList = (List<Map<String, Object>>) aiResultMap.get("request");
@@ -331,7 +339,8 @@ public class AIMessageConsumerService {
         processedResponse.put("tenantId", tenantId);
         processedResponse.put("tenantSchema", tenantSchema);
         processedResponse.put("userId", userId);
-        // Log the processed response
+        processedResponse.put("deemergeUserId", deemergeUserId);
+        processedResponse.put("deemergeUserName", deemergeUserName);
         return processedResponse;
     }
     

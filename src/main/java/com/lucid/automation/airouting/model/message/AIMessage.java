@@ -1,6 +1,9 @@
 package com.lucid.automation.airouting.model.message;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.lucid.automation.airouting.model.AITaskType;
 import com.lucid.automation.airouting.model.SlackMessage;
 import jakarta.validation.constraints.NotBlank;
@@ -13,6 +16,9 @@ import java.util.Map;
 /**
  * Base message model for RabbitMQ AI processing requests
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
+@JsonInclude(JsonInclude.Include.NON_NULL)
+@JsonTypeInfo(use = JsonTypeInfo.Id.NONE) // Ignore type information
 public class AIMessage {
     
     @NotNull
