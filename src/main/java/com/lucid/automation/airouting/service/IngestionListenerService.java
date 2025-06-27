@@ -67,6 +67,7 @@ public class IngestionListenerService {
         logger.info("TenantId: {}", ingestionEventDto.getTenantId());
         logger.info("TenantSchema: {}", ingestionEventDto.getTenantSchema());
         logger.info("DeemergeUserId: {}", ingestionEventDto.getDeemergeUserId());
+        logger.info("DeemergeUserName: {}", ingestionEventDto.getDeemergeUserName());
 
         
         // Log message data with detailed validation

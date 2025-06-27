@@ -3,6 +3,7 @@ package com.lucid.automation.airouting.provider;
 import com.lucid.automation.airouting.dto.*;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.SlackParticipant;
+import com.lucid.automation.airouting.model.message.AIMessage;
 
 import java.util.List;
 import java.util.Map;
@@ -28,7 +29,7 @@ public interface AIProvider {
      *                           If null or empty, implementations should use their default behavior.
      * @return ConversationEnrichment object containing the analysis results
      */
-    Map<String, Object> enrichConversation(List<SlackMessage> messages);
+    Map<String, Object> enrichConversation(AIMessage messages);
     
     /**
      * Enrich a single message

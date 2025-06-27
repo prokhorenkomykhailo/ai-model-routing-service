@@ -99,13 +99,11 @@ public class AIMessageConsumerService {
             return;
         }
                    
-        logger.info("[X] Received enrichment request: messageId={}, taskType={}, tenantId={}", 
-                   messageRequest.getMessageId(), messageRequest.getTaskType(), messageRequest.getTenantId());
+        logger.info("[X] Received enrichment request: messageId={}, taskType={}, tenantId={}", messageRequest.getMessageId(), messageRequest.getTaskType(), messageRequest.getTenantId());
         
         // Set default replyTopic if not specified
         if (messageRequest.getReplyTopic() == null || messageRequest.getReplyTopic().trim().isEmpty()) {
-            logger.info("No reply topic specified for messageId={}, setting default ai-responses topic", 
-                       messageRequest.getMessageId());
+            logger.info("No reply topic specified for messageId={}, setting default ai-responses topic", messageRequest.getMessageId());
             messageRequest.setReplyTopic(preAiResponsesTopic);
         }
         
@@ -137,13 +135,16 @@ public class AIMessageConsumerService {
     
     private Object processEnrichmentTask(AIProvider provider, AIMessage message) {
         AITaskType taskType = message.getTaskType();
-        
+        if (taskType == null) {
+            throw new IllegalArgumentException("Task type is required for enrichment processing");
+        }
+
         return switch (taskType) {
             case ENRICH_CONVERSATION -> {
                 if (message.getMessages() == null || message.getMessages().isEmpty()) {
                     throw new IllegalArgumentException("Messages are required for conversation enrichment");
                 }
-                yield provider.enrichConversation(message.getMessages());
+                yield provider.enrichConversation(message);
             }
             default -> throw new IllegalArgumentException("Unsupported enrichment task type: " + taskType);
         };
@@ -167,6 +168,10 @@ public class AIMessageConsumerService {
             response.put("tenantId", originalMessage.getTenantId());
             response.put("tenantSchema", originalMessage.getTenantSchema());
             response.put("userId", originalMessage.getUserId());
+            Map<String, Object> context = originalMessage.getContext();
+            response.put("deemergeUserId", context.getOrDefault("deemergeUserId", "").toString());
+            response.put("deemergeUserName", context.getOrDefault("deemergeUserName", "").toString());
+            response.put("teamId", context.getOrDefault("teamId", "").toString());
             
             kafkaTemplate.send(replyTopic, response);
         } catch (Exception e) {

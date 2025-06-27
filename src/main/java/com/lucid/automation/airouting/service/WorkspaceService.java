@@ -123,6 +123,11 @@ public class WorkspaceService {
         if (ingestionEventDto.getDeemergeUserId() != null) {
             workspace.setDeemergeUserId(ingestionEventDto.getDeemergeUserId());
         }
+
+        // Update deemerger user name if present in DTO metadata
+        if (ingestionEventDto.getDeemergeUserName() != null) {
+            workspace.setDeemergeUserName(ingestionEventDto.getDeemergeUserName());
+        }
     }
     
     /**
