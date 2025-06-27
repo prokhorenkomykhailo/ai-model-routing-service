@@ -63,10 +63,6 @@ public class MessageEnrichmentScheduler {
                 return;
             }
 
-            int processedWorkspaces = 0;
-            int totalBatches = 0;
-            int totalMessages = 0;
-
             // Step 2: Process each workspace using SlidingWindowService
             for (Workspace workspace : workspaces) {
                 log.info("Processing workspace: {} (ID: {}) - tenant: {} schema: {}", workspace.getName(), workspace.getId(), workspace.getTenantId(), workspace.getTenantSchema());
@@ -75,19 +71,8 @@ public class MessageEnrichmentScheduler {
                 int workspaceBatches = results[0];
                 int workspaceMessages = results[1];
                 
-                totalBatches += workspaceBatches;
-                totalMessages += workspaceMessages;
-                processedWorkspaces++;
-                
-                log.debug("Processed {} batches with {} messages for workspace: {}", 
-                            workspaceBatches, workspaceMessages, workspace.getName());
-            
+                log.info("Processed workspace: {} - batches: {}, messages: {}", workspace.getName(), workspaceBatches, workspaceMessages);
             }
-
-            log.info("Completed scheduled message enrichment process using SlidingWindowService. " +
-                    "Processed {} workspaces with {} total batches and {} total messages", 
-                    processedWorkspaces, totalBatches, totalMessages);
-
         } catch (Exception e) {
             log.error("Error during scheduled message enrichment process: {}", e.getMessage(), e);
         }
@@ -102,20 +87,8 @@ public class MessageEnrichmentScheduler {
      */
     private int[] processWorkspace(Workspace workspace) {
         try {
-            String workspaceId = workspace.getId();
-
             log.info("Processing workspace: {} using SlidingWindowService", workspace.getName());
-            
-            // Get workspace statistics first
-            SlidingWindowService.WorkspaceMessageStats stats = slidingWindowService.getWorkspaceStats(workspaceId);
-            
-            log.info("Workspace {} stats: {}", workspace.getName(), stats);
-            
-            if (stats.getTotalMessages() == 0) {
-                log.info("No messages found in Redis for workspace: {}", workspace.getName());
-                return new int[]{0, 0};
-            }
-            
+    
             // Track processing metrics
             AtomicInteger batchCount = new AtomicInteger(0);
             AtomicInteger totalProcessed = new AtomicInteger(0);
@@ -124,33 +97,21 @@ public class MessageEnrichmentScheduler {
             Function<List<Message>, Void> enrichmentProcessor = 
                 messages -> {
                     int currentBatch = batchCount.incrementAndGet();
-                    log.info("Processing batch #{} with {} messages for workspace: {}", 
-                           currentBatch, messages.size(), workspace.getName());
-                    
+                    log.info("Processing batch #{} with {} messages for workspace: {}", currentBatch, messages.size(), workspace.getName());
                     try {
-                        // Process messages for AI enrichment
                         processMessageBatchForEnrichment(messages, workspace, currentBatch);
                         totalProcessed.addAndGet(messages.size());
-                        
-                        log.debug("Successfully processed batch #{} for workspace: {}", 
-                                currentBatch, workspace.getName());
-                        
+                        log.debug("Successfully processed batch #{} for workspace: {}", currentBatch, workspace.getName());
                     } catch (Exception e) {
-                        log.error("Error processing batch #{} for workspace {}: {}", 
-                                currentBatch, workspace.getName(), e.getMessage(), e);
-                        // Don't throw exception here - let other batches continue
+                        log.error("Error processing batch #{} for workspace {}: {}", currentBatch, workspace.getName(), e.getMessage(), e);
                     }
-                    
+
                     return null;
                 };
             
             // Process messages using sliding window
-            int messagesProcessed = slidingWindowService.processMessages(
-                    workspaceId, batchSize, 20, enrichmentProcessor);
-            
-            log.info("Completed processing workspace: {} - {} batches, {} messages processed", 
-                    workspace.getName(), batchCount.get(), messagesProcessed);
-            
+            int messagesProcessed = slidingWindowService.processMessages(workspace, batchSize, 20, enrichmentProcessor);
+            log.info("Completed processing workspace: {} - {} batches, {} messages processed", workspace.getName(), batchCount.get(), messagesProcessed);
             return new int[]{batchCount.get(), messagesProcessed};
 
         } catch (Exception e) {
@@ -206,12 +167,24 @@ public class MessageEnrichmentScheduler {
                 slackMessage.setTenantWorkspaceChannelThreadIndex(message.getTenantWorkspaceChannelThreadIndex());
                 slackMessage.setWorkspaceChannelThreadIndex(message.getWorkspaceChannelThreadIndex());
                 
+                // normalized display name by checking if it is null or empty then using the username
+                String normalizedDisplayName = message.getDisplayNameNormalized();
+                if (normalizedDisplayName == null || normalizedDisplayName.isEmpty()) {
+                    normalizedDisplayName = message.getRealNameNormalized();
+                }
+                if (normalizedDisplayName == null || normalizedDisplayName.isEmpty()) {
+                    normalizedDisplayName = message.getUsername();
+                }
+                String displayName = message.getDisplayName();
+                if (displayName == null || displayName.isEmpty()) {
+                    displayName = normalizedDisplayName;
+                }
                 // User profile fields from Message
                 slackMessage.setSlackUserId(message.getSlackUserId());
                 slackMessage.setTeamId(message.getTeamId());
                 slackMessage.setName(message.getName());
                 slackMessage.setEmailConfirmed(message.getEmailConfirmed());
-                slackMessage.setDisplayName(message.getDisplayName());
+                slackMessage.setDisplayName(displayName);
                 slackMessage.setDisplayNameNormalized(message.getDisplayNameNormalized());
                 slackMessage.setRealNameNormalized(message.getRealNameNormalized());
                 slackMessage.setEmail(message.getEmail());
@@ -286,19 +259,6 @@ public class MessageEnrichmentScheduler {
             if (!slackMessages.isEmpty()) {
                 String conversationId = workspace.getId() + ":batch_" + batchNumber;
                 
-                // Log summary of what was mapped
-                long messagesWithUsernames = slackMessages.stream().filter(m -> m.getUsername() != null).count();
-                long messagesWithDisplayNames = slackMessages.stream().filter(m -> m.getDisplayName() != null).count();
-                long messagesWithEmails = slackMessages.stream().filter(m -> m.getEmail() != null).count();
-                long messagesWithTitles = slackMessages.stream().filter(m -> m.getTitle() != null).count();
-                
-                log.info("Batch #{} mapping summary: {} messages, {} with usernames, {} with display names, {} with emails, {} with titles", 
-                        batchNumber, slackMessages.size(), messagesWithUsernames, messagesWithDisplayNames, 
-                        messagesWithEmails, messagesWithTitles);
-                        
-                log.info("Batch #{} participants summary: {} participants with enhanced info", 
-                        batchNumber, participants.size());
-                
                 // Create context map with batch information
                 Map<String, Object> context = new HashMap<>();
                 context.put("workspaceId", workspace.getId());
@@ -306,9 +266,16 @@ public class MessageEnrichmentScheduler {
                 context.put("batchNumber", batchNumber);
                 context.put("messageCount", slackMessages.size());
                 context.put("participantCount", participants.size());
+                context.put("deemergeUserId", workspace.getDeemergeUserId());
+                context.put("deemergeUserName", workspace.getDeemergeUserName());
+                context.put("teamId", workspace.getTeamId());
+                context.put("tenantId", workspace.getTenantId());
+                context.put("tenantSchema", workspace.getTenantSchema());
+                context.put("timestamp", LocalDateTime.now(ZoneOffset.UTC));
+
                 
                 // Publish to AI enrichment queue using the existing method
-                String messageId = aiMessagePublisherService.publishAIRequest(
+                aiMessagePublisherService.publishAIRequest(
                     AITaskType.ENRICH_CONVERSATION,
                     "", // content - empty for conversation enrichment
                     workspace.getTenantId(),
@@ -321,19 +288,7 @@ public class MessageEnrichmentScheduler {
                     null, // preferredProvider
                     null  // replyTopic
                 );
-                
-                if (messageId != null) {
-                    log.debug("Successfully published batch #{} with {} messages to AI enrichment queue with messageId: {}", 
-                            batchNumber, slackMessages.size(), messageId);
-                } else {
-                    log.warn("Failed to publish batch #{} with {} messages to AI enrichment queue", 
-                           batchNumber, slackMessages.size());
-                }
             }
-            
-            log.info("Completed processing batch #{} with {} messages for workspace: {}", 
-                    batchNumber, messages.size(), workspace.getName());
-            
         } catch (Exception e) {
             log.error("Error processing message batch #{} for workspace {}: {}", 
                      batchNumber, workspace.getName(), e.getMessage(), e);

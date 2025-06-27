@@ -15,15 +15,15 @@ import org.springframework.stereotype.Service;
  * Service that listens to the Kafka topic and processes incoming messages
  */
 @Service
-public class IngestionMessageListenerService {
+public class IngestionListenerService {
     
-    private static final Logger logger = LoggerFactory.getLogger(IngestionMessageListenerService.class);
+    private static final Logger logger = LoggerFactory.getLogger(IngestionListenerService.class);
     
     private final MessageService messageService;
     private final WorkspaceService workspaceService;
     private final UserService userService;
     
-    public IngestionMessageListenerService(MessageService messageService, WorkspaceService workspaceService, UserService userService) {
+    public IngestionListenerService(MessageService messageService, WorkspaceService workspaceService, UserService userService) {
         this.messageService = messageService;
         this.workspaceService = workspaceService;
         this.userService = userService;
@@ -47,13 +47,13 @@ public class IngestionMessageListenerService {
             "spring.json.value.default.type=com.lucid.automation.slackingestion.dto.messaging.IngestionEventDTO"
         }
     )
-    public void processIngestionMessage(@Payload IngestionEventDTO ingestionEvent,
+    public void processIngestionMessage(@Payload IngestionEventDTO ingestionEventDto,
                                       Acknowledgment acknowledgment,
                                       @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
                                       @Header(KafkaHeaders.OFFSET) long offset) {
         
         // Handle case where deserialization failed and ingestionEvent is null
-        if (ingestionEvent == null) {
+        if (ingestionEventDto == null) {
             logger.error("Received null message from Kafka topic - DESERIALIZATION FAILURE detected!");
             logger.error("This usually indicates malformed JSON or incompatible message format.");
             logger.error("Partition={}, offset={}", partition, offset);
@@ -64,25 +64,28 @@ public class IngestionMessageListenerService {
         
         logger.info("=== PROCESSING KAFKA MESSAGE ===");
         logger.info("Partition: {}, Offset: {}", partition, offset);
-        logger.info("TenantId: {}", ingestionEvent.getTenantId());
-        logger.info("TenantSchema: {}", ingestionEvent.getTenantSchema());
+        logger.info("TenantId: {}", ingestionEventDto.getTenantId());
+        logger.info("TenantSchema: {}", ingestionEventDto.getTenantSchema());
+        logger.info("DeemergeUserId: {}", ingestionEventDto.getDeemergeUserId());
+
         
         // Log message data with detailed validation
-        if (ingestionEvent.getMessage() != null) {
+        if (ingestionEventDto.getMessage() != null) {
             logger.info("Message Details:");
-            logger.info("  - MessageId (ts): {}", ingestionEvent.getMessage().getTs());
-            logger.info("  - ChannelId: {}", ingestionEvent.getMessage().getChannelId());
-            logger.info("  - TeamId: {}", ingestionEvent.getMessage().getTeamId());
-            logger.info("  - UserId: {}", ingestionEvent.getMessage().getUser());
-            logger.info("  - Text: {}", ingestionEvent.getMessage().getText());
-            logger.info("  - Type: {}", ingestionEvent.getMessage().getType());
-            logger.info("  - ThreadTs: {}", ingestionEvent.getMessage().getThreadTs());
-            logger.info("  - IngestedAt (raw): {}", ingestionEvent.getMessage().getIngestedAt());
+            logger.info("  - MessageId (ts): {}", ingestionEventDto.getMessage().getTs());
+            logger.info("  - ChannelId: {}", ingestionEventDto.getMessage().getChannelId());
+            logger.info("  - ChannelName: {}", ingestionEventDto.getMessage().getChannelName());
+            logger.info("  - TeamId: {}", ingestionEventDto.getMessage().getTeamId());
+            logger.info("  - UserId: {}", ingestionEventDto.getMessage().getUser());
+            logger.info("  - Text: {}", ingestionEventDto.getMessage().getText());
+            logger.info("  - Type: {}", ingestionEventDto.getMessage().getType());
+            logger.info("  - ThreadTs: {}", ingestionEventDto.getMessage().getThreadTs());
+            logger.info("  - IngestedAt (raw): {}", ingestionEventDto.getMessage().getIngestedAt());
             
             // Check for potential timestamp issues
-            if (ingestionEvent.getMessage().getTs() != null) {
+            if (ingestionEventDto.getMessage().getTs() != null) {
                 try {
-                    double timestamp = Double.parseDouble(ingestionEvent.getMessage().getTs());
+                    double timestamp = Double.parseDouble(ingestionEventDto.getMessage().getTs());
                     logger.info("  - Timestamp parsed as double: {}", timestamp);
                     if (timestamp > System.currentTimeMillis() / 1000.0 + 86400) { // More than 1 day in future
                         logger.warn("  - WARNING: Timestamp appears to be in the future!");
@@ -96,28 +99,28 @@ public class IngestionMessageListenerService {
         }
         
         // Log user data information with more details
-        if (ingestionEvent.getUser() != null) {
+        if (ingestionEventDto.getUser() != null) {
             logger.info("User Details:");
-            logger.info("  - SlackUserId: {}", ingestionEvent.getUser().getSlackUserId());
-            logger.info("  - Name: {}", ingestionEvent.getUser().getName());
-            logger.info("  - DisplayName: '{}'", ingestionEvent.getUser().getDisplayName());
-            logger.info("  - Email: {}", ingestionEvent.getUser().getEmail());
-            logger.info("  - ID: {}", ingestionEvent.getUser().getId());
-            logger.info("  - TeamId: {}", ingestionEvent.getUser().getTeamId());
+            logger.info("  - SlackUserId: {}", ingestionEventDto.getUser().getSlackUserId());
+            logger.info("  - Name: {}", ingestionEventDto.getUser().getName());
+            logger.info("  - DisplayName: '{}'", ingestionEventDto.getUser().getDisplayName());
+            logger.info("  - Email: {}", ingestionEventDto.getUser().getEmail());
+            logger.info("  - ID: {}", ingestionEventDto.getUser().getId());
+            logger.info("  - TeamId: {}", ingestionEventDto.getUser().getTeamId());
         } else {
             logger.warn("USER DATA IS NULL!");
         }
         
-        logger.info("IngestedAt: {}", ingestionEvent.getIngestedAt());
+        logger.info("IngestedAt: {}", ingestionEventDto.getIngestedAt());
         
-        if (ingestionEvent.getMessage() == null) {
+        if (ingestionEventDto.getMessage() == null) {
             logger.warn("Received message with null message data, skipping processing");
             acknowledgment.acknowledge();
             return;
         }
         
         // Add basic validation for message data
-        if (ingestionEvent.getMessage().getTs() == null) {
+        if (ingestionEventDto.getMessage().getTs() == null) {
             logger.warn("Message timestamp is null, skipping processing");
             acknowledgment.acknowledge();
             return;
@@ -125,7 +128,7 @@ public class IngestionMessageListenerService {
         
         // Check for reasonable timestamp values (should be in seconds since epoch)
         try {
-            String tsStr = ingestionEvent.getMessage().getTs();
+            String tsStr = ingestionEventDto.getMessage().getTs();
             double timestamp = Double.parseDouble(tsStr);
             if (timestamp > System.currentTimeMillis() / 1000.0 + 86400) { // More than 1 day in future
                 logger.warn("Message timestamp appears to be in the future: {}, skipping processing", timestamp);
@@ -133,29 +136,29 @@ public class IngestionMessageListenerService {
                 return;
             }
         } catch (NumberFormatException e) {
-            logger.warn("Invalid timestamp format: {}, continuing with processing", ingestionEvent.getMessage().getTs());
+            logger.warn("Invalid timestamp format: {}, continuing with processing", ingestionEventDto.getMessage().getTs());
         }
 
         try {
             logger.info("=== STARTING MESSAGE PROCESSING ===");
             logger.info("Step 1: Processing message: messageId={}, tenantId={}", 
-                ingestionEvent.getMessage().getTs(), ingestionEvent.getTenantId());
+                ingestionEventDto.getMessage().getTs(), ingestionEventDto.getTenantId());
             
             boolean processingSuccessful = true;
             
             // Save message to Redis for conversation history
             logger.info("Step 2: Attempting to save message to Redis...");
             logger.debug("  - Calling messageService.storeMessage()");
-            boolean stored = messageService.storeMessage(ingestionEvent);
+            boolean stored = messageService.storeMessage(ingestionEventDto);
             
             if (stored) {
                 logger.info("Step 2: SUCCESS - Message saved to Redis");
-                logger.info("  - MessageId: {}", ingestionEvent.getMessage().getTs());
+                logger.info("  - MessageId: {}", ingestionEventDto.getMessage().getTs());
                 logger.info("  - SlackUserId: {}", 
-                    ingestionEvent.getUser() != null ? ingestionEvent.getUser().getSlackUserId() : "null");
+                    ingestionEventDto.getUser() != null ? ingestionEventDto.getUser().getSlackUserId() : "null");
             } else {
                 logger.error("Step 2: FAILED - Could not save message to Redis");
-                logger.error("  - MessageId: {}", ingestionEvent.getMessage().getTs());
+                logger.error("  - MessageId: {}", ingestionEventDto.getMessage().getTs());
                 logger.error("  - This indicates Redis connectivity or data issues");
                 processingSuccessful = false;
             }
@@ -163,7 +166,7 @@ public class IngestionMessageListenerService {
             // Store/update user information in Redis
             logger.info("Step 3: Attempting to store/update user information...");
             logger.debug("  - Calling userService.createOrUpdateUser()");
-            var user = userService.createOrUpdateUser(ingestionEvent);
+            var user = userService.createOrUpdateUser(ingestionEventDto);
             
             if (user != null) {
                 logger.info("Step 3: SUCCESS - User information stored/updated");
@@ -175,14 +178,11 @@ public class IngestionMessageListenerService {
                 logger.warn("Step 3: WARNING - User service returned null");
                 logger.warn("  - This might happen if user data is missing or invalid");
                 logger.warn("  - SlackUserId: {}", 
-                    ingestionEvent.getUser() != null ? ingestionEvent.getUser().getSlackUserId() : "null");
+                    ingestionEventDto.getUser() != null ? ingestionEventDto.getUser().getSlackUserId() : "null");
                 // Don't mark as failed for user update issues - this is not critical for message processing
             }
-            
-            // Create or update workspace data
-            logger.info("Step 4: Attempting to create/update workspace...");
-            logger.debug("  - Calling workspaceService.createOrUpdateWorkspace()");
-            Workspace workspace = workspaceService.createOrUpdateWorkspace(ingestionEvent);
+            // The deemergeUserId is now part of the IngestionEventDTO and will be set on the Workspace model by WorkspaceService.
+            Workspace workspace = workspaceService.createOrUpdateWorkspace(ingestionEventDto);
             
             if (workspace != null) {
                 logger.info("Step 4: SUCCESS - Workspace updated");
@@ -190,7 +190,7 @@ public class IngestionMessageListenerService {
                 logger.info("  - TenantId: {}", workspace.getTenantId());
             } else {
                 logger.warn("Step 4: WARNING - Workspace service returned null");
-                logger.warn("  - TenantId: {}", ingestionEvent.getTenantId());
+                logger.warn("  - TenantId: {}", ingestionEventDto.getTenantId());
                 logger.warn("  - This might be expected behavior in some cases");
                 // Don't mark as failed for workspace update issues
             }
@@ -198,7 +198,7 @@ public class IngestionMessageListenerService {
             // Only acknowledge if both critical operations succeeded
             if (processingSuccessful) {
                 logger.info("Step 5: Processing completed successfully");
-                logger.info("  - MessageId: {}", ingestionEvent.getMessage().getTs());
+                logger.info("  - MessageId: {}", ingestionEventDto.getMessage().getTs());
                 
                 // Acknowledge the message after successful processing
                 logger.info("Step 6: Acknowledging message...");
@@ -206,7 +206,7 @@ public class IngestionMessageListenerService {
                 logger.info("=== MESSAGE PROCESSING COMPLETE ===");
             } else {
                 logger.error("Step 5: Processing FAILED - Critical operations unsuccessful");
-                logger.error("  - MessageId: {}", ingestionEvent.getMessage().getTs());
+                logger.error("  - MessageId: {}", ingestionEventDto.getMessage().getTs());
                 logger.error("  - Message will NOT be acknowledged to allow retry");
                 logger.error("=== MESSAGE PROCESSING FAILED - NO ACK ===");
                 // Do NOT acknowledge - let Kafka retry
@@ -218,8 +218,8 @@ public class IngestionMessageListenerService {
             logger.error("Exception Type: {}", e.getClass().getSimpleName());
             logger.error("Exception Message: {}", e.getMessage());
             logger.error("MessageId: {}", 
-                ingestionEvent.getMessage() != null ? ingestionEvent.getMessage().getTs() : "unknown");
-            logger.error("TenantId: {}", ingestionEvent.getTenantId());
+                ingestionEventDto.getMessage() != null ? ingestionEventDto.getMessage().getTs() : "unknown");
+            logger.error("TenantId: {}", ingestionEventDto.getTenantId());
             logger.error("Partition: {}, Offset: {}", partition, offset);
             
             // Try to determine which step failed

@@ -50,6 +50,12 @@ public class Message implements Serializable {
     private String channelId;
     
     /**
+     * Channel name where the message was posted
+     */
+    @Indexed
+    private String channelName;
+    
+    /**
      * Thread timestamp (if part of a thread)
      */
     @Indexed
@@ -60,6 +66,12 @@ public class Message implements Serializable {
      */
     @Indexed
     private String messageTs;
+    
+    /**
+     * Tenant schema for multi-tenancy support
+     */
+    @Indexed
+    private String tenantSchema;
     
     // Composite indexes for common query patterns
     
@@ -99,7 +111,13 @@ public class Message implements Serializable {
     /**
      * User name who sent the message
      */
-    private String username;
+    private String username;    // slack username
+    
+    /**
+     * Deemerge user ID (for user disambiguation or mapping)
+     */
+    @Indexed
+    private String deemergeUserId;
     
     // User profile fields from UserData
     /**

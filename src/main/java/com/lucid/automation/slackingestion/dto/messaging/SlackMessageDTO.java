@@ -40,6 +40,9 @@ public class SlackMessageDTO {
     
     @JsonProperty("channelId")
     private String channelId;
+
+    @JsonProperty("channelName")
+    private String channelName;
     
     @JsonProperty("teamId")
     private String teamId;
@@ -73,4 +76,7 @@ public class SlackMessageDTO {
     
     @JsonProperty("latestReply")
     private String latestReply;
+
+    @JsonProperty("relatedUsers")
+    private List<String> relatedUsers; // List of user IDs related to this message, e
 }

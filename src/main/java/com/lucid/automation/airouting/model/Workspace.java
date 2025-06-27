@@ -16,34 +16,39 @@ public class Workspace {
     
     @Id
     private String id; // This will be the workspaceId (teamId from Slack)
-    
+
+    @Indexed
+    private String teamId; // Slack team ID (same as id, kept for clarity)
+
     @Indexed
     private String tenantId;
-    
+
     @Indexed
     private String tenantSchema;
-    
+
+    @Indexed
+    private String deemergeUserId;
+
+    private String deemergeUserName; // Deemerge user's display name
+
+    private Instant firstMessageAt;
+
+    private Instant lastMessageAt;
+
+    private Instant createdAt;
+
+    private Instant updatedAt;
+
     private String name;
     private String domain;
-    private String teamId; // Slack team ID (same as id, kept for clarity)
     
-    @Indexed
-    private Instant firstMessageAt;
-    
-    @Indexed
-    private Instant lastMessageAt;
-    
+
     private Long totalMessages;
     private Long totalChannels;
     private Long totalThreads;
-    
+
     private Set<String> channelIds;
-    
-    @Indexed
-    private Instant createdAt;
-    
-    @Indexed
-    private Instant updatedAt;
+
     
     // Constructors
     public Workspace() {
@@ -55,20 +60,13 @@ public class Workspace {
         this.updatedAt = Instant.now();
     }
     
-    public Workspace(String workspaceId, String tenantId) {
+    public Workspace(String teamId, String tenantId, String deemergeUserId) {
         this();
-        this.id = workspaceId;
+        this.teamId = teamId;
         this.tenantId = tenantId;
-        this.teamId = workspaceId;
+        this.deemergeUserId = deemergeUserId;
     }
-    
-    public Workspace(String workspaceId, String tenantId, String tenantSchema) {
-        this();
-        this.id = workspaceId;
-        this.tenantId = tenantId;
-        this.tenantSchema = tenantSchema;
-        this.teamId = workspaceId;
-    }
+
     
     // Getters and Setters
     public String getId() { return id; }
@@ -120,6 +118,22 @@ public class Workspace {
     
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+
+    public String getDeemergeUserId() {
+        return deemergeUserId;
+    }
+
+    public void setDeemergeUserId(String deemergeUserId) {
+        this.deemergeUserId = deemergeUserId;
+    }
+
+    public String getDeemergeUserName() {
+        return deemergeUserName;
+    }
+
+    public void setDeemergeUserName(String deemergeUserName) {
+        this.deemergeUserName = deemergeUserName;
+    }
     
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }

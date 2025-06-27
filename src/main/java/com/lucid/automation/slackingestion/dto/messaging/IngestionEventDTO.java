@@ -29,6 +29,12 @@ public class IngestionEventDTO {
     
     @JsonProperty("tenantSchema")
     private String tenantSchema;
+
+    @JsonProperty("deemergeUserId")
+    private String deemergeUserId;
+
+    @JsonProperty("deemergeUserName")
+    private String deemergeUserName;
     
     @JsonProperty("message")
     private SlackMessageDTO message;
@@ -85,5 +91,12 @@ public class IngestionEventDTO {
     
     public String getConversationGroupId() {
         return message != null ? message.getConversationGroupId() : null;
+    }
+
+    public String getDeemergeUserName() {
+        return deemergeUserName;
+    }
+    public void setDeemergeUserName(String deemergeUserName) {
+        this.deemergeUserName = deemergeUserName;
     }
 }

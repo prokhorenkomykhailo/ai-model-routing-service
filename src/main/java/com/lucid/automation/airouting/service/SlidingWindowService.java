@@ -2,6 +2,7 @@ package com.lucid.automation.airouting.service;
 
 import com.lucid.automation.airouting.model.Message;
 import com.lucid.automation.airouting.model.User;
+import com.lucid.automation.airouting.model.Workspace;
 import com.lucid.automation.airouting.repository.MessageRepository;
 import com.lucid.automation.airouting.repository.UserRepository;
 
@@ -48,23 +49,16 @@ public class SlidingWindowService {
      * Messages are loaded from Redis, sorted chronologically, and processed in batches with overlap.
      * After processing, deletes all processed messages and keeps only the latest N messages (where N = overlap size).
      * 
-     * @param workspaceId The workspace ID to process messages for
+     * @param workspace The workspace ID to process messages for
      * @param maxMessage Maximum number of messages to process per batch
      * @param overlaping Percentage of messages to keep as overlap between batches (0-100)
      * @param callback Function to process each batch of messages
      * @return Total number of messages processed
      */
-    public int processMessages(String workspaceId, int maxMessage, int overlaping, 
-                              Function<List<Message>, Void> callback) {
-        
-        if (workspaceId == null || workspaceId.trim().isEmpty()) {
-            logger.warn("Cannot process messages: workspaceId is null or empty");
-            return 0;
-        }
-        
+    public int processMessages(Workspace workspace, int maxMessage, int overlaping, Function<List<Message>, Void> callback) {
+                
         if (maxMessage <= 0) {
-            logger.warn("Invalid maxNumberMessage: {}. Using default batch size: {}", 
-                       maxMessage, defaultBatchSize);
+            logger.warn("Invalid maxNumberMessage: {}. Using default batch size: {}", maxMessage, defaultBatchSize);
             maxMessage = defaultBatchSize;
         }
         
@@ -79,19 +73,19 @@ public class SlidingWindowService {
             return 0;
         }
         
-        try {
-            logger.info("Starting sliding window processing for workspaceId: {}, batchSize: {}, overlap: {}%", 
-                       workspaceId, maxMessage, overlaping);
-            
+        try {            
             // Load all messages for the workspace
-            List<Message> allMessages = loadMessagesForWorkspace(workspaceId);
+            String teamId = workspace.getTeamId();
+            String tenantId = workspace.getTenantId();
+            String deemergeUserId = workspace.getDeemergeUserId();
+            List<Message> allMessages = loadMessagesForWorkspace(deemergeUserId);
             
             if (allMessages.isEmpty()) {
-                logger.info("No messages found for workspaceId: {}", workspaceId);
+                logger.info("No messages found for workspaceId: {}", workspace);
                 return 0;
             }
             
-            logger.info("Loaded {} messages for workspaceId: {}", allMessages.size(), workspaceId);
+            logger.info("Loaded {} messages for workspaceId: {}", allMessages.size(), workspace);
             
             // Sort messages chronologically by messageTs Ascending
             // This ensures we process messages in the order they were sent from oldest to newest
@@ -108,20 +102,9 @@ public class SlidingWindowService {
             return processBatchesWithOverlap(allMessages, maxMessage, overlapSize, callback);
             
         } catch (Exception e) {
-            logger.error("Error during sliding window processing for workspaceId: {}", workspaceId, e);
+            logger.error("Error during sliding window processing for workspaceId: {}", workspace, e);
             return 0;
         }
-    }
-    
-    /**
-     * Process messages for a workspace using default configuration.
-     * 
-     * @param workspaceId The workspace ID to process messages for
-     * @param callbackFunction Function to process each batch of messages
-     * @return Total number of messages processed
-     */
-    public int processMessages(String workspaceId, Function<List<Message>, Void> callbackFunction) {
-        return processMessages(workspaceId, defaultBatchSize, defaultOverlapPercentage, callbackFunction);
     }
     
     /**
@@ -130,11 +113,11 @@ public class SlidingWindowService {
      * @param workspaceId The workspace ID
      * @return List of messages sorted chronologically
      */
-    private List<Message> loadMessagesForWorkspace(String workspaceId) {
+    private List<Message> loadMessagesForWorkspace(String deemergeUserId) {
         try {
-            logger.debug("Loading messages for workspaceId: {}", workspaceId);
-            
-            List<Message> messages = messageRepository.findByWorkspaceId(workspaceId);
+            logger.debug("Loading messages for workspaceId: {}", deemergeUserId);
+
+            List<Message> messages = messageRepository.findAllByDeemergeUserId(deemergeUserId);
             // add user information to messages
             messages.forEach(message -> {
                 if (message.getUserId() != null && !message.getUserId().trim().isEmpty()) {
@@ -155,12 +138,11 @@ public class SlidingWindowService {
                 }
             });
             
-            logger.debug("Found {} messages for workspaceId: {}", messages.size(), workspaceId);
+            logger.debug("Found {}", messages.size());
             
             return messages;
             
         } catch (Exception e) {
-            logger.error("Error loading messages for workspaceId: {}", workspaceId, e);
             return Collections.emptyList();
         }
     }
@@ -296,91 +278,6 @@ public class SlidingWindowService {
         return totalProcessed;
     }
     
-    /**
-     * Get statistics about messages for a workspace.
-     * 
-     * @param workspaceId The workspace ID
-     * @return Statistics about the workspace messages
-     */
-    public WorkspaceMessageStats getWorkspaceStats(String workspaceId) {
-        if (workspaceId == null || workspaceId.trim().isEmpty()) {
-            return new WorkspaceMessageStats(workspaceId, 0, 0, 0);
-        }
-        
-        try {
-            List<Message> messages = loadMessagesForWorkspace(workspaceId);
-            
-            long totalMessages = messages.size();
-            long uniqueChannels = messages.stream()
-                    .map(Message::getChannelId)
-                    .distinct()
-                    .count();
-            long uniqueUsers = messages.stream()
-                    .map(Message::getUserId)
-                    .filter(userId -> userId != null && !userId.trim().isEmpty())
-                    .distinct()
-                    .count();
-            
-            return new WorkspaceMessageStats(workspaceId, totalMessages, uniqueChannels, uniqueUsers);
-            
-        } catch (Exception e) {
-            logger.error("Error getting workspace stats for workspaceId: {}", workspaceId, e);
-            return new WorkspaceMessageStats(workspaceId, 0, 0, 0);
-        }
-    }
-    
-    /**
-     * Process messages for a workspace with channel filtering.
-     * 
-     * @param workspaceId The workspace ID
-     * @param channelIds List of channel IDs to filter by (null for all channels)
-     * @param maxNumberMessage Maximum number of messages per batch
-     * @param keepOverlaping Percentage of overlap between batches
-     * @param callbackFunction Function to process each batch
-     * @return Total number of messages processed
-     */
-    public int processMessagesForChannels(String workspaceId, List<String> channelIds, 
-                                         int maxNumberMessage, int keepOverlaping, 
-                                         Function<List<Message>, Void> callbackFunction) {
-        
-        if (workspaceId == null || workspaceId.trim().isEmpty()) {
-            logger.warn("Cannot process messages: workspaceId is null or empty");
-            return 0;
-        }
-        
-        try {
-            List<Message> allMessages = loadMessagesForWorkspace(workspaceId);
-            
-            // Filter by channels if specified
-            if (channelIds != null && !channelIds.isEmpty()) {
-                allMessages = allMessages.stream()
-                        .filter(message -> channelIds.contains(message.getChannelId()))
-                        .collect(Collectors.toList());
-                
-                logger.info("Filtered messages to {} messages for channels: {}", 
-                           allMessages.size(), channelIds);
-            }
-            
-            if (allMessages.isEmpty()) {
-                logger.info("No messages found for workspaceId: {} and channels: {}", 
-                           workspaceId, channelIds);
-                return 0;
-            }
-            
-            // Sort messages chronologically
-            allMessages.sort(Comparator.comparing(Message::getMessageTs));
-            
-            // Calculate overlap size
-            int overlapSize = (maxNumberMessage * keepOverlaping) / 100;
-            
-            return processBatchesWithOverlap(allMessages, maxNumberMessage, overlapSize, callbackFunction);
-            
-        } catch (Exception e) {
-            logger.error("Error processing messages for workspaceId: {} and channels: {}", 
-                        workspaceId, channelIds, e);
-            return 0;
-        }
-    }
     
     /**
      * Clean up processed messages from Redis database, keeping only the latest N messages.

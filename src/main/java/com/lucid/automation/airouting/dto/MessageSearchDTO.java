@@ -15,15 +15,6 @@ import lombok.NoArgsConstructor;
 public class MessageSearchDTO {
     
     private String tenantId;
-    private String workspaceId;
-    private String channelId;
-    private String threadTs;
-    private String userId;
-    private String messageType;
-    private String subtype;
-    private Long startTime;
-    private Long endTime;
-    private String textContains;
     
     // Pagination parameters
     @Builder.Default

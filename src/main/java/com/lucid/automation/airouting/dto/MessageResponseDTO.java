@@ -27,6 +27,8 @@ public class MessageResponseDTO {
     private String threadTs;
     private String messageTs;
     private String userId;
+    private String deemergeUserId; // Deemerge user ID
+    private String channelName;    // Slack channel name
     private String username;
     private String text;
     private String messageType;
