@@ -5,7 +5,7 @@ import com.lucid.automation.airouting.model.Message;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.SlackParticipant;
 import com.lucid.automation.airouting.model.Workspace;
-import com.lucid.automation.airouting.service.AIMessagePublisherService;
+import com.lucid.automation.airouting.producer.AIMessageProducer;
 import com.lucid.automation.airouting.service.SlidingWindowService;
 import com.lucid.automation.airouting.service.WorkspaceService;
 import lombok.RequiredArgsConstructor;
@@ -35,7 +35,7 @@ import java.util.function.Function;
 @ConditionalOnProperty(value = "ai.enrichment.scheduler.enabled", havingValue = "true", matchIfMissing = true)
 public class MessageEnrichmentScheduler {
 
-    private final AIMessagePublisherService aiMessagePublisherService;
+    private final AIMessageProducer aiMessageProducer;
     private final WorkspaceService workspaceService;
     private final SlidingWindowService slidingWindowService;
 
@@ -275,7 +275,7 @@ public class MessageEnrichmentScheduler {
 
                 
                 // Publish to AI enrichment queue using the existing method
-                aiMessagePublisherService.publishAIRequest(
+                aiMessageProducer.publishAIRequest(
                     AITaskType.ENRICH_CONVERSATION,
                     "", // content - empty for conversation enrichment
                     workspace.getTenantId(),

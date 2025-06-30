@@ -1,4 +1,4 @@
-package com.lucid.automation.airouting.service;
+package com.lucid.automation.airouting.consumer;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
@@ -17,6 +17,7 @@ import com.lucid.automation.airouting.provider.ProviderUtils;
 import com.lucid.automation.airouting.util.JsonUtils;
 import com.lucid.automation.airouting.util.TextUtils;
 import com.lucid.automation.airouting.dto.ForwardInfo;
+import com.lucid.automation.airouting.service.UserService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lucid.automation.airouting.dto.UrgencyLevel;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -45,12 +46,14 @@ import java.util.stream.Collectors;
 
 
 /**
- * Service for consuming AI processing requests from Kafka and processing them
+ * Consumer service for processing AI requests from Kafka
+ * 
+ * @author AI Assistant
  */
 @Service
-public class AIMessageConsumerService {
+public class AIMessageConsumer {
     
-    private static final Logger logger = LoggerFactory.getLogger(AIMessageConsumerService.class);
+    private static final Logger logger = LoggerFactory.getLogger(AIMessageConsumer.class);
     
     private final AIProviderFactory providerFactory;
     private final KafkaTemplate<String, Object> kafkaTemplate;
@@ -65,7 +68,7 @@ public class AIMessageConsumerService {
     private final ObjectMapper objectMapper;
 
     
-    public AIMessageConsumerService(AIProviderFactory providerFactory, UserService userService, ObjectMapper objectMapper,
+    public AIMessageConsumer(AIProviderFactory providerFactory, UserService userService, ObjectMapper objectMapper,
                                   KafkaTemplate<String, Object> kafkaTemplate) {
         this.providerFactory = providerFactory;
         this.userService = userService;
@@ -74,7 +77,7 @@ public class AIMessageConsumerService {
         
         // Log the guarantee about ai-enrich processing
         logger.info("=== AI-ENRICH PROCESSING GUARANTEE ===");
-        logger.info("AIMessageConsumerService initialized");
+        logger.info("AIMessageConsumer initialized");
         logger.info("GUARANTEE: ai-enrich topic will ALWAYS be processed from the beginning");
         logger.info("Mechanisms ensuring this:");
         logger.info("1. aiMessageConsumerFactory with auto-offset-reset=earliest");

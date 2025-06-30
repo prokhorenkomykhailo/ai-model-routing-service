@@ -1,4 +1,4 @@
-package com.lucid.automation.airouting.service;
+package com.lucid.automation.airouting.producer;
 
 import com.lucid.automation.airouting.model.request.ConversationEnrichmentRequest;
 import com.lucid.automation.airouting.model.AITaskType;
@@ -6,6 +6,7 @@ import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.SlackParticipant;
 import com.lucid.automation.airouting.model.message.AIMessage;
 import com.lucid.automation.airouting.model.message.SlackParticipantData;
+import com.lucid.automation.airouting.service.MessageConverterService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -18,12 +19,14 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Service for publishing AI processing requests to Kafka
+ * Producer service for publishing AI processing requests to Kafka
+ * 
+ * @author AI Assistant
  */
 @Service
-public class AIMessagePublisherService {
+public class AIMessageProducer {
     
-    private static final Logger logger = LoggerFactory.getLogger(AIMessagePublisherService.class);
+    private static final Logger logger = LoggerFactory.getLogger(AIMessageProducer.class);
     
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final MessageConverterService messageConverter;
@@ -37,7 +40,7 @@ public class AIMessagePublisherService {
     @Value("${kafka.topics.ai-enrich:ai-enrich}")
     private String enrichTopic;
     
-    public AIMessagePublisherService(KafkaTemplate<String, Object> kafkaTemplate,
+    public AIMessageProducer(KafkaTemplate<String, Object> kafkaTemplate,
                                    MessageConverterService messageConverter) {
         this.kafkaTemplate = kafkaTemplate;
         this.messageConverter = messageConverter;
