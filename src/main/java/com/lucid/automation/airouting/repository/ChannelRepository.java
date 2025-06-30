@@ -16,30 +16,6 @@ import java.util.Optional;
 public interface ChannelRepository extends CrudRepository<Channel, String> {
     
     /**
-     * Find channels by source (slack, email, etc.)
-     * 
-     * @param channelSrc The channel source
-     * @return List of channels from the specified source
-     */
-    List<Channel> findByChannelSrc(String channelSrc);
-    
-    /**
-     * Find channels by tenant ID
-     * 
-     * @param tenantId The tenant ID
-     * @return List of channels for the tenant
-     */
-    List<Channel> findByTenantId(String tenantId);
-    
-    /**
-     * Find channels by workspace ID
-     * 
-     * @param workspaceId The workspace/team ID
-     * @return List of channels in the workspace
-     */
-    List<Channel> findByWorkspaceId(String workspaceId);
-    
-    /**
      * Find channels by tenant and workspace
      * 
      * @param tenantId The tenant ID
@@ -63,12 +39,4 @@ public interface ChannelRepository extends CrudRepository<Channel, String> {
      * @return List of channels with matching name
      */
     List<Channel> findByChannelNameIgnoreCase(String channelName);
-    
-    /**
-     * Check if a channel exists by ID
-     * 
-     * @param channelId The channel ID
-     * @return true if channel exists, false otherwise
-     */
-    boolean existsByChannelId(String channelId);
 }

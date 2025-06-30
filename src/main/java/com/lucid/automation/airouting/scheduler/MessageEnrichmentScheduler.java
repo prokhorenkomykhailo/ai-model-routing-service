@@ -10,10 +10,13 @@ import com.lucid.automation.airouting.service.SlidingWindowService;
 import com.lucid.automation.airouting.service.WorkspaceService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.ApplicationContext;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.PostConstruct;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -31,7 +34,7 @@ import java.util.function.Function;
 @Slf4j
 @Component
 @ConditionalOnProperty(value = "ai.enrichment.scheduler.enabled", havingValue = "true", matchIfMissing = true)
-public final class MessageEnrichmentScheduler {
+public final class MessageEnrichmentScheduler implements InitializingBean {
 
     // Configuration constants
     private static final int DEFAULT_BATCH_SIZE = 1000;
@@ -45,6 +48,7 @@ public final class MessageEnrichmentScheduler {
     private final AIMessageProducer aiMessageProducer;
     private final WorkspaceService workspaceService;
     private final SlidingWindowService slidingWindowService;
+    private final ApplicationContext applicationContext;
     private final int batchSize;
     private final String defaultTenantSchema;
 
@@ -55,22 +59,87 @@ public final class MessageEnrichmentScheduler {
             final AIMessageProducer aiMessageProducer,
             final WorkspaceService workspaceService,
             final SlidingWindowService slidingWindowService,
+            final ApplicationContext applicationContext,
             @Value("${ai.enrichment.scheduler.batch-size:" + DEFAULT_BATCH_SIZE + "}") final int batchSize,
             @Value("${ai.enrichment.scheduler.default-tenant-schema:" + DEFAULT_TENANT_SCHEMA + "}") final String defaultTenantSchema) {
+        
+        log.info("=== MessageEnrichmentScheduler Constructor Called ===");
+        log.info("AIMessageProducer: {}", aiMessageProducer != null ? "PRESENT" : "NULL");
+        log.info("WorkspaceService: {}", workspaceService != null ? "PRESENT" : "NULL");
+        log.info("SlidingWindowService: {}", slidingWindowService != null ? "PRESENT" : "NULL");
+        log.info("ApplicationContext: {}", applicationContext != null ? "PRESENT" : "NULL");
+        log.info("Batch Size: {}", batchSize);
+        log.info("Default Tenant Schema: {}", defaultTenantSchema);
         
         this.aiMessageProducer = aiMessageProducer;
         this.workspaceService = workspaceService;
         this.slidingWindowService = slidingWindowService;
+        this.applicationContext = applicationContext;
         this.batchSize = batchSize;
         this.defaultTenantSchema = defaultTenantSchema;
+        
+        log.info("=== MessageEnrichmentScheduler Constructor Completed ===");
     }
 
+    @PostConstruct
+    public void postConstruct() {
+        log.info("=== MessageEnrichmentScheduler @PostConstruct Called ===");
+        
+        // Check if scheduling is enabled globally
+        try {
+            String[] schedulingBeans = applicationContext.getBeanNamesForAnnotation(org.springframework.scheduling.annotation.EnableScheduling.class);
+            log.info("@EnableScheduling beans found: {}", java.util.Arrays.toString(schedulingBeans));
+        } catch (Exception e) {
+            log.warn("Error checking @EnableScheduling beans: {}", e.getMessage());
+        }
+        
+        // Check property values
+        try {
+            org.springframework.core.env.Environment env = applicationContext.getEnvironment();
+            String enabledProperty = env.getProperty("ai.enrichment.scheduler.enabled");
+            String cronProperty = env.getProperty("ai.enrichment.scheduler.cron");
+            
+            log.info("ai.enrichment.scheduler.enabled property: {}", enabledProperty);
+            log.info("ai.enrichment.scheduler.cron property: {}", cronProperty);
+            log.info("AI_ENRICHMENT_ENABLED env var: {}", env.getProperty("AI_ENRICHMENT_ENABLED"));
+            log.info("AI_ENRICHMENT_CRON env var: {}", env.getProperty("AI_ENRICHMENT_CRON"));
+        } catch (Exception e) {
+            log.warn("Error checking environment properties: {}", e.getMessage());
+        }
+        
+        // Check if this bean is being created
+        log.info("MessageEnrichmentScheduler bean successfully created and initialized");
+        log.info("=== MessageEnrichmentScheduler @PostConstruct Completed ===");
+    }
+
+    @Override
+    public void afterPropertiesSet() throws Exception {
+        log.info("=== MessageEnrichmentScheduler afterPropertiesSet Called ===");
+        log.info("All dependencies have been injected successfully");
+        
+        // Schedule a test run in 10 seconds to verify scheduling works
+        log.info("Scheduler will attempt to run every 5 minutes according to cron expression");
+        log.info("Next scheduled execution should occur at the next 5-minute interval");
+        log.info("=== MessageEnrichmentScheduler afterPropertiesSet Completed ===");
+    }
+
+    /**
+     * Simple heartbeat scheduler to verify that scheduling is working at all
+     */
+    @Scheduled(fixedDelay = 60000) // Every 60 seconds
+    public void schedulerHeartbeat() {
+        log.info("=== SCHEDULER HEARTBEAT === Time: {} Thread: {}", 
+                java.time.LocalDateTime.now(), Thread.currentThread().getName());
+    }
 
     /**
      * Scheduled method to process message enrichment for all workspaces.
      */
     @Scheduled(cron = "${ai.enrichment.scheduler.cron:0 */5 * * * ?}")
     public void processMessageEnrichment() {        
+        log.info("=== SCHEDULER EXECUTED ===");
+        log.info("Current time: {}", java.time.LocalDateTime.now());
+        log.info("Thread: {}", Thread.currentThread().getName());
         log.info("Starting scheduled message enrichment process");
         
         try {
@@ -84,10 +153,12 @@ public final class MessageEnrichmentScheduler {
             log.info("Found {} workspaces to process for enrichment", workspaces.size());
             processAllWorkspaces(workspaces);
             log.info("Completed scheduled message enrichment process for {} workspaces", workspaces.size());
-            
+
         } catch (Exception e) {
             log.error("Critical error during scheduled message enrichment process: {}", e.getMessage(), e);
         }
+        
+        log.info("=== SCHEDULER EXECUTION COMPLETED ===");
     }
 
     /**

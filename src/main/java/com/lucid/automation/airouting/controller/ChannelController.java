@@ -63,72 +63,20 @@ public class ChannelController {
         }
     }
     
-    @GetMapping("/by-source/{channelSrc}")
-    @Operation(summary = "Get channels by source", description = "Retrieves channels by their source (slack, email, etc.)")
+    @GetMapping
+    @Operation(summary = "Get all channels", description = "Retrieves all channels")
     @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Channels found"),
-        @ApiResponse(responseCode = "400", description = "Invalid channel source")
+        @ApiResponse(responseCode = "200", description = "Channels retrieved successfully")
     })
-    public ResponseEntity<List<ChannelResponseDTO>> getChannelsBySource(
-            @Parameter(description = "Channel source (slack, email, etc.)") @PathVariable String channelSrc) {
+    public ResponseEntity<List<ChannelResponseDTO>> getAllChannels() {
+        logger.debug("Retrieving all channels");
         
-        logger.debug("Retrieving channels with source: {}", channelSrc);
-        
-        if (channelSrc == null || channelSrc.trim().isEmpty()) {
-            logger.warn("Invalid channel source provided: {}", channelSrc);
-            return ResponseEntity.badRequest().build();
-        }
-        
-        List<Channel> channels = channelService.findByChannelSrc(channelSrc);
+        List<Channel> channels = channelService.findAll();
         List<ChannelResponseDTO> responseDtos = channels.stream()
             .map(this::convertToResponseDTO)
             .toList();
-        return ResponseEntity.ok(responseDtos);
-    }
-    
-    @GetMapping("/by-tenant/{tenantId}")
-    @Operation(summary = "Get channels by tenant", description = "Retrieves channels for a specific tenant")
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Channels found"),
-        @ApiResponse(responseCode = "400", description = "Invalid tenant ID")
-    })
-    public ResponseEntity<List<ChannelResponseDTO>> getChannelsByTenant(
-            @Parameter(description = "Tenant ID") @PathVariable String tenantId) {
         
-        logger.debug("Retrieving channels for tenant: {}", tenantId);
-        
-        if (tenantId == null || tenantId.trim().isEmpty()) {
-            logger.warn("Invalid tenant ID provided: {}", tenantId);
-            return ResponseEntity.badRequest().build();
-        }
-        
-        List<Channel> channels = channelService.findByTenantId(tenantId);
-        List<ChannelResponseDTO> responseDtos = channels.stream()
-            .map(this::convertToResponseDTO)
-            .toList();
-        return ResponseEntity.ok(responseDtos);
-    }
-    
-    @GetMapping("/by-workspace/{workspaceId}")
-    @Operation(summary = "Get channels by workspace", description = "Retrieves channels for a specific workspace")
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Channels found"),
-        @ApiResponse(responseCode = "400", description = "Invalid workspace ID")
-    })
-    public ResponseEntity<List<ChannelResponseDTO>> getChannelsByWorkspace(
-            @Parameter(description = "Workspace ID") @PathVariable String workspaceId) {
-        
-        logger.debug("Retrieving channels for workspace: {}", workspaceId);
-        
-        if (workspaceId == null || workspaceId.trim().isEmpty()) {
-            logger.warn("Invalid workspace ID provided: {}", workspaceId);
-            return ResponseEntity.badRequest().build();
-        }
-        
-        List<Channel> channels = channelService.findByWorkspaceId(workspaceId);
-        List<ChannelResponseDTO> responseDtos = channels.stream()
-            .map(this::convertToResponseDTO)
-            .toList();
+        logger.info("Retrieved {} channels", responseDtos.size());
         return ResponseEntity.ok(responseDtos);
     }
     
@@ -190,26 +138,6 @@ public class ChannelController {
             logger.error("Failed to delete channel {}: {}", channelId, e.getMessage());
             return ResponseEntity.internalServerError().build();
         }
-    }
-    
-    @GetMapping("/{channelId}/exists")
-    @Operation(summary = "Check if channel exists", description = "Checks if a channel exists by its ID")
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Check completed"),
-        @ApiResponse(responseCode = "400", description = "Invalid channel ID")
-    })
-    public ResponseEntity<Boolean> channelExists(
-            @Parameter(description = "Channel ID") @PathVariable String channelId) {
-        
-        logger.debug("Checking if channel exists: {}", channelId);
-        
-        if (channelId == null || channelId.trim().isEmpty()) {
-            logger.warn("Invalid channel ID provided: {}", channelId);
-            return ResponseEntity.badRequest().build();
-        }
-        
-        boolean exists = channelService.channelExists(channelId);
-        return ResponseEntity.ok(exists);
     }
     
     /**

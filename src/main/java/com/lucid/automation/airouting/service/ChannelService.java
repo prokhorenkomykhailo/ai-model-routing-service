@@ -72,84 +72,21 @@ public class ChannelService {
     }
     
     /**
-     * Find channels by source
+     * Find all channels
      * 
-     * @param channelSrc The channel source (slack, email, etc.)
-     * @return List of channels from the source
+     * @return List of all channels
      */
-    public List<Channel> findByChannelSrc(String channelSrc) {
-        if (channelSrc == null || channelSrc.trim().isEmpty()) {
-            logger.warn("⚠️ Cannot find channels with null or empty source");
-            return List.of();
-        }
-        
+    public List<Channel> findAll() {
         try {
-            return channelRepository.findByChannelSrc(channelSrc.trim().toLowerCase());
+            List<Channel> channels = (List<Channel>) channelRepository.findAll();
+            logger.debug("Found {} channels", channels.size());
+            return channels;
         } catch (Exception e) {
-            logger.error("❌ Failed to find channels by source {}: {}", channelSrc, e.getMessage());
+            logger.error("❌ Failed to find all channels: {}", e.getMessage());
             return List.of();
         }
     }
-    
-    /**
-     * Find channels by tenant ID
-     * 
-     * @param tenantId The tenant ID
-     * @return List of channels for the tenant
-     */
-    public List<Channel> findByTenantId(String tenantId) {
-        if (tenantId == null || tenantId.trim().isEmpty()) {
-            logger.warn("⚠️ Cannot find channels with null or empty tenant ID");
-            return List.of();
-        }
-        
-        try {
-            return channelRepository.findByTenantId(tenantId.trim());
-        } catch (Exception e) {
-            logger.error("❌ Failed to find channels by tenant {}: {}", tenantId, e.getMessage());
-            return List.of();
-        }
-    }
-    
-    /**
-     * Find channels by workspace ID
-     * 
-     * @param workspaceId The workspace ID
-     * @return List of channels in the workspace
-     */
-    public List<Channel> findByWorkspaceId(String workspaceId) {
-        if (workspaceId == null || workspaceId.trim().isEmpty()) {
-            logger.warn("⚠️ Cannot find channels with null or empty workspace ID");
-            return List.of();
-        }
-        
-        try {
-            return channelRepository.findByWorkspaceId(workspaceId.trim());
-        } catch (Exception e) {
-            logger.error("❌ Failed to find channels by workspace {}: {}", workspaceId, e.getMessage());
-            return List.of();
-        }
-    }
-    
-    /**
-     * Check if channel exists
-     * 
-     * @param channelId The channel ID
-     * @return true if channel exists
-     */
-    public boolean channelExists(String channelId) {
-        if (channelId == null || channelId.trim().isEmpty()) {
-            return false;
-        }
-        
-        try {
-            return channelRepository.existsByChannelId(channelId.trim());
-        } catch (Exception e) {
-            logger.error("❌ Failed to check if channel exists {}: {}", channelId, e.getMessage());
-            return false;
-        }
-    }
-    
+
     /**
      * Create or update channel from ingestion event
      * 
