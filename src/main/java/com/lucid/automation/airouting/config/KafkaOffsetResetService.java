@@ -75,72 +75,77 @@ public class KafkaOffsetResetService {
      * Reset offsets for the ai-enrich topic to ensure processing from beginning
      */
     private void resetAiEnrichTopicOffsets() {
-        // TODO: randomly generated consumer group name to reset offsets
-        // this ensures that ai-enrich topic is always read from the beginning
-        // on every application startup
-        // this is useful for debugging and testing purposes
-        // in production, this should be set to false to avoid data loss
-        // and ensure that ai-enrich topic is processed normally
-        // by the main consumer group
-        // ai-enrich topic is used for enriching conversations with AI
-
-        String randomSufix = String.valueOf(System.currentTimeMillis() % 1000);
-        String aiEnrichConsumerGroup = groupId + "-ai-enrich" + randomSufix;
-        // String aiEnrichConsumerGroup = groupId + "-ai-enrich";
+        String aiEnrichConsumerGroup = groupId + "-ai-enrich";
+        logger.info("Attempting to reset offsets for consumer group: {} on topic: {}", 
+                   aiEnrichConsumerGroup, aiEnrichTopic);
         
-        try {
-            logger.info("Attempting to reset offsets for consumer group: {} on topic: {}", 
-                       aiEnrichConsumerGroup, aiEnrichTopic);
-            
-            // Create admin client properties
-            Properties adminProps = createAdminProperties();
-            
-            try (AdminClient adminClient = AdminClient.create(adminProps)) {
-                
-                // Check if consumer group exists and has committed offsets
-                try {
-                    Map<String, ConsumerGroupDescription> groups = adminClient
-                        .describeConsumerGroups(Collections.singletonList(aiEnrichConsumerGroup))
-                        .all()
-                        .get();
-                    
-                    if (groups.containsKey(aiEnrichConsumerGroup)) {
-                        logger.info("Consumer group {} exists - will attempt to reset offsets", aiEnrichConsumerGroup);
-                        
-                        // Delete the consumer group to force offset reset
-                        DeleteConsumerGroupsResult deleteResult = adminClient
-                            .deleteConsumerGroups(Collections.singletonList(aiEnrichConsumerGroup));
-                        
-                        deleteResult.all().get(); // Wait for completion
-                        logger.info("Successfully deleted consumer group: {}", aiEnrichConsumerGroup);
-                        logger.info("Next consumer startup will read ai-enrich topic from the beginning");
-                        
-                    } else {
-                        logger.info("Consumer group {} does not exist - ai-enrich will be read from beginning on first startup", 
-                                   aiEnrichConsumerGroup);
-                    }
-                    
-                } catch (ExecutionException e) {
-                    if (e.getCause() instanceof org.apache.kafka.common.errors.GroupIdNotFoundException) {
-                        logger.info("Consumer group {} not found - ai-enrich will be read from beginning", aiEnrichConsumerGroup);
-                    } else {
-                        logger.warn("Error checking/resetting consumer group {}: {}", aiEnrichConsumerGroup, e.getMessage());
-                    }
-                }
-            }
-            
-            // Additional verification - log the configuration
-            logger.info("=== AI-ENRICH PROCESSING GUARANTEE ===");
-            logger.info("Topic: {}", aiEnrichTopic);
-            logger.info("Consumer Group: {}", aiEnrichConsumerGroup);
-            logger.info("Auto Offset Reset: earliest");
-            logger.info("Processing guarantee: ai-enrich messages will be processed from the beginning");
-            logger.info("=====================================");
-            
+        Properties adminProps = createAdminProperties();
+        
+        try (AdminClient adminClient = AdminClient.create(adminProps)) {
+            resetConsumerGroupOffsets(adminClient, aiEnrichConsumerGroup);
         } catch (Exception e) {
             logger.error("Failed to reset offsets for ai-enrich topic", e);
             logger.warn("ai-enrich topic will still be processed with auto-offset-reset=earliest configuration");
         }
+        
+        logProcessingGuarantee(aiEnrichTopic, aiEnrichConsumerGroup, "ai-enrich messages");
+    }
+    
+    /**
+     * Reset offsets for a specific consumer group
+     */
+    private void resetConsumerGroupOffsets(AdminClient adminClient, String consumerGroup) throws ExecutionException, InterruptedException {
+        try {
+            Map<String, ConsumerGroupDescription> groups = adminClient
+                .describeConsumerGroups(Collections.singletonList(consumerGroup))
+                .all()
+                .get();
+            
+            if (groups.containsKey(consumerGroup)) {
+                logger.info("Consumer group {} exists - will attempt to reset offsets", consumerGroup);
+                deleteConsumerGroup(adminClient, consumerGroup);
+            } else {
+                logger.info("Consumer group {} does not exist - will be read from beginning on first startup", consumerGroup);
+            }
+            
+        } catch (ExecutionException e) {
+            handleConsumerGroupException(e, consumerGroup);
+        }
+    }
+    
+    /**
+     * Delete a consumer group to force offset reset
+     */
+    private void deleteConsumerGroup(AdminClient adminClient, String consumerGroup) throws ExecutionException, InterruptedException {
+        DeleteConsumerGroupsResult deleteResult = adminClient
+            .deleteConsumerGroups(Collections.singletonList(consumerGroup));
+        
+        deleteResult.all().get(); // Wait for completion
+        logger.info("Successfully deleted consumer group: {}", consumerGroup);
+        logger.info("Next consumer startup will read topic from the beginning");
+    }
+    
+    /**
+     * Handle exceptions when checking consumer groups
+     */
+    private void handleConsumerGroupException(ExecutionException e, String consumerGroup) {
+        if (e.getCause() instanceof org.apache.kafka.common.errors.GroupIdNotFoundException) {
+            logger.info("Consumer group {} not found - will be read from beginning", consumerGroup);
+        } else {
+            logger.warn("Error checking/resetting consumer group {}: {}", consumerGroup, e.getMessage());
+        }
+    }
+    
+    /**
+     * Log processing guarantee information
+     */
+    private void logProcessingGuarantee(String topic, String consumerGroup, String messageType) {
+        logger.info("=== AI-ENRICH PROCESSING GUARANTEE ===");
+        logger.info("Topic: {}", topic);
+        logger.info("Consumer Group: {}", consumerGroup);
+        logger.info("Auto Offset Reset: earliest");
+        logger.info("Processing guarantee: {} will be processed from the beginning", messageType);
+        logger.info("=====================================");
     }
     
     /**
@@ -148,59 +153,31 @@ public class KafkaOffsetResetService {
      */
     private void resetIngestionMessagesOffsets() {
         String mainConsumerGroup = groupId;
+        logger.info("Attempting to reset offsets for MAIN consumer group: {} on topic: {}", 
+                   mainConsumerGroup, ingestionMessagesTopic);
         
-        try {
-            logger.info("Attempting to reset offsets for MAIN consumer group: {} on topic: {}", 
-                       mainConsumerGroup, ingestionMessagesTopic);
-            
-            // Create admin client properties
-            Properties adminProps = createAdminProperties();
-            
-            try (AdminClient adminClient = AdminClient.create(adminProps)) {
-                
-                // Check if consumer group exists and has committed offsets
-                try {
-                    Map<String, ConsumerGroupDescription> groups = adminClient
-                        .describeConsumerGroups(Collections.singletonList(mainConsumerGroup))
-                        .all()
-                        .get();
-                    
-                    if (groups.containsKey(mainConsumerGroup)) {
-                        logger.info("Main consumer group {} exists - will attempt to reset offsets", mainConsumerGroup);
-                        
-                        // Delete the consumer group to force offset reset
-                        DeleteConsumerGroupsResult deleteResult = adminClient
-                            .deleteConsumerGroups(Collections.singletonList(mainConsumerGroup));
-                        
-                        deleteResult.all().get(); // Wait for completion
-                        logger.info("Successfully deleted MAIN consumer group: {}", mainConsumerGroup);
-                        logger.info("Next consumer startup will read ingestion-messages topic from the BEGINNING");
-                        
-                    } else {
-                        logger.info("Main consumer group {} does not exist - ingestion-messages will be read from beginning on first startup", 
-                                   mainConsumerGroup);
-                    }
-                    
-                } catch (ExecutionException e) {
-                    if (e.getCause() instanceof org.apache.kafka.common.errors.GroupIdNotFoundException) {
-                        logger.info("Main consumer group {} not found - ingestion-messages will be read from beginning", mainConsumerGroup);
-                    } else {
-                        logger.warn("Error checking/resetting main consumer group {}: {}", mainConsumerGroup, e.getMessage());
-                    }
-                }
-            }
-            
-            logger.info("=== INGESTION-MESSAGES PROCESSING GUARANTEE ===");
-            logger.info("Topic: {}", ingestionMessagesTopic);
-            logger.info("Consumer Group: {}", mainConsumerGroup);
-            logger.info("Auto Offset Reset: earliest");
-            logger.info("Processing guarantee: ALL ingestion messages will be processed from the beginning");
-            logger.info("===============================================");
-            
+        Properties adminProps = createAdminProperties();
+        
+        try (AdminClient adminClient = AdminClient.create(adminProps)) {
+            resetConsumerGroupOffsets(adminClient, mainConsumerGroup);
         } catch (Exception e) {
             logger.error("Failed to reset offsets for ingestion-messages topic", e);
             logger.warn("ingestion-messages topic will still be processed with auto-offset-reset=earliest configuration");
         }
+        
+        logIngestionProcessingGuarantee(ingestionMessagesTopic, mainConsumerGroup);
+    }
+    
+    /**
+     * Log processing guarantee information for ingestion messages
+     */
+    private void logIngestionProcessingGuarantee(String topic, String consumerGroup) {
+        logger.info("=== INGESTION-MESSAGES PROCESSING GUARANTEE ===");
+        logger.info("Topic: {}", topic);
+        logger.info("Consumer Group: {}", consumerGroup);
+        logger.info("Auto Offset Reset: earliest");
+        logger.info("Processing guarantee: ALL ingestion messages will be processed from the beginning");
+        logger.info("===============================================");
     }
     
     /**

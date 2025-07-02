@@ -48,7 +48,7 @@ public class KafkaErrorHandlingConfig {
         Map<String, Object> configProps = new HashMap<>();
         configProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         configProps.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
-        configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
         configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         
         // Add security configuration if needed
@@ -86,7 +86,7 @@ public class KafkaErrorHandlingConfig {
         Map<String, Object> configProps = new HashMap<>();
         configProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         configProps.put(ConsumerConfig.GROUP_ID_CONFIG, groupId + "-ai-enrich");
-        configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
         configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         
         // FORCE ALWAYS START FROM BEGINNING - Set max poll interval to very high value
@@ -97,8 +97,8 @@ public class KafkaErrorHandlingConfig {
         
         logger.info("=== AI-ENRICH CONSUMER CONFIG ===");
         logger.info("Using group ID: {}", groupId + "-ai-enrich");
-        logger.info("AUTO_OFFSET_RESET: earliest");
-        logger.info("This ensures ai-enrich topic is processed from the beginning when no committed offsets exist");
+        logger.info("AUTO_OFFSET_RESET: latest");
+        logger.info("This ensures ai-enrich topic is processed from the latest offset when no committed offsets exist");
         logger.info("================================");
         
         // Add security configuration if needed

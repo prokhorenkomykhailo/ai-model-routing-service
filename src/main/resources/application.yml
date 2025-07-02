@@ -35,7 +35,7 @@ spring:
       group-id: ${SPRING_KAFKA_CONSUMER_GROUP_ID:ai-service-group}
       key-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
-      auto-offset-reset: earliest
+      auto-offset-reset: latest
       enable-auto-commit: false
       properties:
         "spring.json.trusted.packages": "*"
