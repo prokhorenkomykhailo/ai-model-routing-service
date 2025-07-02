@@ -321,12 +321,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         setMessageCoreFields(slackMessage, message);
         setMessageUserFields(slackMessage, message);
         setMessageMetadata(slackMessage, message);
-        setMessageTimestamp(slackMessage, message);
-        
-        log.debug("Successfully mapped message {} with user profile: username={}, displayName={}, email={}, title={}", 
-                 message.getId(), message.getUsername(), message.getDisplayName(), 
-                 message.getEmail(), message.getTitle());
-        
+        setMessageTimestamp(slackMessage, message);        
         return slackMessage;
     }
 
@@ -441,10 +436,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
             final long epochSeconds = Long.parseLong(timestampParts[TIMESTAMP_EPOCH_INDEX]);
             
             final var timestamp = LocalDateTime.ofEpochSecond(epochSeconds, 0, ZoneOffset.UTC);
-            slackMessage.setTimestamp(timestamp);
-            
-            log.debug("Successfully parsed timestamp {} for message {}", messageTs, message.getId());
-            
+            slackMessage.setTimestamp(timestamp);            
         } catch (NumberFormatException e) {
             log.warn("Invalid timestamp format for message {}: '{}' - {}", 
                 message.getId(), messageTs, e.getMessage());
@@ -475,11 +467,6 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         if (!participantExists) {
             final var participant = createParticipantFromMessage(message);
             participants.add(participant);
-            
-            log.debug("Added new participant: {} (ID: {}, email: {}, title: {})", 
-                     message.getUsername(), userId, message.getEmail(), message.getTitle());
-        } else {
-            log.debug("Participant {} already exists, skipping addition", userId);
         }
     }
 

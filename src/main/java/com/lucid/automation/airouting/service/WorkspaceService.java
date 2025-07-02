@@ -25,9 +25,11 @@ public class WorkspaceService {
     private static final Logger logger = LoggerFactory.getLogger(WorkspaceService.class);
     
     private final WorkspaceRepository workspaceRepository;
+    private final SlidingWindowService slidingWindowService;
     
-    public WorkspaceService(WorkspaceRepository workspaceRepository) {
+    public WorkspaceService(WorkspaceRepository workspaceRepository, SlidingWindowService slidingWindowService) {
         this.workspaceRepository = workspaceRepository;
+        this.slidingWindowService = slidingWindowService;
     }
     
     /**
@@ -187,8 +189,48 @@ public class WorkspaceService {
         }
     }
 
+    /**
+     * Delete a workspace by ID along with all its associated messages
+     * 
+     * @param id The workspace ID to delete
+     * @return true if the workspace was found and deleted, false if not found
+     */
     public boolean deleteWorkspaceById(String id) {
-        workspaceRepository.deleteById(id);
-        return true;
+        if (id == null || id.trim().isEmpty()) {
+            logger.warn("Cannot delete workspace: ID is null or empty");
+            return false;
+        }
+        
+        try {
+            // Check if workspace exists
+            Optional<Workspace> workspaceOpt = workspaceRepository.findById(id);
+            if (workspaceOpt.isEmpty()) {
+                logger.warn("Workspace with ID {} not found", id);
+                return false;
+            }
+            
+            Workspace workspace = workspaceOpt.get();
+            String deemergeUserId = workspace.getDeemergeUserId();
+            
+            logger.info("Deleting workspace {} (ID: {}) and all associated messages", workspace.getName(), id);
+            
+            // Clean up all messages associated with this workspace
+            if (deemergeUserId != null && !deemergeUserId.trim().isEmpty()) {
+                int deletedMessages = slidingWindowService.cleanupWorkspace(deemergeUserId, 0);
+                logger.info("Deleted {} messages for workspace {}", deletedMessages, id);
+            } else {
+                logger.warn("Workspace {} has no deemergeUserId, skipping message cleanup", id);
+            }
+            
+            // Delete the workspace itself
+            workspaceRepository.deleteById(id);
+            
+            logger.info("Successfully deleted workspace {} (ID: {})", workspace.getName(), id);
+            return true;
+            
+        } catch (Exception e) {
+            logger.error("Error deleting workspace with ID: {}", id, e);
+            return false;
+        }
     }
 }

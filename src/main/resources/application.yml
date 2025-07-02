@@ -178,9 +178,9 @@ sliding:
   window:
     default:
       batch:
-        size: ${SLIDING_WINDOW_BATCH_SIZE:1000}
+        size: ${SLIDING_WINDOW_BATCH_SIZE:50}
       overlap:
         percentage: ${SLIDING_WINDOW_OVERLAP_PERCENTAGE:20}
     cleanup:
-      enabled: ${SLIDING_WINDOW_CLEANUP_ENABLED:true}
+      enabled: true
 

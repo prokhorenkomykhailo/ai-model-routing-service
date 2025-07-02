@@ -4,18 +4,15 @@ import com.lucid.automation.airouting.dto.WorkspaceStats;
 import com.lucid.automation.airouting.model.Workspace;
 import com.lucid.automation.airouting.service.WorkspaceService;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * REST Controller for workspace management
@@ -59,9 +56,12 @@ public class WorkspaceController {
      * Delete a workspace by ID
      */
     @DeleteMapping("/{id}")
-    @Operation(summary = "Delete workspace by ID", description = "Deletes a workspace by its ID")
-    @ApiResponse(responseCode = "204", description = "Workspace deleted successfully")
-    @ApiResponse(responseCode = "404", description = "Workspace not found")
+    @Operation(summary = "Delete workspace by ID", description = "Deletes a workspace and all its messages by its ID")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "204", description = "Workspace deleted successfully"),
+        @ApiResponse(responseCode = "404", description = "Workspace not found"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     public ResponseEntity<Void> deleteWorkspaceById(@PathVariable String id) {
         logger.info("Deleting workspace with ID: {}", id);
         try {

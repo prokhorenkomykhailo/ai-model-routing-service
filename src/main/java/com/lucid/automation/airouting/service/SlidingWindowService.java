@@ -30,14 +30,11 @@ public class SlidingWindowService {
     private final MessageRepository messageRepository;
     private final UserRepository userRepository;
     
-    @Value("${sliding.window.default.batch.size:1000}")
+    @Value("${sliding.window.default.batch.size:50}")
     private int defaultBatchSize;
     
     @Value("${sliding.window.default.overlap.percentage:20}")
     private int defaultOverlapPercentage;
-    
-    @Value("${sliding.window.cleanup.enabled:true}")
-    private boolean cleanupEnabled;
     
     public SlidingWindowService(MessageRepository messageRepository, UserRepository userRepository) {
         this.messageRepository = messageRepository;
@@ -47,7 +44,7 @@ public class SlidingWindowService {
     /**
      * Process messages for a workspace using sliding window approach.
      * Messages are loaded from Redis, sorted chronologically, and processed in batches with overlap.
-     * After processing, deletes all processed messages and keeps only the latest N messages (where N = overlap size).
+     * After processing, always deletes all processed messages and keeps only the latest N messages (where N = overlap size).
      * 
      * @param workspace The workspace ID to process messages for
      * @param maxMessage Maximum number of messages to process per batch
@@ -75,8 +72,6 @@ public class SlidingWindowService {
         
         try {            
             // Load all messages for the workspace
-            String teamId = workspace.getTeamId();
-            String tenantId = workspace.getTenantId();
             String deemergeUserId = workspace.getDeemergeUserId();
             List<Message> allMessages = loadMessagesForWorkspace(deemergeUserId);
             
@@ -93,9 +88,9 @@ public class SlidingWindowService {
             allMessages.sort(Comparator.comparing(Message::getMessageTs));
             
             
-            // Calculate overlap size, minimum of 200 messages or 20% of maxMessage
+            // Calculate overlap size, minimum of 10 messages or 20% of maxMessage
             int overlapSize = (maxMessage * overlaping) / 100;
-            overlapSize = Math.max(overlapSize, 200);
+            overlapSize = Math.max(overlapSize, 10);
             
             logger.debug("Processing with batchSize: {}, overlapSize: {}", maxMessage, overlapSize);
             
@@ -203,12 +198,12 @@ public class SlidingWindowService {
 
     /**
      * Process messages in batches with sliding window overlap.
-     * After processing all batches, deletes all processed messages from Redis and keeps only the latest N messages
-     * where N = overlapSize.
+     * After processing each batch, immediately deletes the processed messages from Redis, 
+     * keeping only the overlap messages for the next batch.
      * 
      * @param allMessages All messages to process
      * @param batchSize Size of each batch
-     * @param overlapSize Number of latest messages to keep after processing
+     * @param overlapSize Number of latest messages to keep after processing each batch
      * @param callbackFunction Function to process each batch
      * @return Total number of messages processed
      */
@@ -222,7 +217,6 @@ public class SlidingWindowService {
         int totalProcessed = 0;
         int batchNumber = 1;
         int startIndex = 0;
-        boolean allBatchesSuccessful = true;
         
         while (startIndex < allMessages.size()) {
             // Calculate end index for current batch
@@ -243,10 +237,12 @@ public class SlidingWindowService {
                 logger.debug("Successfully processed batch {} with {} messages", 
                            batchNumber, currentBatch.size());
                 
+                // Immediately clean up this batch after successful processing
+                cleanupBatchMessages(currentBatch, overlapSize, batchNumber);
+                
             } catch (Exception e) {
                 logger.error("Error processing batch {} for messages [{}-{}]", 
                            batchNumber, startIndex, endIndex - 1, e);
-                allBatchesSuccessful = false;
                 // Continue processing other batches even if one fails
             }
             
@@ -267,48 +263,43 @@ public class SlidingWindowService {
             batchNumber++;
         }
         
-        // After processing all batches successfully, clean up database if cleanup is enabled
-        if (cleanupEnabled && allBatchesSuccessful && totalProcessed > 0) {
-            cleanupProcessedMessages(allMessages, overlapSize);
-        }
-        
         logger.info("Completed sliding window processing: {} batches, {} total messages processed", 
                    batchNumber - 1, totalProcessed);
         
         return totalProcessed;
     }
     
-    
     /**
-     * Clean up processed messages from Redis database, keeping only the latest N messages.
-     * This method deletes all processed messages except for the most recent ones based on overlapSize.
+     * Clean up messages from a processed batch, keeping only the overlap messages.
+     * This method deletes messages that are not part of the overlap for the next batch.
      * 
-     * @param allMessages All messages that were processed
-     * @param overlapSize Number of latest messages to keep in Redis
+     * @param batchMessages The messages from the processed batch
+     * @param overlapSize Number of latest messages to keep for overlap
+     * @param batchNumber The batch number being processed (for logging)
      */
-    private void cleanupProcessedMessages(List<Message> allMessages, int overlapSize) {
-        if (allMessages == null || allMessages.isEmpty()) {
-            logger.debug("No messages to cleanup");
+    private void cleanupBatchMessages(List<Message> batchMessages, int overlapSize, int batchNumber) {
+        if (batchMessages == null || batchMessages.isEmpty()) {
+            logger.debug("No messages to cleanup for batch {}", batchNumber);
             return;
         }
         
         try {
-            // Sort messages by timestamp (newest first) to identify latest messages to keep
-            List<Message> sortedMessages = allMessages.stream()
+            // Sort messages by timestamp (newest first) to identify latest messages to keep for overlap
+            List<Message> sortedMessages = batchMessages.stream()
                     .sorted(Comparator.comparing(Message::getMessageTs).reversed())
                     .collect(Collectors.toList());
             
-            // Determine how many messages to delete
+            // Determine how many messages to delete from this batch
             int messagesToKeep = Math.min(overlapSize, sortedMessages.size());
             int messagesToDelete = sortedMessages.size() - messagesToKeep;
             
             if (messagesToDelete <= 0) {
-                logger.info("No messages to delete. Total: {}, Keeping: {}", 
-                           sortedMessages.size(), messagesToKeep);
+                logger.debug("Batch {}: No messages to delete. Total: {}, Keeping: {} for overlap", 
+                           batchNumber, sortedMessages.size(), messagesToKeep);
                 return;
             }
             
-            // Get the messages to delete (all except the latest N)
+            // Get the messages to delete (all except the latest N for overlap)
             List<Message> messagesForDeletion = sortedMessages.subList(messagesToKeep, sortedMessages.size());
             
             // Extract IDs for batch deletion
@@ -319,16 +310,11 @@ public class SlidingWindowService {
             // Delete messages from Redis
             messageRepository.deleteAllById(messageIds);
             
-            logger.info("Successfully cleaned up {} processed messages, keeping {} latest messages in Redis", 
-                       messagesToDelete, messagesToKeep);
-            
-            if (logger.isDebugEnabled()) {
-                logger.debug("Deleted {} message IDs, kept {} latest messages", 
-                           messageIds.size(), messagesToKeep);
-            }
+            logger.debug("Batch {}: Cleaned up {} processed messages, keeping {} for overlap", 
+                       batchNumber, messagesToDelete, messagesToKeep);
             
         } catch (Exception e) {
-            logger.error("Error cleaning up processed messages from Redis: {}", e.getMessage(), e);
+            logger.error("Error cleaning up batch {} messages: {}", batchNumber, e.getMessage(), e);
             // Don't throw exception - let processing continue even if cleanup fails
         }
     }
