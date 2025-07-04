@@ -2,15 +2,7 @@ package com.lucid.automation.airouting.provider.impl;
 
 import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.model.SlackMessage;
-import com.lucid.automation.airouting.model.SlackParticipant;
 import com.lucid.automation.airouting.model.message.AIMessage;
-import com.lucid.automation.airouting.dto.CategoryResult;
-import com.lucid.automation.airouting.dto.SummaryResult;
-import com.lucid.automation.airouting.dto.SentimentResult;
-import com.lucid.automation.airouting.dto.UrgencyLevel;
-import com.lucid.automation.airouting.dto.MessageEnrichment;
-import com.lucid.automation.airouting.dto.ParticipantInsight;
-import com.lucid.automation.airouting.service.UserService;
 import com.lucid.automation.airouting.util.PromptLoader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.genai.Client;
@@ -29,7 +21,6 @@ import java.util.stream.Collectors;
 public class GeminiProvider implements AIProvider {
     
     private static final Logger logger = LoggerFactory.getLogger(GeminiProvider.class);
-    private static final String UNCATEGORIZED = "Uncategorized";
     private static final String MESSAGE_PLACEHOLDER = "##messages##";
     
     @Value("${ai.providers.gemini.api-key:}")
@@ -55,7 +46,7 @@ public class GeminiProvider implements AIProvider {
     private final boolean isClientAvailable;
     
     public GeminiProvider(ObjectMapper objectMapper, 
-                         PromptLoader promptLoader, UserService userService) {
+                         PromptLoader promptLoader) {
         this.objectMapper = objectMapper;
         this.promptLoader = promptLoader;
         // Try to initialize the client, but handle gracefully if API key is not available
@@ -78,16 +69,6 @@ public class GeminiProvider implements AIProvider {
         
         this.geminiClient = tempClient;
         this.isClientAvailable = clientAvailable;
-    }
-    
-    @Override
-    public CategoryResult categorize(String content) {
-        return new CategoryResult(UNCATEGORIZED, 0.0);
-    }
-    
-    @Override
-    public SummaryResult summarize(String content) {
-        return new SummaryResult("Summary unavailable", "No content provided");
     }
     
     @Override
@@ -149,36 +130,6 @@ public class GeminiProvider implements AIProvider {
                 "request", messages
             );
         }
-    }
-    
-    @Override
-    public MessageEnrichment enrichMessage(String content, Map<String, Object> context) {
-        return new MessageEnrichment("General", 0.0, "Unknown", List.of(), 0.0);
-    }
-    
-    @Override
-    public ParticipantInsight analyzeParticipant(SlackParticipant participant, List<SlackMessage> messages) {
-        return new ParticipantInsight(0.0, "Neutral", 0);
-    }
-    
-    @Override
-    public UrgencyLevel assessUrgency(List<SlackMessage> messages) {
-        return UrgencyLevel.LOW;
-    }
-    
-    @Override
-    public String generateTopic(List<SlackMessage> messages) {
-        return "General Discussion";
-    }
-    
-    @Override
-    public List<String> extractEntities(String content) {
-        return List.of();
-    }
-    
-    @Override
-    public SentimentResult analyzeSentiment(String content) {
-        return new SentimentResult("Neutral", 0.0, 0.0);
     }
     
     @Override
