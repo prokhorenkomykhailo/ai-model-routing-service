@@ -6,6 +6,7 @@ import com.lucid.automation.airouting.model.message.AIMessage;
 import com.lucid.automation.airouting.util.PromptLoader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.genai.Client;
+import com.google.genai.types.CountTokensResponse;
 import com.google.genai.types.GenerateContentResponse;
 
 import org.slf4j.Logger;
@@ -18,7 +19,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 @Component("geminiProvider")
-public class GeminiProvider implements AIProvider {
+public class GeminiProvider extends AIProvider {
     
     private static final Logger logger = LoggerFactory.getLogger(GeminiProvider.class);
     private static final String MESSAGE_PLACEHOLDER = "##messages##";
@@ -77,11 +78,26 @@ public class GeminiProvider implements AIProvider {
         logger.info("GEMINI-ENRICH [{}]: Starting conversation enrichment", debugId);
         List<SlackMessage> messages = request.getMessages();
         Map<String, Object> context = request.getContext();
-        String deemergeUserName = (String)context.get("deemergeUserName");
+        
+        // Extract user and tenant information from context
+        String deemergeUserName = (String) context.get("deemergeUserName");
+        String userId = (String) context.get("userId");
+        String tenantId = (String) context.get("tenantId");
+        
+        // Use default values if not provided
+        if (userId == null || userId.trim().isEmpty()) {
+            userId = "unknown";
+        }
+        if (tenantId == null || tenantId.trim().isEmpty()) {
+            tenantId = "unknown";
+        }
         if (deemergeUserName == null || deemergeUserName.trim().isEmpty()) {
             deemergeUserName = "Unknown";
         }
-        logger.info("[X] GEMINI-ENRICH [{}]: Using deemerge user name: {}", debugId, context);
+        
+        logger.info("[X] GEMINI-ENRICH [{}]: Using userId: {}, tenantId: {}, deemergeUserName: {}", 
+                   debugId, userId, tenantId, deemergeUserName);
+        
         try {
             // Input validation
             if (messages == null || messages.isEmpty()) {
@@ -106,7 +122,7 @@ public class GeminiProvider implements AIProvider {
             String conversationText = formatConversationForAnalysis(messages);
             String prompt = buildConversationEnrichmentPrompt(conversationText, deemergeUserName);
             System.out.println("GEMINI-ENRICH [" + debugId + "]: Built conversation enrichment prompt: \n" + prompt);
-            String response = callGeminiAPI(prompt, "conversation-enrichment", debugId);
+            String response = callGeminiAPI(prompt, "conversation-enrichment", debugId, userId, tenantId);
             return Map.of(
                 "response", response,
                 "request", messages
@@ -148,7 +164,7 @@ public class GeminiProvider implements AIProvider {
     }
     
     // Private helper methods
-    private String callGeminiAPI(String prompt, String operation, String debugId) {
+    private String callGeminiAPI(String prompt, String operation, String debugId, String userId, String tenantId) {
         try {
             if (geminiClient == null) {
                 logger.error("GEMINI-API [{}]: Client is not available - API key not configured", debugId);
@@ -156,26 +172,59 @@ public class GeminiProvider implements AIProvider {
             }
 
             long startTime = System.currentTimeMillis();
-            GenerateContentResponse response = geminiClient.models.generateContent(
-                model, 
-                prompt, 
-                null
-            );
+            
+            // Count input tokens
+            CountTokensResponse inputTokenInfo = geminiClient.models.countTokens(model, prompt, null);
+            int inputTokens = inputTokenInfo.totalTokens().orElse(0);
+            
+            // Generate response
+            GenerateContentResponse response = geminiClient.models.generateContent(model, prompt, null);
+            String outputText = response.text();
+            
+            // Count output tokens
+            CountTokensResponse outputTokenInfo = geminiClient.models.countTokens(model, outputText, null);
+            int outputTokens = outputTokenInfo.totalTokens().orElse(0);
             
             long duration = System.currentTimeMillis() - startTime;
-            String responseText = response.text();
-            logger.info("GEMINI-API [{}]: {} operation completed in {}ms, response: \n\n: {}", debugId, operation, duration, responseText);
-            if (responseText == null || responseText.trim().isEmpty()) {
+            
+            // Track token consumption with actual token counts
+            trackTokenUsage(operation, inputTokens, outputTokens, userId, tenantId);
+            
+            logger.info("GEMINI-API [{}]: {} operation completed in {}ms, Input tokens: {}, Output tokens: {}, response: \n\n: {}", 
+                       debugId, operation, duration, inputTokens, outputTokens, outputText);
+            
+            if (outputText == null || outputText.trim().isEmpty()) {
                 logger.warn("GEMINI-API [{}]: Received empty or null response from Gemini API", debugId);
                 throw new RuntimeException("Received empty response from Gemini API");
             }
-            return responseText;            
+            return outputText;            
         } catch (Exception e) {
             logger.error("GEMINI-API [{}]: Error calling Gemini API for {} operation: {}", debugId, operation, e.getMessage(), e);
             throw new RuntimeException("Failed to call Gemini API: " + e.getMessage(), e);
         }
     }
-
+    
+    private void trackTokenUsage(String operation, int inputTokens, int outputTokens, String userId, String tenantId) {
+        try {
+            int totalTokens = inputTokens + outputTokens;
+            
+            // Create metadata
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("model", model);
+            metadata.put("operation", operation);
+            metadata.put("actualTokens", true); // Flag to indicate tokens are actual, not estimated
+            
+            // Send token consumption data with userId and tenantId
+            sendTokenConsumption(operation, userId, tenantId, inputTokens, outputTokens, totalTokens, null, metadata);
+            
+            logger.info("Token usage tracked: operation={}, userId={}, tenantId={}, inputTokens={}, outputTokens={}, totalTokens={}", 
+                       operation, userId, tenantId, inputTokens, outputTokens, totalTokens);
+            
+        } catch (Exception e) {
+            logger.warn("Failed to track token usage for operation {}: {}", operation, e.getMessage());
+        }
+    }
+    
     private String buildConversationEnrichmentPrompt(String conversationText, String deemergeUserName) {
         String template = promptLoader.loadPromptTemplate("conversation-enrichment");
         String formattedPrompt = template.replace("{{current_user}}", deemergeUserName);
