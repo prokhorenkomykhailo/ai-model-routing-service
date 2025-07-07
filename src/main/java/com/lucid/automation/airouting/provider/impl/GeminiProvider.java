@@ -81,12 +81,12 @@ public class GeminiProvider extends AIProvider {
         
         // Extract user and tenant information from context
         String deemergeUserName = (String) context.get("deemergeUserName");
-        String userId = (String) context.get("userId");
+        String deemergeUserId = (String) context.get("deemergeUserId");
         String tenantId = (String) context.get("tenantId");
         
         // Use default values if not provided
-        if (userId == null || userId.trim().isEmpty()) {
-            userId = "unknown";
+        if (deemergeUserId == null || deemergeUserId.trim().isEmpty()) {
+            deemergeUserId = "unknown";
         }
         if (tenantId == null || tenantId.trim().isEmpty()) {
             tenantId = "unknown";
@@ -96,7 +96,7 @@ public class GeminiProvider extends AIProvider {
         }
         
         logger.info("[X] GEMINI-ENRICH [{}]: Using userId: {}, tenantId: {}, deemergeUserName: {}", 
-                   debugId, userId, tenantId, deemergeUserName);
+                   debugId, deemergeUserId, tenantId, deemergeUserName);
         
         try {
             // Input validation
@@ -122,7 +122,7 @@ public class GeminiProvider extends AIProvider {
             String conversationText = formatConversationForAnalysis(messages);
             String prompt = buildConversationEnrichmentPrompt(conversationText, deemergeUserName);
             System.out.println("GEMINI-ENRICH [" + debugId + "]: Built conversation enrichment prompt: \n" + prompt);
-            String response = callGeminiAPI(prompt, "conversation-enrichment", debugId, userId, tenantId);
+            String response = callGeminiAPI(prompt, "conversation-enrichment", debugId, deemergeUserId, tenantId);
             return Map.of(
                 "response", response,
                 "request", messages
@@ -164,7 +164,7 @@ public class GeminiProvider extends AIProvider {
     }
     
     // Private helper methods
-    private String callGeminiAPI(String prompt, String operation, String debugId, String userId, String tenantId) {
+    private String callGeminiAPI(String prompt, String operation, String debugId, String deemergeUserId, String tenantId) {
         try {
             if (geminiClient == null) {
                 logger.error("GEMINI-API [{}]: Client is not available - API key not configured", debugId);
@@ -188,8 +188,8 @@ public class GeminiProvider extends AIProvider {
             long duration = System.currentTimeMillis() - startTime;
             
             // Track token consumption with actual token counts
-            trackTokenUsage(operation, inputTokens, outputTokens, userId, tenantId);
-            
+            trackTokenUsage(operation, inputTokens, outputTokens, deemergeUserId, tenantId);
+
             logger.info("GEMINI-API [{}]: {} operation completed in {}ms, Input tokens: {}, Output tokens: {}, response: \n\n: {}", 
                        debugId, operation, duration, inputTokens, outputTokens, outputText);
             
@@ -203,8 +203,8 @@ public class GeminiProvider extends AIProvider {
             throw new RuntimeException("Failed to call Gemini API: " + e.getMessage(), e);
         }
     }
-    
-    private void trackTokenUsage(String operation, int inputTokens, int outputTokens, String userId, String tenantId) {
+
+    private void trackTokenUsage(String operation, int inputTokens, int outputTokens, String deemergeUserId, String tenantId) {
         try {
             int totalTokens = inputTokens + outputTokens;
             
@@ -213,13 +213,13 @@ public class GeminiProvider extends AIProvider {
             metadata.put("model", model);
             metadata.put("operation", operation);
             metadata.put("actualTokens", true); // Flag to indicate tokens are actual, not estimated
-            
-            // Send token consumption data with userId and tenantId
-            sendTokenConsumption(operation, userId, tenantId, inputTokens, outputTokens, totalTokens, null, metadata);
-            
-            logger.info("Token usage tracked: operation={}, userId={}, tenantId={}, inputTokens={}, outputTokens={}, totalTokens={}", 
-                       operation, userId, tenantId, inputTokens, outputTokens, totalTokens);
-            
+
+            // Send token consumption data with deemergeUserId and tenantId
+            sendTokenConsumption(operation, deemergeUserId, tenantId, inputTokens, outputTokens, totalTokens, null, metadata);
+
+            logger.info("Token usage tracked: operation={}, deemergeUserId={}, tenantId={}, inputTokens={}, outputTokens={}, totalTokens={}",
+                       operation, deemergeUserId, tenantId, inputTokens, outputTokens, totalTokens);
+
         } catch (Exception e) {
             logger.warn("Failed to track token usage for operation {}: {}", operation, e.getMessage());
         }
