@@ -73,7 +73,10 @@ kafka:
     ai-enrich: ${KAFKA_TOPIC_AI_ENRICH:ai-enrich}
     ai-responses: ${KAFKA_TOPIC_AI_RESPONSES:ai.responses.queue}
     pre-ai-responses: ${KAFKA_TOPIC_PRE_AI_RESPONSES:pre.ai.responses.queue}
-  reset-offsets-on-startup: true  # Force true for debugging - always restart from beginning
+  # Offset Reset Configuration:
+  # true = Always process from beginning (debugging mode - processes ALL historical messages)
+  # false = Process only new messages from latest offset (production mode)
+  reset-offsets-on-startup: false
 
 # OpenTelemetry Configuration
 opentelemetry:

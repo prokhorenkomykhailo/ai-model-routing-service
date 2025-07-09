@@ -9,8 +9,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -175,7 +173,7 @@ public class UserService {
     }
     
     /**
-     * Get user by tenant, workspace, and slack user ID
+     * Get user by tenant, workspace, and slack user ID (used by consumers)
      */
     public Optional<User> getUser(String tenantId, String workspaceId, String slackUserId) {
         // Add null checks to prevent Redis query issues
@@ -195,173 +193,23 @@ public class UserService {
     }
     
     /**
-     * Get all users for a workspace
+     * Delete a user by ID
+     * 
+     * @param userId The user ID (format: tenantId:workspaceId:slackUserId)
      */
-    public List<User> getUsersForWorkspace(String tenantId, String workspaceId) {
-        return userRepository.findByTenantIdAndWorkspaceId(tenantId, workspaceId);
-    }
-    
-    /**
-     * Check if user exists
-     */
-    public boolean userExists(String tenantId, String workspaceId, String slackUserId) {
-        return userRepository.existsByTenantIdAndWorkspaceIdAndSlackUserId(tenantId, workspaceId, slackUserId);
-    }
-    
-    /**
-     * Get user statistics
-     */
-    public UserStats getUserStats(String tenantId, String workspaceId) {
-        List<User> users = getUsersForWorkspace(tenantId, workspaceId);
+    public void deleteUser(String userId) {
+        logger.info("Deleting user with ID: {}", userId);
         
-        long totalUsers = users.size();
-        long activeUsers = users.stream().filter(u -> Boolean.TRUE.equals(u.getIsActive())).count();
-        long totalMessages = users.stream().mapToLong(u -> u.getMessageCount() != null ? u.getMessageCount() : 0L).sum();
-        
-        return new UserStats(totalUsers, activeUsers, totalMessages);
-    }
-    
-    /**
-     * Record class for user statistics
-     */
-    public record UserStats(long totalUsers, long activeUsers, long totalMessages) {}
-    
-    /**
-     * Get all users from Redis
-     */
-    public List<User> getAllUsers() {
-        logger.info("Fetching all users from Redis");
-        List<User> users = (List<User>) userRepository.findAll();
-        logger.info("Found {} total users in Redis", users.size());
-        return users;
-    }
-    
-    /**
-     * Get users by tenant ID
-     */
-    public List<User> getUsersByTenant(String tenantId) {
-        logger.info("Fetching users for tenant: {}", tenantId);
-        List<User> users = userRepository.findByTenantId(tenantId);
-        logger.info("Found {} users for tenant: {}", users.size(), tenantId);
-        return users;
-    }
-    
-    /**
-     * Get users by Slack user ID (across all tenants/workspaces)
-     */
-    public List<User> getUsersBySlackId(String slackUserId) {
-        logger.info("Fetching users with Slack ID: {}", slackUserId);
-        List<User> users = userRepository.findBySlackUserId(slackUserId);
-        logger.info("Found {} users with Slack ID: {}", users.size(), slackUserId);
-        return users;
-    }
-    
-    /**
-     * Search users by name or email
-     */
-    public List<User> searchUsers(String query, String tenantId, String workspaceId) {
-        logger.info("Searching users with query: '{}', tenantId: {}, workspaceId: {}", query, tenantId, workspaceId);
-        
-        List<User> allUsers;
-        
-        // Determine which users to search through
-        if (tenantId != null && workspaceId != null) {
-            allUsers = getUsersForWorkspace(tenantId, workspaceId);
-        } else if (tenantId != null) {
-            allUsers = getUsersByTenant(tenantId);
-        } else {
-            allUsers = getAllUsers();
+        if (!StringUtils.hasText(userId)) {
+            throw new IllegalArgumentException("User ID cannot be null or empty");
         }
         
-        // Filter users by query (case-insensitive search in name and email)
-        String lowerQuery = query.toLowerCase();
-        List<User> matchingUsers = allUsers.stream()
-                .filter(user -> {
-                    String name = user.getName() != null ? user.getName().toLowerCase() : "";
-                    String displayName = user.getDisplayName() != null ? user.getDisplayName().toLowerCase() : "";
-                    String email = user.getEmail() != null ? user.getEmail().toLowerCase() : "";
-                    String firstName = user.getFirstName() != null ? user.getFirstName().toLowerCase() : "";
-                    String lastName = user.getLastName() != null ? user.getLastName().toLowerCase() : "";
-                    
-                    return name.contains(lowerQuery) || 
-                           displayName.contains(lowerQuery) ||
-                           email.contains(lowerQuery) ||
-                           firstName.contains(lowerQuery) ||
-                           lastName.contains(lowerQuery);
-                })
-                .collect(java.util.stream.Collectors.toList());
-        
-        logger.info("Found {} users matching search query '{}'", matchingUsers.size(), query);
-        return matchingUsers;
-    }
-    
-    /**
-     * Get active users for a workspace
-     */
-    public List<User> getActiveUsers(String tenantId, String workspaceId) {
-        logger.info("Fetching active users for workspace: tenantId={}, workspaceId={}", tenantId, workspaceId);
-        
-        List<User> allUsers = getUsersForWorkspace(tenantId, workspaceId);
-        List<User> activeUsers = allUsers.stream()
-                .filter(user -> Boolean.TRUE.equals(user.getIsActive()))
-                .collect(java.util.stream.Collectors.toList());
-        
-        logger.info("Found {} active users out of {} total users for workspace: {}", 
-                   activeUsers.size(), allUsers.size(), workspaceId);
-        return activeUsers;
-    }
-    
-    /**
-     * Get Redis health information
-     */
-    public Map<String, Object> getRedisHealthInfo() {
-        logger.info("Checking Redis health and gathering statistics");
-        
         try {
-            // Get total user count to test Redis connectivity
-            long totalUsers = userRepository.count();
-            
-            // Get some basic statistics
-            List<User> allUsers = getAllUsers();
-            
-            long activeUsers = allUsers.stream()
-                    .filter(user -> Boolean.TRUE.equals(user.getIsActive()))
-                    .count();
-            
-            long totalMessages = allUsers.stream()
-                    .mapToLong(user -> user.getMessageCount() != null ? user.getMessageCount() : 0L)
-                    .sum();
-            
-            // Count users by tenant
-            Map<String, Long> usersByTenant = allUsers.stream()
-                    .filter(user -> user.getTenantId() != null)
-                    .collect(java.util.stream.Collectors.groupingBy(
-                            User::getTenantId,
-                            java.util.stream.Collectors.counting()
-                    ));
-            
-            Map<String, Object> healthInfo = new java.util.HashMap<>();
-            healthInfo.put("status", "UP");
-            healthInfo.put("timestamp", java.time.LocalDateTime.now());
-            healthInfo.put("totalUsers", totalUsers);
-            healthInfo.put("activeUsers", activeUsers);
-            healthInfo.put("totalMessages", totalMessages);
-            healthInfo.put("usersByTenant", usersByTenant);
-            healthInfo.put("redisConnection", "OK");
-            
-            logger.info("Redis health check completed - {} total users, {} active", totalUsers, activeUsers);
-            return healthInfo;
-            
+            userRepository.deleteById(userId);
+            logger.info("Successfully deleted user: {}", userId);
         } catch (Exception e) {
-            logger.error("Redis health check failed: {}", e.getMessage(), e);
-            
-            Map<String, Object> healthInfo = new java.util.HashMap<>();
-            healthInfo.put("status", "DOWN");
-            healthInfo.put("timestamp", java.time.LocalDateTime.now());
-            healthInfo.put("error", e.getMessage());
-            healthInfo.put("redisConnection", "FAILED");
-            
-            return healthInfo;
+            logger.error("Failed to delete user {}: {}", userId, e.getMessage(), e);
+            throw new RuntimeException("Failed to delete user: " + e.getMessage(), e);
         }
     }
 }

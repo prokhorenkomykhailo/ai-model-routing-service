@@ -35,34 +35,6 @@ public class ChannelController {
         this.channelService = channelService;
     }
     
-    @GetMapping("/{channelId}")
-    @Operation(summary = "Get channel by ID", description = "Retrieves a specific channel by its ID")
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Channel found"),
-        @ApiResponse(responseCode = "404", description = "Channel not found"),
-        @ApiResponse(responseCode = "400", description = "Invalid channel ID")
-    })
-    public ResponseEntity<ChannelResponseDTO> getChannelById(
-            @Parameter(description = "Channel ID") @PathVariable String channelId) {
-        
-        logger.debug("Retrieving channel with ID: {}", channelId);
-        
-        if (channelId == null || channelId.trim().isEmpty()) {
-            logger.warn("Invalid channel ID provided: {}", channelId);
-            return ResponseEntity.badRequest().build();
-        }
-        
-        Optional<Channel> channel = channelService.findByChannelId(channelId);
-        
-        if (channel.isPresent()) {
-            ChannelResponseDTO responseDto = convertToResponseDTO(channel.get());
-            return ResponseEntity.ok(responseDto);
-        } else {
-            logger.warn("Channel not found with ID: {}", channelId);
-            return ResponseEntity.notFound().build();
-        }
-    }
-    
     @GetMapping
     @Operation(summary = "Get all channels", description = "Retrieves all channels")
     @ApiResponses(value = {
@@ -79,32 +51,7 @@ public class ChannelController {
         logger.info("Retrieved {} channels", responseDtos.size());
         return ResponseEntity.ok(responseDtos);
     }
-    
-    @PostMapping
-    @Operation(summary = "Create or update channel", description = "Creates a new channel or updates an existing one")
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Channel created/updated successfully"),
-        @ApiResponse(responseCode = "400", description = "Invalid channel data")
-    })
-    public ResponseEntity<ChannelResponseDTO> createOrUpdateChannel(@RequestBody Channel channel) {
-        logger.info("Creating/updating channel: {}", channel.getChannelId());
-        
-        if (channel == null || channel.getChannelId() == null || channel.getChannelId().trim().isEmpty()) {
-            logger.warn("Invalid channel data provided");
-            return ResponseEntity.badRequest().build();
-        }
-        
-        Channel savedChannel = channelService.saveChannel(channel);
-        
-        if (savedChannel != null) {
-            ChannelResponseDTO responseDto = convertToResponseDTO(savedChannel);
-            return ResponseEntity.ok(responseDto);
-        } else {
-            logger.error("Failed to save channel: {}", channel.getChannelId());
-            return ResponseEntity.internalServerError().build();
-        }
-    }
-    
+
     @DeleteMapping("/{channelId}")
     @Operation(summary = "Delete channel", description = "Deletes a channel by its ID")
     @ApiResponses(value = {

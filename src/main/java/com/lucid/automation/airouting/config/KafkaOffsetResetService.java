@@ -37,7 +37,7 @@ public class KafkaOffsetResetService {
     @Value("${kafka.topics.ingestion-messages:lucid-ingestion-messages}")
     private String ingestionMessagesTopic;
     
-    @Value("${kafka.reset-offsets-on-startup:true}")
+    @Value("${kafka.reset-offsets-on-startup:false}")
     private boolean resetOffsetsOnStartup;
     
     @Value("${spring.kafka.security.protocol:PLAINTEXT}")

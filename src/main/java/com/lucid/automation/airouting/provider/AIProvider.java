@@ -30,6 +30,14 @@ public abstract class AIProvider {
     public abstract Map<String, Object> enrichConversation(AIMessage messages);
     
     /**
+     * Process a simple text query and return a response
+     * 
+     * @param query The text query to process
+     * @return String response from the AI provider
+     */
+    public abstract String processTextQuery(String query);
+    
+    /**
      * Get provider identifier
      */
     public abstract String getProviderId();

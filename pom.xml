@@ -140,6 +140,13 @@
             <version>1.0.0</version>
         </dependency>
         
+        <!-- OpenAI Java -->
+        <dependency>
+            <groupId>com.openai</groupId>
+            <artifactId>openai-java</artifactId>
+            <version>0.29.0</version>
+        </dependency>
+        
         <!-- Rate Limiting -->
         <dependency>
             <groupId>com.bucket4j</groupId>

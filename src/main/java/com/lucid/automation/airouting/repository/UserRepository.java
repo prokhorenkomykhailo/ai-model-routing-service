@@ -14,32 +14,12 @@ import java.util.Optional;
 public interface UserRepository extends CrudRepository<User, String> {
     
     /**
-     * Find users by tenant ID
-     */
-    List<User> findByTenantId(String tenantId);
-    
-    /**
-     * Find users by workspace ID
-     */
-    List<User> findByWorkspaceId(String workspaceId);
-    
-    /**
-     * Find users by tenant ID and workspace ID
-     */
-    List<User> findByTenantIdAndWorkspaceId(String tenantId, String workspaceId);
-    
-    /**
-     * Find user by slack user ID
+     * Find user by slack user ID (used by SlidingWindowService)
      */
     List<User> findBySlackUserId(String slackUserId);
     
     /**
-     * Find user by tenant, workspace, and slack user ID (should be unique)
+     * Find user by tenant, workspace, and slack user ID (used by consumers)
      */
     Optional<User> findByTenantIdAndWorkspaceIdAndSlackUserId(String tenantId, String workspaceId, String slackUserId);
-    
-    /**
-     * Check if user exists by tenant, workspace, and slack user ID
-     */
-    boolean existsByTenantIdAndWorkspaceIdAndSlackUserId(String tenantId, String workspaceId, String slackUserId);
 }

@@ -5,9 +5,11 @@ import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.message.AIMessage;
 import com.lucid.automation.airouting.util.PromptLoader;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.genai.Client;
-import com.google.genai.types.CountTokensResponse;
-import com.google.genai.types.GenerateContentResponse;
+import com.openai.client.OpenAIClient;
+import com.openai.client.okhttp.OpenAIOkHttpClient;
+import com.openai.models.ChatCompletion;
+import com.openai.models.ChatCompletionCreateParams;
+import com.openai.models.ChatCompletionMessage;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,21 +20,26 @@ import org.springframework.stereotype.Component;
 import java.util.*;
 import java.util.stream.Collectors;
 
-@Component("geminiProvider")
-public class GeminiProvider extends AIProvider {
+@Component("openaiProvider")
+public class OpenAIProvider extends AIProvider {
     
-    private static final Logger logger = LoggerFactory.getLogger(GeminiProvider.class);
+    private static final Logger logger = LoggerFactory.getLogger(OpenAIProvider.class);
     private static final String MESSAGE_PLACEHOLDER = "##messages##";
     
-    @Value("${ai.providers.gemini.api-key:}")
+    @Value("${ai.providers.openai.api-key:}")
     private String apiKey;
     
-    @Value("${ai.providers.gemini.endpoint:https://generativelanguage.googleapis.com/v1/models}")
+    @Value("${ai.providers.openai.endpoint:https://api.openai.com/v1}")
     private String apiEndpoint;
     
-    // @Value("${ai.providers.gemini.model:gemini-2.0-flash}")
-    @Value("${ai.providers.gemini.model:gemini-2.5-pro}")
+    @Value("${ai.providers.openai.model:gpt-3.5-turbo}")
     private String model;
+    
+    @Value("${ai.providers.openai.timeout:30000}")
+    private int timeoutMs;
+    
+    @Value("${ai.providers.openai.enabled:true}")
+    private boolean enabled;
     
     @Value("${app.tenant.default-id:default}")
     private String defaultTenantId;
@@ -40,42 +47,45 @@ public class GeminiProvider extends AIProvider {
     @Value("${app.tenant.default-schema:public}")
     private String defaultTenantSchema;
     
-    private final Client geminiClient;
+    private final OpenAIClient openaiClient;
     private final ObjectMapper objectMapper;
     private final PromptLoader promptLoader;
     private double lastConfidence = 0.0;
     private final boolean isClientAvailable;
     
-    public GeminiProvider(ObjectMapper objectMapper, 
+    public OpenAIProvider(ObjectMapper objectMapper, 
                          PromptLoader promptLoader) {
         this.objectMapper = objectMapper;
         this.promptLoader = promptLoader;
+        
         // Try to initialize the client, but handle gracefully if API key is not available
-        Client tempClient = null;
+        OpenAIClient tempClient = null;
         boolean clientAvailable = false;
         
         try {
-            // Check if GOOGLE_API_KEY environment variable is set before initializing client
-            String googleApiKey = System.getenv("GOOGLE_API_KEY");
-            if (googleApiKey != null && !googleApiKey.trim().isEmpty()) {
-                tempClient = new Client();
+            // Check if OPENAI_API_KEY environment variable is set before initializing client
+            String openaiApiKey = System.getenv("OPENAI_API_KEY");
+            if (openaiApiKey != null && !openaiApiKey.trim().isEmpty()) {
+                tempClient = OpenAIOkHttpClient.builder()
+                    .apiKey(openaiApiKey)
+                    .build();
                 clientAvailable = true;
-                logger.info("Gemini client initialized successfully");
+                logger.info("OpenAI client initialized successfully");
             } else {
-                logger.warn("GOOGLE_API_KEY not set, Gemini provider will be unavailable");
+                logger.warn("OPENAI_API_KEY not set, OpenAI provider will be unavailable");
             }
         } catch (Exception e) {
-            logger.warn("Failed to initialize Gemini client: {}", e.getMessage());
+            logger.warn("Failed to initialize OpenAI client: {}", e.getMessage());
         }
         
-        this.geminiClient = tempClient;
+        this.openaiClient = tempClient;
         this.isClientAvailable = clientAvailable;
     }
     
     @Override
     public Map<String, Object> enrichConversation(AIMessage request) {
         String debugId = "ENRICH-CONV-" + System.currentTimeMillis();
-        logger.info("GEMINI-ENRICH [{}]: Starting conversation enrichment", debugId);
+        logger.info("OPENAI-ENRICH [{}]: Starting conversation enrichment", debugId);
         List<SlackMessage> messages = request.getMessages();
         Map<String, Object> context = request.getContext();
         
@@ -95,15 +105,13 @@ public class GeminiProvider extends AIProvider {
             deemergeUserName = "Unknown";
         }
         
-        logger.info("[X] GEMINI-ENRICH [{}]: Using userId: {}, tenantId: {}, deemergeUserName: {}", 
+        logger.info("[X] OPENAI-ENRICH [{}]: Using userId: {}, tenantId: {}, deemergeUserName: {}", 
                    debugId, deemergeUserId, tenantId, deemergeUserName);
         
         try {
             // Input validation
             if (messages == null || messages.isEmpty()) {
-                logger.warn("GEMINI-ENRICH [{}]: No messages provided, returning default enrichment", debugId);
-                
-                // return getDefaultConversationEnrichment();
+                logger.warn("OPENAI-ENRICH [{}]: No messages provided, returning default enrichment", debugId);
                 return Map.of(
                     "response", "No messages provided for enrichment",
                     "request", messages
@@ -111,36 +119,36 @@ public class GeminiProvider extends AIProvider {
             }
             
             if (!isClientAvailable) {
-                logger.warn("GEMINI-ENRICH [{}]: Gemini client not available, returning default enrichment", debugId);
+                logger.warn("OPENAI-ENRICH [{}]: OpenAI client not available, returning default enrichment", debugId);
                 return Map.of(
-                    "response", "Gemini client not available",
+                    "response", "OpenAI client not available",
                     "request", messages
                 );
             }
             
-            logger.info("GEMINI-ENRICH [{}]: Formatting conversation for analysis", debugId);
+            logger.info("OPENAI-ENRICH [{}]: Formatting conversation for analysis", debugId);
             String conversationText = formatConversationForAnalysis(messages);
             String prompt = buildConversationEnrichmentPrompt(conversationText, deemergeUserName);
-            System.out.println("GEMINI-ENRICH [" + debugId + "]: Built conversation enrichment prompt: \n" + prompt);
-            String response = callGeminiAPI(prompt, "conversation-enrichment", debugId, deemergeUserId, tenantId);
+            System.out.println("OPENAI-ENRICH [" + debugId + "]: Built conversation enrichment prompt: \n" + prompt);
+            String response = callOpenAIAPI(prompt, "conversation-enrichment", debugId, deemergeUserId, tenantId);
             return Map.of(
                 "response", response,
                 "request", messages
             );
         } catch (IllegalArgumentException e) {
-            logger.error("GEMINI-ENRICH [{}]: Invalid input for conversation enrichment: {}", debugId, e.getMessage(), e);
+            logger.error("OPENAI-ENRICH [{}]: Invalid input for conversation enrichment: {}", debugId, e.getMessage(), e);
             return Map.of(
                 "response", "Invalid input for conversation enrichment: " + e.getMessage(),
                 "request", messages
             );
         } catch (RuntimeException e) {
-            logger.error("GEMINI-ENRICH [{}]: API error during conversation enrichment: {}", debugId, e.getMessage(), e);
+            logger.error("OPENAI-ENRICH [{}]: API error during conversation enrichment: {}", debugId, e.getMessage(), e);
             return Map.of(
                 "response", "API error during conversation enrichment: " + e.getMessage(),
                 "request", messages
             );
         } catch (Exception e) {
-            logger.error("GEMINI-ENRICH [{}]: Unexpected error during conversation enrichment: {}", debugId, e.getMessage(), e);
+            logger.error("OPENAI-ENRICH [{}]: Unexpected error during conversation enrichment: {}", debugId, e.getMessage(), e);
             return Map.of(
                 "response", "Unexpected error during conversation enrichment: " + e.getMessage(),
                 "request", messages
@@ -149,8 +157,37 @@ public class GeminiProvider extends AIProvider {
     }
     
     @Override
+    public String processTextQuery(String query) {
+        String debugId = "TEXT-QUERY-" + System.currentTimeMillis();
+        logger.info("OPENAI-TEXT [{}]: Processing text query: {}", debugId, query != null ? query.substring(0, Math.min(query.length(), 100)) + "..." : "null");
+        
+        try {
+            // Input validation
+            if (query == null || query.trim().isEmpty()) {
+                logger.warn("OPENAI-TEXT [{}]: Empty query provided", debugId);
+                return "Empty query provided";
+            }
+            
+            if (!isClientAvailable) {
+                logger.warn("OPENAI-TEXT [{}]: OpenAI client not available", debugId);
+                return "OpenAI client not available";
+            }
+            
+            // Call OpenAI API with default user/tenant for simple text queries
+            String response = callOpenAIAPI(query, "text-query", debugId, "unknown", "unknown");
+            
+            logger.info("OPENAI-TEXT [{}]: Successfully processed text query", debugId);
+            return response;
+            
+        } catch (Exception e) {
+            logger.error("OPENAI-TEXT [{}]: Error processing text query: {}", debugId, e.getMessage(), e);
+            return "Error processing query: " + e.getMessage();
+        }
+    }
+    
+    @Override
     public String getProviderId() {
-        return "geminiProvider";
+        return "openaiProvider";
     }
     
     @Override
@@ -163,73 +200,54 @@ public class GeminiProvider extends AIProvider {
         return lastConfidence;
     }
     
-    @Override
-    public String processTextQuery(String query) {
-        String debugId = "TEXT-QUERY-" + System.currentTimeMillis();
-        logger.info("GEMINI-TEXT [{}]: Processing text query: {}", debugId, query != null ? query.substring(0, Math.min(query.length(), 100)) + "..." : "null");
-        
-        try {
-            // Input validation
-            if (query == null || query.trim().isEmpty()) {
-                logger.warn("GEMINI-TEXT [{}]: Empty query provided", debugId);
-                return "Empty query provided";
-            }
-            
-            if (!isClientAvailable) {
-                logger.warn("GEMINI-TEXT [{}]: Gemini client not available", debugId);
-                return "Gemini client not available";
-            }
-            
-            // Call Gemini API with default user/tenant for simple text queries
-            String response = callGeminiAPI(query, "text-query", debugId, "unknown", "unknown");
-            
-            logger.info("GEMINI-TEXT [{}]: Successfully processed text query", debugId);
-            return response;
-            
-        } catch (Exception e) {
-            logger.error("GEMINI-TEXT [{}]: Error processing text query: {}", debugId, e.getMessage(), e);
-            return "Error processing query: " + e.getMessage();
-        }
-    }
-    
     // Private helper methods
-    private String callGeminiAPI(String prompt, String operation, String debugId, String deemergeUserId, String tenantId) {
+    private String callOpenAIAPI(String prompt, String operation, String debugId, String deemergeUserId, String tenantId) {
         try {
-            if (geminiClient == null) {
-                logger.error("GEMINI-API [{}]: Client is not available - API key not configured", debugId);
-                throw new RuntimeException("Gemini client is not available - API key not configured");
+            if (!isClientAvailable) {
+                logger.error("OPENAI-API [{}]: Client is not available - API key not configured", debugId);
+                throw new RuntimeException("OpenAI client is not available - API key not configured");
             }
 
             long startTime = System.currentTimeMillis();
             
-            // Count input tokens
-            CountTokensResponse inputTokenInfo = geminiClient.models.countTokens(model, prompt, null);
-            int inputTokens = inputTokenInfo.totalTokens().orElse(0);
+            // Build OpenAI request using official client
+            ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()
+                    .model(model)
+                    .temperature(0.7)
+                    .addUserMessage(prompt)
+                    .build();
             
-            // Generate response
-            GenerateContentResponse response = geminiClient.models.generateContent(model, prompt, null);
-            String outputText = response.text();
-            
-            // Count output tokens
-            CountTokensResponse outputTokenInfo = geminiClient.models.countTokens(model, outputText, null);
-            int outputTokens = outputTokenInfo.totalTokens().orElse(0);
+            // Call OpenAI API using official client
+            ChatCompletion completion = openaiClient.chat().completions().create(params);
             
             long duration = System.currentTimeMillis() - startTime;
             
-            // Track token consumption with actual token counts
+            // Extract response content
+            if (completion.choices().isEmpty()) {
+                throw new RuntimeException("No choices returned from OpenAI API");
+            }
+            
+            ChatCompletionMessage message = completion.choices().get(0).message();
+            String outputText = message.content().orElse("");
+            
+            // Extract token usage if available
+            int inputTokens = completion.usage().map(usage -> (int) usage.promptTokens()).orElse(0);
+            int outputTokens = completion.usage().map(usage -> (int) usage.completionTokens()).orElse(0);
+            
+            // Track token consumption
             trackTokenUsage(operation, inputTokens, outputTokens, deemergeUserId, tenantId);
 
-            logger.info("GEMINI-API [{}]: {} operation completed in {}ms, Input tokens: {}, Output tokens: {}, response: \n\n: {}", 
+            logger.info("OPENAI-API [{}]: {} operation completed in {}ms, Input tokens: {}, Output tokens: {}, response: \n\n: {}", 
                        debugId, operation, duration, inputTokens, outputTokens, outputText);
             
             if (outputText == null || outputText.trim().isEmpty()) {
-                logger.warn("GEMINI-API [{}]: Received empty or null response from Gemini API", debugId);
-                throw new RuntimeException("Received empty response from Gemini API");
+                logger.warn("OPENAI-API [{}]: Received empty or null response from OpenAI API", debugId);
+                throw new RuntimeException("Received empty response from OpenAI API");
             }
             return outputText;            
         } catch (Exception e) {
-            logger.error("GEMINI-API [{}]: Error calling Gemini API for {} operation: {}", debugId, operation, e.getMessage(), e);
-            throw new RuntimeException("Failed to call Gemini API: " + e.getMessage(), e);
+            logger.error("OPENAI-API [{}]: Error calling OpenAI API for {} operation: {}", debugId, operation, e.getMessage(), e);
+            throw new RuntimeException("Failed to call OpenAI API: " + e.getMessage(), e);
         }
     }
 
@@ -274,15 +292,6 @@ public class GeminiProvider extends AIProvider {
     }
     
     private String formatMessageForAnalysis(SlackMessage msg) {
-        //  {
-        //   “role”: “user”,
-        //   “content”: “...“,
-        //   “author”: “Benoit”,
-        //   “timestamp”: ...,
-        //   “channel_id”: “...“,
-        //   “thread_ts”: ...
-        //  },
-
         try {
             Map<String, Object> messageMap = new LinkedHashMap<>();
             messageMap.put("ROLE", safeString("user"));
