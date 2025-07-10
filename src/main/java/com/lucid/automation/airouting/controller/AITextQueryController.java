@@ -1,8 +1,8 @@
 package com.lucid.automation.airouting.controller;
 
-import com.lucid.automation.airouting.dto.APIResponse;
-import com.lucid.automation.airouting.dto.TextQueryRequestDTO;
-import com.lucid.automation.airouting.dto.TextQueryResponseDTO;
+import com.lucid.automation.common.dto.response.APIResponse;
+import com.lucid.automation.common.dto.ai.TextQueryRequestDTO;
+import com.lucid.automation.common.dto.ai.TextQueryResponseDTO;
 import com.lucid.automation.airouting.provider.AIProvider;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;

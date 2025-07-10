@@ -1,6 +1,6 @@
 package com.lucid.automation.airouting.client;
 
-import com.lucid.automation.airouting.dto.APIResponse;
+import com.lucid.automation.common.dto.response.APIResponse;
 import com.lucid.automation.airouting.dto.CategoryDTO;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
