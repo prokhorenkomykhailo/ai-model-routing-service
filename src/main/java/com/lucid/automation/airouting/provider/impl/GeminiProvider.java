@@ -31,7 +31,7 @@ public class GeminiProvider extends AIProvider {
     private String apiEndpoint;
     
     // @Value("${ai.providers.gemini.model:gemini-2.0-flash}")
-    @Value("${ai.providers.gemini.model:gemini-2.5-pro}")
+    @Value("${ai.providers.gemini.model:gemini-2.5-flash}")
     private String model;
     
     @Value("${app.tenant.default-id:default}")

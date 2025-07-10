@@ -14,8 +14,9 @@ import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.User;
 import com.lucid.automation.airouting.provider.ProviderUtils;
 import com.lucid.automation.airouting.service.UserService;
-import com.lucid.automation.airouting.util.JsonUtils;
 import com.lucid.automation.airouting.util.TextUtils;
+import com.lucid.automation.airouting.util.json.JsonCleaner;
+
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -206,8 +207,8 @@ public class PostProcessingConsumer {
 
     private ConversationEnrichment parseConversationEnrichmentResponse(String response, List<SlackMessage> messages) {
         try {
-            String cleanedResponse = JsonUtils.cleanJsonResponse(response);
-            logger.info("GEMINI-PARSE: Cleaned response:\n{}", cleanedResponse);
+            String cleanedResponse = JsonCleaner.cleanJsonResponse(response);
+            logger.info("[==>>> GEMINI-PARSE]: Cleaned response:\n{}", cleanedResponse);
 
             if (cleanedResponse.trim().startsWith("[")) {
                 return parseTopicsFromText(cleanedResponse, messages);
