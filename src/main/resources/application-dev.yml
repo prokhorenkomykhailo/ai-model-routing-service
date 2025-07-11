@@ -1,0 +1,36 @@
+# Development profile
+spring:
+  
+# AI provider configurations for development
+ai:
+  providers:
+    gemini:
+      type: gemini
+      api-key: ${GEMINI_API_KEY:dev-gemini-key}
+      endpoint: https://generativelanguage.googleapis.com/v1/models
+      timeout: 30000
+      enabled: true
+    
+    openai:
+      type: openai
+      api-key: ${OPENAI_API_KEY:dev-openai-key}
+      endpoint: https://api.openai.com/v1
+      timeout: 30000
+      enabled: true
+
+# Swagger enabled for dev
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha
+    try-it-out-enabled: true
+
+# Development logging
+logging:
+  level:
+    com.lucid.automation.airouting: DEBUG
+    org.springframework.web: INFO
+    AI_AUDIT: DEBUG

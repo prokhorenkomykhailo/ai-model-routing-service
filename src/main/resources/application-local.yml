@@ -1,0 +1,61 @@
+spring:
+  application:
+    name: ai-routing-service
+  
+  # Redis Configuration for local development
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000
+      database: 0
+
+# Local AI provider configurations with mock/test keys
+ai:
+  providers:
+    gemini:
+      type: gemini
+      api-key: ${GEMINI_API_KEY:}
+      endpoint: https://generativelanguage.googleapis.com/v1/models
+      timeout: 30000
+      enabled: true
+    
+    openai:
+      type: openai
+      api-key: ${OPENAI_API_KEY:test-openai-key}
+      endpoint: https://api.openai.com/v1
+      timeout: 30000
+      enabled: true
+
+# Swagger/OpenAPI Configuration for local development
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha
+    try-it-out-enabled: true
+    gateway-uri: /
+  show-actuator: true
+  use-management-port: false
+  default-produces-media-type: application/json
+  packages-to-scan: com.lucid.automation.airouting.controller
+
+# Enhanced logging for local development
+logging:
+  level:
+    com.lucid.automation.airouting: DEBUG
+    org.springframework.web: DEBUG
+    AI_AUDIT: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# Data storage service configuration
+data-storage-service:
+  url: ${DATA_STORAGE_SERVICE_URL:http://localhost:8082}
+
+# auth service configuration
+auth-service:
+  url: ${AUTH_SERVICE_URL:http://localhost:8088}

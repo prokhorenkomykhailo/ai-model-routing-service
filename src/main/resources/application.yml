@@ -1,0 +1,189 @@
+server:
+  port: 8083
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: lucid-ai-routing-service
+  profiles:
+    active: '@activatedProperties@'  # Replace or override this at runtime
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+    default-property-inclusion: non_null
+
+  cloud:
+    discovery:
+      enabled: true
+
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:10.113.213.31:9092}
+    
+    # Security Configuration
+    security:
+      protocol: ${SPRING_KAFKA_SECURITY_PROTOCOL:SASL_PLAINTEXT}
+    properties:
+      "[sasl.mechanism]": ${SPRING_KAFKA_SASL_MECHANISM:PLAIN}
+      "[sasl.jaas.config]": ${SPRING_KAFKA_SASL_JAAS_CONFIG:org.apache.kafka.common.security.plain.PlainLoginModule required username="client" password="client-secret";}
+    
+    # Consumer Configuration - Default for IngestionEventDTO
+    consumer:
+      group-id: ${SPRING_KAFKA_CONSUMER_GROUP_ID:ai-service-group}
+      key-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      auto-offset-reset: latest
+      enable-auto-commit: false
+      properties:
+        "spring.json.trusted.packages": "*"
+        "spring.deserializer.key.delegate.class": org.apache.kafka.common.serialization.StringDeserializer
+        "spring.deserializer.value.delegate.class": org.springframework.kafka.support.serializer.JsonDeserializer
+        "spring.json.use.type.headers": false
+        "spring.json.fail.on.unknown.properties": false
+        "spring.deserializer.value.function": "org.springframework.kafka.support.serializer.FailedDeserializationInfo::getException"
+        "spring.kafka.consumer.enable-auto-commit": false
+        "spring.kafka.listener.ack-mode": manual_immediate
+    
+    # Producer Configuration (for publishing responses/results if needed)
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+      batch-size: 16384
+      properties:
+        "[linger.ms]": 5
+        "[buffer.memory]": 33554432
+        "[enable.idempotence]": true
+    
+    # Listener Configuration
+    listener:
+      ack-mode: manual-immediate
+      missing-topics-fatal: false
+
+# Application-specific Kafka Configuration
+kafka:
+  topics:
+    ingestion-messages: ${KAFKA_TOPIC_INGESTION_MESSAGES:lucid-ingestion-messages}
+    ai-categorize: ${KAFKA_TOPIC_AI_CATEGORIZE:ai-categorize}
+    ai-summarize: ${KAFKA_TOPIC_AI_SUMMARIZE:ai-summarize}
+    ai-enrich: ${KAFKA_TOPIC_AI_ENRICH:ai-enrich}
+    ai-responses: ${KAFKA_TOPIC_AI_RESPONSES:ai.responses.queue}
+    pre-ai-responses: ${KAFKA_TOPIC_PRE_AI_RESPONSES:pre.ai.responses.queue}
+  # Offset Reset Configuration:
+  # true = Always process from beginning (debugging mode - processes ALL historical messages)
+  # false = Process only new messages from latest offset (production mode)
+  reset-offsets-on-startup: false
+
+# OpenTelemetry Configuration
+opentelemetry:
+  exporter:
+    otlp:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4317}
+  sampler:
+    probability: 1.0
+  resource:
+    attributes:
+      service.name: ${OTEL_SERVICE_NAME:ai-routing-service}
+      service.version: ${OTEL_SERVICE_VERSION:1.0.0}
+      deployment.environment: ${DEPLOYMENT_ENVIRONMENT:local}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+
+security:
+  jwt:
+    secret-key: M2NmYTc2ZWYxNDkzN2MxYzBlYTUxOWY4ZmMwNTdhODBmY2QwNGE3NDIwZjhlOGJjZDBhNzU2N2MyNzJlMDA3Yg==
+    expiration-time: 28800000  # 8 hours in milliseconds
+
+ai:
+  routing:
+    default-provider: geminiProvider
+    task-providers:
+      categorize: geminiProvider
+      summarize: geminiProvider
+      enrich_conversation: geminiProvider
+      enrich_message: geminiProvider
+      analyze_participant: geminiProvider
+      assess_urgency: geminiProvider
+      generate_topic: geminiProvider
+      extract_entities: geminiProvider
+      sentiment_analysis: geminiProvider
+  enrichment:
+    scheduler:
+      cron: "${AI_ENRICHMENT_CRON:0 */5 * * * ?}"  # Every 5 minutes by default
+      enabled: "${AI_ENRICHMENT_ENABLED:true}"
+      batch-size: "${AI_ENRICHMENT_BATCH_SIZE:50}"
+      max-retries: "${AI_ENRICHMENT_MAX_RETRIES:3}"
+      default-tenant-id: "${DEFAULT_TENANT_ID:default-tenant}"
+      default-tenant-schema: "${DEFAULT_TENANT_SCHEMA:public}"
+
+# Logging Configuration - DEBUG MODE ENABLED
+logging:
+  level:
+    root: INFO
+    com.lucid.automation.airouting: DEBUG
+    com.lucid.automation.airouting.service: DEBUG
+    com.lucid.automation.airouting.scheduler: DEBUG
+    com.lucid.automation.airouting.controller: DEBUG
+    org.springframework: ERROR
+    org.springframework.web: ERROR
+    org.springframework.amqp: ERROR
+    org.springframework.data.redis: ERROR
+    AI_AUDIT: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/ai-routing-service.log
+  logback:
+    rollingpolicy:
+      max-file-size: 100MB
+      max-history: 30
+
+# Management endpoints for monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Info endpoint
+info:
+  app:
+    name: ${spring.application.name}
+    description: AI Model Routing and Orchestration Service
+    version: 1.0.0
+    encoding: UTF-8
+    java:
+      version: ${java.version}
+
+# Redis Conversation Configuration
+redis:
+  conversation:
+    max-messages: ${REDIS_MAX_MESSAGES:100}
+    ttl-seconds: ${REDIS_TTL_SECONDS:604800} # 7 days (604800 seconds)
+
+# Sliding Window Processing Configuration
+sliding:
+  window:
+    default:
+      batch:
+        size: ${SLIDING_WINDOW_BATCH_SIZE:50}
+      overlap:
+        percentage: ${SLIDING_WINDOW_OVERLAP_PERCENTAGE:20}
+    cleanup:
+      enabled: true
+

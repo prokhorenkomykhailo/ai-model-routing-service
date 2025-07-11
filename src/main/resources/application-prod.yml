@@ -1,0 +1,80 @@
+# Production profile for live environment
+server:
+  port: ${SERVER_PORT:8083}
+
+spring:
+  # Redis configuration for production
+  data:
+    redis:
+      host: ${PROD_REDIS_HOST:redis}
+      port: ${PROD_REDIS_PORT:6379}
+      password: ${PROD_REDIS_PASSWORD:}
+      database: ${PROD_REDIS_DATABASE:0}
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 10
+          max-idle: 8
+          min-idle: 2
+          max-wait: 5000ms
+
+# Production service discovery
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE}
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+    hostname: ${HOSTNAME:ai-routing-service}
+
+# Production AI provider configurations
+ai:
+  providers:
+    gemini:
+      type: gemini
+      api-key: ${PROD_GEMINI_API_KEY}
+      endpoint: https://generativelanguage.googleapis.com/v1/models
+      timeout: 60000
+      enabled: ${PROD_GEMINI_ENABLED:true}
+    
+    openai:
+      type: openai
+      api-key: ${PROD_OPENAI_API_KEY}
+      endpoint: https://api.openai.com/v1
+      timeout: 60000
+      enabled: ${PROD_OPENAI_ENABLED:true}
+
+# Swagger disabled in production
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+# Production logging - minimal for performance
+logging:
+  level:
+    com.lucid.automation.airouting: ${PROD_LOG_LEVEL:WARN}
+    org.springframework.web: ERROR
+    AI_AUDIT: INFO
+    root: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [${spring.application.name}] %logger{36} - %msg%n"
+  file:
+    name: /var/log/ai-routing-service/ai-routing-service.log
+  logback:
+    rollingpolicy:
+      max-file-size: 500MB
+      max-history: 60
+
+# Production management endpoints - restricted
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized

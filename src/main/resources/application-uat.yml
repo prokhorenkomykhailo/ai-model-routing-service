@@ -1,0 +1,52 @@
+# UAT (User Acceptance Testing) profile
+spring:
+  # Redis configuration for UAT
+  data:
+    redis:
+      host: ${UAT_REDIS_HOST:localhost}
+      port: ${UAT_REDIS_PORT:6379}
+      password: ${UAT_REDIS_PASSWORD:}
+      database: ${UAT_REDIS_DATABASE:2}
+      timeout: 3000ms
+
+# UAT service discovery
+eureka:
+  client:
+    service-url:
+      defaultZone: ${UAT_EUREKA_URL:http://localhost:8761/eureka/}
+
+# UAT AI provider configurations
+ai:
+  providers:
+    gemini:
+      type: gemini
+      api-key: ${UAT_GEMINI_API_KEY:uat-gemini-key}
+      endpoint: https://generativelanguage.googleapis.com/v1/models
+      timeout: 45000
+      enabled: ${UAT_GEMINI_ENABLED:true}
+    
+    openai:
+      type: openai
+      api-key: ${UAT_OPENAI_API_KEY:uat-openai-key}
+      endpoint: https://api.openai.com/v1
+      timeout: 45000
+      enabled: ${UAT_OPENAI_ENABLED:true}
+
+# Swagger enabled for UAT testing
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha
+    try-it-out-enabled: true
+
+# UAT logging - moderate verbosity for testing
+logging:
+  level:
+    com.lucid.automation.airouting: INFO
+    org.springframework.web: WARN
+    AI_AUDIT: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [${spring.application.name}] %logger{36} - %msg%n"

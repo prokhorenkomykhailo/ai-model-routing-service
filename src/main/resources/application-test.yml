@@ -1,0 +1,66 @@
+# Test profile for unit and integration testing
+spring:
+  # Redis configuration for testing - embedded or mock
+  data:
+    redis:
+      host: ${TEST_REDIS_HOST:localhost}
+      port: ${TEST_REDIS_PORT:6379}
+      database: ${TEST_REDIS_DATABASE:1}
+      timeout: 2000ms
+
+# Test AI provider configurations - all mocked
+ai:
+  routing:
+    default-provider: mock
+    task-providers:
+      categorize: mock
+      summarize: mock
+      enrich_conversation: mock
+      enrich_message: mock
+      analyze_participant: mock
+      assess_urgency: mock
+      generate_topic: mock
+      extract_entities: mock
+      sentiment_analysis: mock
+
+  providers:
+    mock:
+      type: mock
+      enabled: true
+      timeout: 5000
+    
+    gemini:
+      type: gemini
+      api-key: test-gemini-key
+      endpoint: http://localhost:8080/mock/gemini
+      timeout: 5000
+      enabled: false
+    
+    openai:
+      type: openai
+      api-key: test-openai-key
+      endpoint: http://localhost:8080/mock/openai
+      timeout: 5000
+      enabled: false
+
+# Disable Swagger in tests
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+# Test logging - minimal
+logging:
+  level:
+    com.lucid.automation.airouting: DEBUG
+    org.springframework.web: WARN
+    AI_AUDIT: DEBUG
+    org.springframework.test: INFO
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# Disable management endpoints in tests
+management:
+  endpoints:
+    enabled-by-default: false

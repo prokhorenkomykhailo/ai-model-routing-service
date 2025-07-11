@@ -1,0 +1,77 @@
+# Docker profile for containerized deployment
+server:
+  port: ${SERVER_PORT:8083}
+
+spring:
+  application:
+    name: ai-routing-service
+  # Redis Configuration
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000
+      database: 0
+
+# Service discovery configuration for Docker
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://discovery-service:8761/eureka/}
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+    hostname: ai-routing-service
+
+# AI provider configurations for Docker environment
+ai:
+  providers:
+    gemini:
+      type: gemini
+      api-key: ${GEMINI_API_KEY:}
+      endpoint: https://generativelanguage.googleapis.com/v1/models
+      timeout: 45000
+      enabled: ${GEMINI_ENABLED:true}
+    
+    openai:
+      type: openai
+      api-key: ${OPENAI_API_KEY:}
+      endpoint: http://10.113.213.9:5003/v1/completions
+      timeout: 45000
+      enabled: ${OPENAI_ENABLED:true}
+
+# Swagger configuration for Docker
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: false
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha
+    try-it-out-enabled: true
+    disable-swagger-default-url: true
+    gateway-uri: /api/ai
+  show-actuator: false
+  default-produces-media-type: application/json
+  packages-to-scan: com.lucid.automation.airouting.controller
+
+# Docker logging configuration
+logging:
+  level:
+    com.lucid.automation.airouting: ${LOG_LEVEL:INFO}
+    org.springframework.web: WARN
+    AI_AUDIT: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [${spring.application.name}] %logger{36} - %msg%n"
+
+# Data storage service configuration
+data-storage-service:
+  url: ${DATA_STORAGE_SERVICE_URL:http://localhost:8082}
+
+# auth service configuration
+auth-service:
+  url: ${AUTH_SERVICE_URL:http://localhost:8088}
