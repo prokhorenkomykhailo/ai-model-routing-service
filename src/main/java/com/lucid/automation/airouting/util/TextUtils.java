@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.lucid.automation.airouting.dto.UserDTO;
+import com.lucid.automation.common.dto.enrichment.EnrichmentUserDTO;
 
 public class TextUtils {
     
@@ -21,31 +21,21 @@ public class TextUtils {
     /**
      * Replaces Slack mentions (e.g., <@U12345>) in the input text with the display name or username from userInfos.
      * @param text The input text containing Slack mentions.
-     * @param userInfos Map of userId to UserDTO.
+     * @param userInfos Map of userId to EnrichmentUserDTO.
      * @return The text with Slack mentions replaced.
      */
-    public static String replaceSlackMentions(String text, Map<String, UserDTO> userInfos) {
+    public static String replaceSlackMentions(String text, Map<String, EnrichmentUserDTO> userInfos) {
         if (text == null) return null;
         if (userInfos == null || userInfos.isEmpty()) return text;
 
-        for (String key : userInfos.keySet()) {
+        // Pattern to match Slack mentions like <@U02FB4HRF>
+        Pattern pattern = Pattern.compile("<@([A-Z0-9]+)>");
+        Matcher matcher = pattern.matcher(text);
 
-            // Skip null / empty keys
-            if (key == null || key.isBlank()) {
-                logger.warn("Found null or empty key in userInfos map, skipping");
-                continue;
-            }
-
+        while (matcher.find()) {
+            String key = matcher.group(1);
             try {
-                //   (?<=^|\\s)     – phía trước phải là đầu dòng hoặc khoảng trắng
-                //   (<@ID>|ID)     – chính mention (ID bọc <> hoặc trần)
-                //   (?=[\\s.,!?]|$)– phía sau là khoảng trắng, dấu câu, hoặc kết thúc chuỗi
-                String mentionPattern =
-                        "(?<=^|\\s)(<@" + Pattern.quote(key) + ">|" + Pattern.quote(key) + ")(?=[\\s.,!?]|$)";
-                Pattern pattern = Pattern.compile(mentionPattern);
-                Matcher matcher = pattern.matcher(text);
-
-                UserDTO user   = userInfos.get(key);
+                EnrichmentUserDTO user = userInfos.get(key);
                 String name;
                 if (user != null) {
                     if (user.displayName() != null) {

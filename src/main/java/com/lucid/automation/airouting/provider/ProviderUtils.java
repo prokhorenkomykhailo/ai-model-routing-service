@@ -3,9 +3,23 @@ package com.lucid.automation.airouting.provider;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
-import com.lucid.automation.airouting.dto.SuggestedReply;
+import com.lucid.automation.common.dto.enrichment.SuggestedReply;
 
 public class ProviderUtils {
+
+    // Constants for suggested replies fields
+    private static final String SUGGESTED_REPLIES_KEY = "suggestedReplies";
+    private static final String TONE_KEY = "tone";
+    private static final String REPLY_METHOD_KEY = "replyMethod";
+    private static final String RECIPIENT_HANDLE_KEY = "recipientHandle";
+    private static final String CHANNEL_NAME_KEY = "channelName";
+    private static final String CHANNEL_ID_KEY = "channelId";
+    private static final String THREAD_ID_KEY = "threadId";
+    private static final String TO_KEY = "to";
+    private static final String CC_KEY = "cc";
+    private static final String SUBJECT_KEY = "subject";
+    private static final String MESSAGE_BODY_KEY = "messageBody";
+    private static final String DEFAULT_MESSAGE_BODY = "";
 
     public static String extractStringValue(Map<?, ?> map, String key, String defaultValue) {
         Object value = map.get(key);
@@ -54,22 +68,22 @@ public class ProviderUtils {
     }
 
     public static List<SuggestedReply> extractSuggestedReplies(Map<?, ?> topicMap) {
-        Object suggestedRepliesObj = topicMap.get("suggestedReplies");
+        Object suggestedRepliesObj = topicMap.get(SUGGESTED_REPLIES_KEY);
         if (suggestedRepliesObj instanceof List<?> repliesList) {
             List<SuggestedReply> replies = new ArrayList<>();
 
             for (Object replyObj : repliesList) {
                 if (replyObj instanceof Map<?, ?> replyMap) {
-                    String tone = extractStringValue(replyMap, "tone", null);
-                    String replyMethod = extractStringValue(replyMap, "replyMethod", null);
-                    String recipientHandle = extractStringValue(replyMap, "recipientHandle", null);
-                    String channelName = extractStringValue(replyMap, "channelName", null);
-                    String channelId = extractStringValue(replyMap, "channelId", null);
-                    String threadId = extractStringValue(replyMap, "threadId", null);
-                    String to = extractStringValue(replyMap, "to", null);
-                    List<String> cc = extractStringList(replyMap, "cc");
-                    String subject = extractStringValue(replyMap, "subject", null);
-                    String messageBody = extractStringValue(replyMap, "messageBody", "");
+                    String tone = extractStringValue(replyMap, TONE_KEY, null);
+                    String replyMethod = extractStringValue(replyMap, REPLY_METHOD_KEY, null);
+                    String recipientHandle = extractStringValue(replyMap, RECIPIENT_HANDLE_KEY, null);
+                    String channelName = extractStringValue(replyMap, CHANNEL_NAME_KEY, null);
+                    String channelId = extractStringValue(replyMap, CHANNEL_ID_KEY, null);
+                    String threadId = extractStringValue(replyMap, THREAD_ID_KEY, null);
+                    String to = extractStringValue(replyMap, TO_KEY, null);
+                    List<String> cc = extractStringList(replyMap, CC_KEY);
+                    String subject = extractStringValue(replyMap, SUBJECT_KEY, null);
+                    String messageBody = extractStringValue(replyMap, MESSAGE_BODY_KEY, DEFAULT_MESSAGE_BODY);
 
                     SuggestedReply suggestedReply = new SuggestedReply(
                         tone, replyMethod, recipientHandle, channelName, channelId,

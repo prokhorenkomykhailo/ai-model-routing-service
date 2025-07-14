@@ -4,12 +4,12 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lucid.automation.airouting.dto.ConversationEnrichment;
-import com.lucid.automation.airouting.dto.ForwardInfo;
-import com.lucid.automation.airouting.dto.SuggestedReply;
-import com.lucid.automation.airouting.dto.SummaryPerPerson;
-import com.lucid.automation.airouting.dto.TopicEnrichment;
-import com.lucid.automation.airouting.dto.UrgencyLevel;
-import com.lucid.automation.airouting.dto.UserDTO;
+import com.lucid.automation.common.dto.enrichment.ForwardInfo;
+import com.lucid.automation.common.dto.enrichment.SuggestedReply;
+import com.lucid.automation.common.dto.enrichment.SummaryPerPerson;
+import com.lucid.automation.common.dto.enrichment.TopicEnrichment;
+import com.lucid.automation.common.dto.enrichment.UrgencyLevel;
+import com.lucid.automation.common.dto.enrichment.EnrichmentUserDTO;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.User;
 import com.lucid.automation.airouting.provider.ProviderUtils;
@@ -48,6 +48,22 @@ import java.util.stream.Collectors;
 public class PostProcessingConsumer {
     
     private static final Logger logger = LoggerFactory.getLogger(PostProcessingConsumer.class);
+    
+    // Constants
+    private static final String DEFAULT_TOPIC_TITLE = "General Discussion";
+    private static final String DEFAULT_SUMMARY = "No summary available";
+    private static final String DEFAULT_DETAILED_SUMMARY = "No detailed summary available";
+    private static final String DEFAULT_ACTION = "No action suggested";
+    private static final String DEFAULT_CATEGORY = "General";
+    private static final String DEFAULT_URGENCY = "Low";
+    private static final String UNKNOWN_USER = "Unknown User";
+    private static final String ERROR_INVALID_FORMAT = "Invalid pre-AI response format";
+    private static final String ERROR_RESULT_NULL = "Result map is null in pre-AI response";
+    private static final String ERROR_FAILED_CONVERSATION_ANALYSIS = "Failed to analyze conversation";
+    private static final String NOT_AVAILABLE = "N/A";
+    private static final String SUCCESS_STATUS = "success";
+    private static final String UNTITLED_TOPIC = "Untitled Topic";
+    private static final String DEFAULT_SUMMARY_FOR_PERSON = "No summary available";
     
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final UserService userService;
@@ -113,10 +129,10 @@ public class PostProcessingConsumer {
      */
     @SuppressWarnings("unchecked")
     private Map<String, Object> processPreAiResponse(Map<String, Object> messageResponse) {
-        logger.info("Processing pre-AI response: {}", messageResponse);
+        logger.info("Processing pre-AI response with keys: {}", messageResponse.keySet());
         if (!(messageResponse instanceof Map<?, ?>)) {
             logger.error("Invalid pre-AI response format: expected Map, got {}", messageResponse.getClass().getSimpleName());
-            return Map.of("error", "Invalid pre-AI response format");
+            return Map.of("error", ERROR_INVALID_FORMAT);
         }
         
         Map<String, Object> responseMap = (Map<String, Object>) messageResponse;
@@ -130,12 +146,16 @@ public class PostProcessingConsumer {
         String userId = (String) responseMap.get("userId");
         String deemergeUserId = (String) responseMap.get("deemergeUserId");
         String deemergeUserName = (String) responseMap.get("deemergeUserName");
+        String teamId = (String) responseMap.get("teamId");
+        
+        logger.info("Extracted fields - messageId: {}, correlationId: {}, taskType: {}, tenantId: {}, teamId: {}, deemergeUserId: {}, deemergeUserName: {}", 
+                   messageId, correlationId, taskType, tenantId, teamId, deemergeUserId, deemergeUserName);
         
         // extract result as a String
         Map<String, Object> aiResultMap = (Map<String, Object>) responseMap.get("result");
         if (aiResultMap == null) {
             logger.error("Result map is null in pre-AI response: {}", responseMap);
-            return Map.of("error", "Result map is null in pre-AI response");
+            return Map.of("error", ERROR_RESULT_NULL);
         }
 
         // Convert the request objects from LinkedHashMap to SlackMessage objects
@@ -181,7 +201,7 @@ public class PostProcessingConsumer {
         processedResponse.put("messageId", messageId);
         processedResponse.put("correlationId", correlationId);
         processedResponse.put("taskType", taskType);
-        processedResponse.put("status", "success");
+        processedResponse.put("status", SUCCESS_STATUS);
         processedResponse.put("result", parsedResult);
         processedResponse.put("processedAt", processedAtTime);
         processedResponse.put("tenantId", tenantId);
@@ -189,6 +209,7 @@ public class PostProcessingConsumer {
         processedResponse.put("userId", userId);
         processedResponse.put("deemergeUserId", deemergeUserId);
         processedResponse.put("deemergeUserName", deemergeUserName);
+        processedResponse.put("teamId", teamId);
         return processedResponse;
     }
     
@@ -265,14 +286,14 @@ public class PostProcessingConsumer {
     
     private ConversationEnrichment getDefaultConversationEnrichment() {
         TopicEnrichment defaultTopic = new TopicEnrichment(
-            "General Discussion",
-            "No summary available", 
-            "No detailed summary available",
-            "No action suggested",
+            DEFAULT_TOPIC_TITLE,
+            DEFAULT_SUMMARY, 
+            DEFAULT_DETAILED_SUMMARY,
+            DEFAULT_ACTION,
             null, // clientOrSupplier
             null, // deadline
             UrgencyLevel.LOW,
-            "General", // category
+            DEFAULT_CATEGORY, // category
             null, // subCategory
             null, // startTime
             null, // endTime
@@ -290,17 +311,17 @@ public class PostProcessingConsumer {
             List.of(defaultTopic),
             List.of(),
             List.of(),
-            Map.of("error", "Failed to analyze conversation")
+            Map.of("error", ERROR_FAILED_CONVERSATION_ANALYSIS)
         );
     }
     
     private TopicEnrichment parseTopicFromMap(Map<?, ?> topicMap, List<SlackMessage> messages) {
-        Map<String, UserDTO> userInfos = messages.stream().filter(msg -> {
+        Map<String, EnrichmentUserDTO> userInfos = messages.stream().filter(msg -> {
                 String key = msg.getSlackUserId() != null ? msg.getSlackUserId() : msg.getUsername();
                 return key != null && !key.trim().isEmpty();
             }).collect(Collectors.toMap(
                 msg -> msg.getSlackUserId() != null ? msg.getSlackUserId() : msg.getUsername(),
-                msg -> new UserDTO(msg.getSlackUserId(), msg.getUsername(), getBestDisplayNameFromSlackMessage(msg), msg.getImage72()),
+                msg -> new EnrichmentUserDTO(msg.getSlackUserId(), msg.getUsername(), getBestDisplayNameFromSlackMessage(msg), msg.getImage72()),
                 (existing, replacement) -> existing // Keep existing if duplicate
             ));
 
@@ -308,21 +329,21 @@ public class PostProcessingConsumer {
         String workspaceId = messages.isEmpty() ? null : messages.get(0).getWorkspaceId();
         updateUserInformation(userInfos, tenantId, workspaceId);
 
-        String title = extractStringValue(topicMap, "title", "Untitled Topic");
-        String shortSummary = extractStringValue(topicMap, "shortSummary", "No summary available");
+        String title = extractStringValue(topicMap, "title", UNTITLED_TOPIC);
+        String shortSummary = extractStringValue(topicMap, "shortSummary", DEFAULT_SUMMARY);
         shortSummary = TextUtils.replaceSlackMentions(shortSummary, userInfos);
         
-        String fullSummary = extractStringValue(topicMap, "fullSummary", "No detailed summary available");
+        String fullSummary = extractStringValue(topicMap, "fullSummary", DEFAULT_DETAILED_SUMMARY);
         fullSummary = TextUtils.replaceSlackMentions(fullSummary, userInfos);
 
-        String suggestedAction = extractStringValue(topicMap, "suggestedAction", "No action suggested");
+        String suggestedAction = extractStringValue(topicMap, "suggestedAction", DEFAULT_ACTION);
         suggestedAction = TextUtils.replaceSlackMentions(suggestedAction, userInfos);
 
         String clientOrSupplier = extractStringValue(topicMap, "clientOrSupplier", null);
         String deadlineStr = extractStringValue(topicMap, "deadline", null);
         LocalDateTime deadline = parseDeadline(deadlineStr);
-        String urgencyStr = extractStringValue(topicMap, "urgency", "Low");
-        String category = extractStringValue(topicMap, "category", "General");
+        String urgencyStr = extractStringValue(topicMap, "urgency", DEFAULT_URGENCY);
+        String category = extractStringValue(topicMap, "category", DEFAULT_CATEGORY);
         String subCategory = extractStringValue(topicMap, "subCategory", null);
         String periodStartDate = extractStringValue(topicMap, "periodStartDate", null);
         String periodEndDate = extractStringValue(topicMap, "periodEndDate", null);
@@ -342,7 +363,7 @@ public class PostProcessingConsumer {
         LocalDateTime startTime = extractDateTime(topicMap, "startTime");
         LocalDateTime endTime = extractDateTime(topicMap, "endTime");
                 
-        List<UserDTO> peopleInvolved = extractPeopleInvolved(topicMap, tenantId, workspaceId);
+        List<EnrichmentUserDTO> peopleInvolved = extractPeopleInvolved(topicMap, tenantId, workspaceId);
         List<SummaryPerPerson> summaryPerPerson = extractSummaryPerPerson(topicMap, tenantId, workspaceId, messages);
         Map<String, String> lastMessageDatePerPerson = extractStringMap(topicMap, "lastMessageDatePerPerson");
         List<SuggestedReply> suggestedReplies = ProviderUtils.extractSuggestedReplies(topicMap);
@@ -363,7 +384,7 @@ public class PostProcessingConsumer {
     private String getBestDisplayName(User user, String fallback) {
         if (user == null) {
             logger.debug("getBestDisplayName: User is null, using fallback: {}", fallback);
-            return fallback != null ? fallback : "Unknown User";
+            return fallback != null ? fallback : UNKNOWN_USER;
         }
         
         // Try displayName first
@@ -391,7 +412,7 @@ public class PostProcessingConsumer {
         }
         
         // Use fallback
-        String result = fallback != null ? fallback : "Unknown User";
+        String result = fallback != null ? fallback : UNKNOWN_USER;
         logger.debug("getBestDisplayName: All user name fields are null/empty. Using fallback: {}", result);
         logger.debug("getBestDisplayName: User debug info - displayName: '{}', displayNameNormalized: '{}', realNameNormalized: '{}', name: '{}'", 
                     user.getDisplayName(), user.getDisplayNameNormalized(), user.getRealNameNormalized(), user.getName());
@@ -404,7 +425,7 @@ public class PostProcessingConsumer {
      */
     private String getBestDisplayNameFromSlackMessage(SlackMessage msg) {
         if (msg == null) {
-            return "Unknown User";
+            return UNKNOWN_USER;
         }
         
         // Try displayName first
@@ -422,10 +443,10 @@ public class PostProcessingConsumer {
             return msg.getSlackUserId();
         }
         
-        return "Unknown User";
+        return UNKNOWN_USER;
     }
 
-    private void updateUserInformation(Map<String, UserDTO> userInfos, String tenantId, String workspaceId) {
+    private void updateUserInformation(Map<String, EnrichmentUserDTO> userInfos, String tenantId, String workspaceId) {
         if (tenantId == null || workspaceId == null) return;
         
         if (tenantId != null && workspaceId != null) {
@@ -435,7 +456,7 @@ public class PostProcessingConsumer {
                     if (slackId != null && !slackId.trim().isEmpty()) {
                         User updatedUser = userService.getUser(tenantId, workspaceId, slackId).orElse(null);
                         if (updatedUser != null) {
-                            UserDTO updatedUserDTO = new UserDTO(
+                            EnrichmentUserDTO updatedUserDTO = new EnrichmentUserDTO(
                                 updatedUser.getId(),
                                 updatedUser.getName(),
                                 getBestDisplayName(updatedUser, updatedUser.getName()),
@@ -502,16 +523,16 @@ public class PostProcessingConsumer {
         return null;
     }
 
-    private List<UserDTO> extractPeopleInvolved(Map<?, ?> topicMap, String tenantId, String workspaceId) {
+    private List<EnrichmentUserDTO> extractPeopleInvolved(Map<?, ?> topicMap, String tenantId, String workspaceId) {
         Object value = topicMap.get("peopleInvolved");
         if (value instanceof List<?> list) {
-            List<UserDTO> result = new ArrayList<>();
+            List<EnrichmentUserDTO> result = new ArrayList<>();
             for (Object item : list) {
                 if (item instanceof String userId) {
                     // Process only string user IDs like "U08SABCH6R3"
-                    UserDTO enrichedUser = enrichUserDTO(userId, tenantId, workspaceId);
+                    EnrichmentUserDTO enrichedUser = enrichUserDTO(userId, tenantId, workspaceId);
                     // Add user only if ID is valid (not null and not N/A)
-                    if (enrichedUser.id() != null && !enrichedUser.id().equals("N/A")) {
+                    if (enrichedUser.id() != null && !enrichedUser.id().equals(NOT_AVAILABLE)) {
                         result.add(enrichedUser);
                     }
                 } else {
@@ -529,7 +550,7 @@ public class PostProcessingConsumer {
     /**
      * Enriches UserDTO with data from Redis
      */
-    private UserDTO enrichUserDTO(String userId, String tenantId, String workspaceId) {
+    private EnrichmentUserDTO enrichUserDTO(String userId, String tenantId, String workspaceId) {
         try {            
             // Get user details from Redis - add null checks
             if (tenantId != null && workspaceId != null && userId != null && !userId.trim().isEmpty()) {
@@ -541,7 +562,7 @@ public class PostProcessingConsumer {
                     String userName = user.getName() != null && !user.getName().trim().isEmpty() ? user.getName() : userId;
                     logger.debug("enrichUserDTO: Successfully enriched user {} with displayName: '{}', userName: '{}'", 
                                 userId, displayName, userName);
-                    return new UserDTO(
+                    return new EnrichmentUserDTO(
                         userId,
                         userName,
                         displayName,
@@ -551,11 +572,11 @@ public class PostProcessingConsumer {
             }
             logger.warn("Cannot enrich user data due to null/empty parameters: tenantId={}, workspaceId={}, userId={}", 
                        tenantId, workspaceId, userId);
-            return new UserDTO(userId, userId, userId, null); // Use userId for all name fields as fallback
+            return new EnrichmentUserDTO(userId, userId, userId, null); // Use userId for all name fields as fallback
         } catch (Exception e) {
             logger.warn("Failed to enrich UserDTO for user {}: {}", userId, e.getMessage());
             // Return original data on error with userId as fallback for all name fields
-            return new UserDTO(userId, userId, userId, null);
+            return new EnrichmentUserDTO(userId, userId, userId, null);
         }
     }
     
@@ -635,7 +656,7 @@ public class PostProcessingConsumer {
                     String username = extractStringValue(summaryObjMap, "username", null);
                     String displayName = extractStringValue(summaryObjMap, "displayName", null);
                     String imageUrl = extractStringValue(summaryObjMap, "imageUrl", null);
-                    String summary = extractStringValue(summaryObjMap, "summary", "No summary available");
+                    String summary = extractStringValue(summaryObjMap, "summary", DEFAULT_SUMMARY_FOR_PERSON);
                     Integer messageCount = extractIntegerValue(summaryObjMap, "messageCount", 0);
                     LocalDateTime firstMessageDate = extractDateTime(summaryObjMap, "firstMessageDate");
                     LocalDateTime lastMessageDate = extractDateTime(summaryObjMap, "lastMessageDate");
