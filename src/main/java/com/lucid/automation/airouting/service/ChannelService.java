@@ -2,7 +2,7 @@ package com.lucid.automation.airouting.service;
 
 import com.lucid.automation.airouting.model.Channel;
 import com.lucid.automation.airouting.repository.ChannelRepository;
-import com.lucid.automation.slackingestion.dto.messaging.IngestionEventDTO;
+import com.lucid.automation.common.dto.messaging.IngestionEventDTO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;

@@ -1,7 +1,7 @@
 package com.lucid.automation.airouting.service;
 
-import com.lucid.automation.slackingestion.dto.messaging.IngestionEventDTO;
-import com.lucid.automation.slackingestion.dto.messaging.SlackUserDTO;
+import com.lucid.automation.common.dto.messaging.IngestionEventDTO;
+import com.lucid.automation.common.dto.messaging.SlackUserDTO;
 import com.lucid.automation.airouting.model.Message;
 import com.lucid.automation.airouting.repository.MessageRepository;
 import org.slf4j.Logger;
@@ -70,7 +70,7 @@ public class MessageService {
             return savedMessage != null;
         } catch (Exception e) {
             logger.error("❌ Failed to store message {}: {}", 
-                ingestionEventDto.getMessageId(), e.getMessage());
+                ingestionEventDto.getMessage() != null ? ingestionEventDto.getMessage().getTs() : "null", e.getMessage());
             return false;
         }
     }

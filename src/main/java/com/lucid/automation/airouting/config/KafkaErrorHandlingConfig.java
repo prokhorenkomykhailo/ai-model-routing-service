@@ -1,6 +1,6 @@
 package com.lucid.automation.airouting.config;
 
-import com.lucid.automation.slackingestion.dto.messaging.IngestionEventDTO;
+import com.lucid.automation.common.dto.messaging.IngestionEventDTO;
 import com.lucid.automation.airouting.model.message.AIMessage;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -75,7 +75,7 @@ public class KafkaErrorHandlingConfig {
         
         // Additional JSON configuration for better error handling
         configProps.put(JsonDeserializer.TYPE_MAPPINGS, 
-            "com.lucid.automation.slackingestion.dto.messaging.IngestionEventDTO:" + IngestionEventDTO.class.getName());
+            "com.lucid.automation.common.dto.messaging.IngestionEventDTO:" + IngestionEventDTO.class.getName());
         configProps.put(JsonDeserializer.REMOVE_TYPE_INFO_HEADERS, true);
         
         return new DefaultKafkaConsumerFactory<>(configProps);

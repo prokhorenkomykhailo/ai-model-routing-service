@@ -294,6 +294,7 @@ public class PostProcessingConsumer {
             DEFAULT_DETAILED_SUMMARY,
             DEFAULT_ACTION,
             null, // clientOrSupplier
+            null, // source
             null, // deadline
             UrgencyLevel.LOW,
             DEFAULT_CATEGORY, // category
@@ -343,6 +344,7 @@ public class PostProcessingConsumer {
         suggestedAction = TextUtils.replaceSlackMentions(suggestedAction, userInfos);
 
         String clientOrSupplier = extractStringValue(topicMap, "clientOrSupplier", null);
+        String source = extractStringValue(topicMap, "source", null);
         String deadlineStr = extractStringValue(topicMap, "deadline", null);
         LocalDateTime deadline = parseDeadline(deadlineStr);
         String urgencyStr = extractStringValue(topicMap, "urgency", DEFAULT_URGENCY);
@@ -373,7 +375,7 @@ public class PostProcessingConsumer {
         ForwardInfo suggestedForwardRecipient = extractForwardInfo(topicMap);
         
         return new TopicEnrichment(title, shortSummary, fullSummary, suggestedAction, 
-                                 clientOrSupplier, deadline, urgency, category, subCategory,
+                                 clientOrSupplier, source, deadline, urgency, category, subCategory,
                                  startTime, endTime, periodStartDate, periodEndDate, latestMessageDate,
                                  peopleInvolved, summaryPerPerson, lastMessageDatePerPerson, 
                                  suggestedReplies, suggestedForwardRecipient);

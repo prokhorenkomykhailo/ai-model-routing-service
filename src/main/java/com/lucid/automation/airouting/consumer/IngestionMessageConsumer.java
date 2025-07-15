@@ -1,6 +1,6 @@
 package com.lucid.automation.airouting.consumer;
 
-import com.lucid.automation.slackingestion.dto.messaging.IngestionEventDTO;
+import com.lucid.automation.common.dto.messaging.IngestionEventDTO;
 import com.lucid.automation.airouting.model.Workspace;
 import com.lucid.automation.airouting.service.MessageService;
 import com.lucid.automation.airouting.service.WorkspaceService;
@@ -40,7 +40,7 @@ public class IngestionMessageConsumer {
         containerFactory = "kafkaListenerContainerFactory",
         properties = {
             "spring.json.use.type.headers=false",
-            "spring.json.value.default.type=com.lucid.automation.slackingestion.dto.messaging.IngestionEventDTO"
+            "spring.json.value.default.type=com.lucid.automation.common.dto.messaging.IngestionEventDTO"
         }
     )
     public void processIngestionMessage(@Payload IngestionEventDTO ingestionEventDto,

@@ -1,7 +1,7 @@
 package com.lucid.automation.airouting.service;
 
-import com.lucid.automation.slackingestion.dto.messaging.IngestionEventDTO;
-import com.lucid.automation.slackingestion.dto.messaging.SlackMessageDTO;
+import com.lucid.automation.common.dto.messaging.IngestionEventDTO;
+import com.lucid.automation.common.dto.messaging.MessageDTO;
 import com.lucid.automation.airouting.dto.WorkspaceStats;
 import com.lucid.automation.airouting.model.Workspace;
 import com.lucid.automation.airouting.repository.WorkspaceRepository;
@@ -87,7 +87,7 @@ public class WorkspaceService {
      * @param ingestionEventDto The message data
      */
     private void updateWorkspaceFromMessage(Workspace workspace, IngestionEventDTO ingestionEventDto) {
-        SlackMessageDTO messageData = ingestionEventDto.getMessage();
+        MessageDTO messageData = ingestionEventDto.getMessage();
 
         // Update basic info
         if (workspace.getTeamId() == null && messageData.getTeamId() != null) {
@@ -135,7 +135,7 @@ public class WorkspaceService {
     /**
      * Parse message timestamp
      */
-    private Instant parseMessageTime(IngestionEventDTO dto, SlackMessageDTO messageData) {
+    private Instant parseMessageTime(IngestionEventDTO dto, MessageDTO messageData) {
         // Try to use ingestedAt first
         if (dto.getIngestedAt() != null) {
             return dto.getIngestedAt();
