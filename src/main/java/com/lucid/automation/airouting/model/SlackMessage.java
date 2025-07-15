@@ -19,6 +19,9 @@ public class SlackMessage {
     private String workspaceId;
     private String threadTs;
     private String messageTs;
+    private String channelName;
+    private String tenantSchema;
+    private String deemergeUserId;
     
     // Composite indexes for common query patterns
     private String tenantWorkspaceIndex;
@@ -147,6 +150,15 @@ public class SlackMessage {
     
     public String getMessageTs() { return messageTs; }
     public void setMessageTs(String messageTs) { this.messageTs = messageTs; }
+    
+    public String getChannelName() { return channelName; }
+    public void setChannelName(String channelName) { this.channelName = channelName; }
+    
+    public String getTenantSchema() { return tenantSchema; }
+    public void setTenantSchema(String tenantSchema) { this.tenantSchema = tenantSchema; }
+    
+    public String getDeemergeUserId() { return deemergeUserId; }
+    public void setDeemergeUserId(String deemergeUserId) { this.deemergeUserId = deemergeUserId; }
     
     // Composite indexes getters and setters
     public String getTenantWorkspaceIndex() { return tenantWorkspaceIndex; }

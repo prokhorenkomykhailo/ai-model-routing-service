@@ -88,6 +88,26 @@ public class ChannelService {
     }
 
     /**
+     * Find channels by name (case-insensitive)
+     * 
+     * @param channelName The channel name
+     * @return List of channels with matching name
+     */
+    public List<Channel> findByChannelNameIgnoreCase(String channelName) {
+        if (channelName == null || channelName.trim().isEmpty()) {
+            logger.warn("⚠️ Cannot find channels with null or empty name");
+            return List.of();
+        }
+        
+        try {
+            return channelRepository.findByChannelNameIgnoreCase(channelName.trim());
+        } catch (Exception e) {
+            logger.error("❌ Failed to find channels by name {}: {}", channelName, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
      * Create or update channel from ingestion event
      * 
      * @param ingestionEventDto The ingestion event containing channel info

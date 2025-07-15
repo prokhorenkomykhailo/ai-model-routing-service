@@ -12,8 +12,9 @@ import com.lucid.automation.common.dto.enrichment.UrgencyLevel;
 import com.lucid.automation.common.dto.enrichment.EnrichmentUserDTO;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.User;
-import com.lucid.automation.airouting.provider.ProviderUtils;
+import com.lucid.automation.airouting.model.Channel;
 import com.lucid.automation.airouting.service.UserService;
+import com.lucid.automation.airouting.service.ChannelService;
 import com.lucid.automation.airouting.util.TextUtils;
 import com.lucid.automation.airouting.util.json.JsonCleaner;
 
@@ -67,14 +68,16 @@ public class PostProcessingConsumer {
     
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final UserService userService;
+    private final ChannelService channelService;
     private final ObjectMapper objectMapper;
     
     @Value("${kafka.topics.ai-responses:ai.responses.queue}")
     private String aiResponsesTopic;
     
-    public PostProcessingConsumer(UserService userService, ObjectMapper objectMapper,
+    public PostProcessingConsumer(UserService userService, ChannelService channelService, ObjectMapper objectMapper,
                                  KafkaTemplate<String, Object> kafkaTemplate) {
         this.userService = userService;
+        this.channelService = channelService;
         this.kafkaTemplate = kafkaTemplate;
         this.objectMapper = objectMapper;
         
@@ -366,7 +369,7 @@ public class PostProcessingConsumer {
         List<EnrichmentUserDTO> peopleInvolved = extractPeopleInvolved(topicMap, tenantId, workspaceId);
         List<SummaryPerPerson> summaryPerPerson = extractSummaryPerPerson(topicMap, tenantId, workspaceId, messages);
         Map<String, String> lastMessageDatePerPerson = extractStringMap(topicMap, "lastMessageDatePerPerson");
-        List<SuggestedReply> suggestedReplies = ProviderUtils.extractSuggestedReplies(topicMap);
+        List<SuggestedReply> suggestedReplies = extractSuggestedRepliesWithChannelLookup(topicMap, tenantId, workspaceId);
         ForwardInfo suggestedForwardRecipient = extractForwardInfo(topicMap);
         
         return new TopicEnrichment(title, shortSummary, fullSummary, suggestedAction, 
@@ -521,6 +524,118 @@ public class PostProcessingConsumer {
             return new ForwardInfo(channel, to, subject, body);
         }
         return null;
+    }
+
+    /**
+     * Extract suggested replies from topic map with channel lookup functionality.
+     * If channelId is null but channelName is provided, attempts to resolve channelId from database.
+     */
+    private List<SuggestedReply> extractSuggestedRepliesWithChannelLookup(Map<?, ?> topicMap, String tenantId, String workspaceId) {
+        Object suggestedRepliesObj = topicMap.get("suggestedReplies");
+        if (suggestedRepliesObj instanceof List<?> repliesList) {
+            List<SuggestedReply> replies = new ArrayList<>();
+
+            for (Object replyObj : repliesList) {
+                if (replyObj instanceof Map<?, ?> replyMap) {
+                    String tone = extractStringValue(replyMap, "tone", null);
+                    String replyMethod = extractStringValue(replyMap, "replyMethod", null);
+                    String recipientHandle = extractStringValue(replyMap, "recipientHandle", null);
+                    String channelName = extractStringValue(replyMap, "channelName", null);
+                    String channelId = extractStringValue(replyMap, "channelId", null);
+                    String threadId = extractStringValue(replyMap, "threadId", null);
+                    String to = extractStringValue(replyMap, "to", null);
+                    List<String> cc = extractStringList(replyMap, "cc");
+                    String subject = extractStringValue(replyMap, "subject", null);
+                    String messageBody = extractStringValue(replyMap, "messageBody", "");
+
+                    // Handle channelId resolution if null but channelName is provided
+                    if (channelId == null && channelName != null && !channelName.trim().isEmpty()) {
+                        channelId = channelName.trim();
+                    }
+                    if (channelId != null) {
+                        // Attempt to resolve channelName from channelId
+                        channelName = resolveChannelNameFromId(channelId);
+                    } else if (channelId == null || channelId.trim().isEmpty()) {
+                        logger.warn("Channel ID is still null or empty after resolution attempt for channelName: {}", channelName);
+                        continue; // Skip this reply if we cannot resolve channelId
+                        
+                    }
+
+                    SuggestedReply suggestedReply = new SuggestedReply(
+                        tone, replyMethod, recipientHandle, channelName, channelId,
+                        threadId, to, cc, subject, messageBody
+                    );
+                    replies.add(suggestedReply);
+                }
+            }
+            return replies;
+        }
+        return List.of();
+    }
+
+    /**
+     * Resolves channelId from channelName by querying the database
+     */
+    private String resolveChannelIdFromName(String channelName, String tenantId, String workspaceId) {
+        try {
+            if (channelName == null || channelName.trim().isEmpty()) {
+                logger.warn("Cannot resolve channelId: channelName is null or empty");
+                return null;
+            }
+
+            // First try to find by exact channel name (case-insensitive)
+            List<Channel> channels = channelService.findByChannelNameIgnoreCase(channelName.trim());
+            
+            // Filter by tenant and workspace if available
+            if (tenantId != null && workspaceId != null) {
+                channels = channels.stream()
+                    .filter(channel -> tenantId.equals(channel.getTenantId()) && 
+                                     workspaceId.equals(channel.getWorkspaceId()))
+                    .toList();
+            }
+            
+            if (!channels.isEmpty()) {
+                // Return the first matching channel's ID
+                String resolvedChannelId = channels.get(0).getChannelId();
+                logger.info("Successfully resolved channelId {} for channelName {} in tenant {} workspace {}", 
+                           resolvedChannelId, channelName, tenantId, workspaceId);
+                return resolvedChannelId;
+            } else {
+                logger.warn("No channel found with name '{}' in tenant {} workspace {}", 
+                           channelName, tenantId, workspaceId);
+                return channelName; // Return original channelName as fallback
+            }
+            
+        } catch (Exception e) {
+            logger.error("Error resolving channelId for channelName '{}' in tenant {} workspace {}: {}", 
+                        channelName, tenantId, workspaceId, e.getMessage());
+            return channelName; // Return original channelName as fallback
+        }
+    }
+
+    /**
+     * Resolves channelName from channelId by querying the database
+     */
+    private String resolveChannelNameFromId(String channelId) {
+        try {
+            if (channelId == null || channelId.trim().isEmpty()) {
+                logger.warn("Cannot resolve channelName: channelId is null or empty");
+                return null;
+            }
+            // Find channel by channelId
+            Optional<Channel> channelOptional = channelService.findByChannelId(channelId.trim());
+            
+            if (channelOptional.isPresent()) {
+                Channel channel = channelOptional.get();
+                String channelName = channel.getChannelName();
+                return channelName;
+            } else {
+                return channelId; // Return original channelId as fallback
+            }
+            
+        } catch (Exception e) {
+            return channelId; // Return original channelId as fallback
+        }
     }
 
     private List<EnrichmentUserDTO> extractPeopleInvolved(Map<?, ?> topicMap, String tenantId, String workspaceId) {
@@ -805,7 +920,32 @@ public class PostProcessingConsumer {
         
         return requestMapList.stream()
             .map(this::convertMapToSlackMessage)
+            .map(this::ensureChannelNameResolved)  // Ensure channelName is resolved for all messages
             .collect(Collectors.toList());
+    }
+    
+    /**
+     * Ensure channelName is resolved for a SlackMessage, attempting resolution if missing
+     */
+    private SlackMessage ensureChannelNameResolved(SlackMessage message) {
+        if ((message.getChannelName() == null || message.getChannelName().trim().isEmpty()) &&
+            message.getChannelId() != null && !message.getChannelId().trim().isEmpty() &&
+            message.getTenantId() != null && message.getWorkspaceId() != null) {
+            
+            String resolvedChannelName = resolveChannelNameFromId(
+                message.getChannelId()
+            );
+            
+            if (resolvedChannelName != null && !resolvedChannelName.trim().isEmpty()) {
+                message.setChannelName(resolvedChannelName);
+                logger.debug("Successfully resolved channelName '{}' for channelId '{}' in message post-processing", 
+                           resolvedChannelName, message.getChannelId());
+            } else {
+                logger.warn("Failed to resolve channelName for channelId '{}' in tenantId '{}', workspaceId '{}'", 
+                          message.getChannelId(), message.getTenantId(), message.getWorkspaceId());
+            }
+        }
+        return message;
     }
     
     /**
@@ -817,11 +957,43 @@ public class PostProcessingConsumer {
             return objectMapper.convertValue(map, SlackMessage.class);
         } catch (Exception e) {
             logger.warn("Failed to convert map to SlackMessage: {}, error: {}", map, e.getMessage());
-            // Return a basic SlackMessage with minimal data
+            // Return a basic SlackMessage with minimal data including channelName
             SlackMessage message = new SlackMessage();
             message.setId((String) map.get("id"));
             message.setContent((String) map.get("content"));
             message.setUserId((String) map.get("userId"));
+            message.setChannelId((String) map.get("channelId"));
+            
+            String channelName = (String) map.get("channelName");
+            String channelId = (String) map.get("channelId");
+            String tenantId = (String) map.get("tenantId");
+            String workspaceId = (String) map.get("workspaceId");
+            
+            // Try to resolve channel name if missing but channel ID is present
+            if ((channelName == null || channelName.trim().isEmpty()) && 
+                channelId != null && !channelId.trim().isEmpty() &&
+                tenantId != null && workspaceId != null) {
+                
+                channelName = resolveChannelNameFromId(channelId);
+                logger.debug("Resolved channelName '{}' for channelId '{}' in fallback conversion", channelName, channelId);
+            }
+            
+            message.setChannelName(channelName);  // ← Preserve or resolve channelName!
+            message.setUsername((String) map.get("username"));
+            message.setTeamId((String) map.get("teamId"));
+            message.setTenantId(tenantId);
+            message.setWorkspaceId(workspaceId);
+            
+            // Handle timestamp conversion
+            Object timestampObj = map.get("timestamp");
+            if (timestampObj instanceof String) {
+                try {
+                    message.setTimestamp(LocalDateTime.parse((String) timestampObj));
+                } catch (Exception tsException) {
+                    logger.debug("Failed to parse timestamp: {}", timestampObj);
+                }
+            }
+            
             return message;
         }
     }

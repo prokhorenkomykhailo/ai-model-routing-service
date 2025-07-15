@@ -129,7 +129,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     @Scheduled(fixedDelay = 60000) // Every 60 seconds
     public void schedulerHeartbeat() {
         log.info("=== SCHEDULER HEARTBEAT === Time: {} Thread: {}", 
-                java.time.LocalDateTime.now(), Thread.currentThread().getName());
+                LocalDateTime.now(), Thread.currentThread().getName());
     }
 
     /**
@@ -138,12 +138,12 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     @Scheduled(cron = "${ai.enrichment.scheduler.cron:0 */5 * * * ?}")
     public void processMessageEnrichment() {        
         log.info("=== SCHEDULER EXECUTED ===");
-        log.info("Current time: {}", java.time.LocalDateTime.now());
+        log.info("Current time: {}", LocalDateTime.now());
         log.info("Thread: {}", Thread.currentThread().getName());
         log.info("Starting scheduled message enrichment process");
         
         try {
-            final var workspaces = fetchAllWorkspaces();
+            final var workspaces = workspaceService.getAllWorkspaces();
             
             if (workspaces.isEmpty()) {
                 log.info("No workspaces found, skipping enrichment cycle");
@@ -159,18 +159,6 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         }
         
         log.info("=== SCHEDULER EXECUTION COMPLETED ===");
-    }
-
-    /**
-     * Fetches all workspaces from the workspace service with error handling.
-     */
-    private List<Workspace> fetchAllWorkspaces() {
-        try {
-            return workspaceService.getAllWorkspaces();
-        } catch (Exception e) {
-            log.error("Failed to fetch workspaces: {}", e.getMessage(), e);
-            throw new RuntimeException("Unable to fetch workspaces for enrichment", e);
-        }
     }
 
     /**
@@ -337,12 +325,15 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         slackMessage.setText(message.getText());
         slackMessage.setContent(message.getText());
         slackMessage.setChannelId(message.getChannelId());
+        slackMessage.setChannelName(message.getChannelName());
         slackMessage.setThreadTs(message.getThreadTs());
         slackMessage.setType(message.getMessageType());
         slackMessage.setMessageType(message.getMessageType());
         slackMessage.setSubtype(message.getSubtype());
         slackMessage.setTenantId(message.getTenantId());
+        slackMessage.setTenantSchema(message.getTenantSchema());
         slackMessage.setWorkspaceId(message.getWorkspaceId());
+        slackMessage.setDeemergeUserId(message.getDeemergeUserId());
         slackMessage.setTenantWorkspaceIndex(message.getTenantWorkspaceIndex());
         slackMessage.setTenantWorkspaceChannelIndex(message.getTenantWorkspaceChannelIndex());
         slackMessage.setTenantWorkspaceChannelThreadIndex(message.getTenantWorkspaceChannelThreadIndex());
