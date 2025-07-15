@@ -3,7 +3,8 @@ package com.lucid.automation.airouting.consumer;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lucid.automation.airouting.dto.ConversationEnrichment;
+import com.lucid.automation.common.dto.enrichment.ConversationEnrichment;
+import com.lucid.automation.common.dto.enrichment.EnrichmentResponse;
 import com.lucid.automation.common.dto.enrichment.ForwardInfo;
 import com.lucid.automation.common.dto.enrichment.SuggestedReply;
 import com.lucid.automation.common.dto.enrichment.SummaryPerPerson;
@@ -114,7 +115,7 @@ public class PostProcessingConsumer {
             @SuppressWarnings("unchecked")
             Map<String, Object> responseMap = (Map<String, Object>) messageResponse;
             
-            Map<String, Object> parsedResponse = processPreAiResponse(responseMap);
+            EnrichmentResponse parsedResponse = processPreAiResponse(responseMap);
             sendToFinalAiResponsesTopic(parsedResponse);
             acknowledgment.acknowledge();
             logger.info("Successfully processed pre-AI response and forwarded to final topic");
@@ -131,11 +132,11 @@ public class PostProcessingConsumer {
      * This method can be extended to perform additional AI processing, validation, or enrichment
      */
     @SuppressWarnings("unchecked")
-    private Map<String, Object> processPreAiResponse(Map<String, Object> messageResponse) {
+    private EnrichmentResponse processPreAiResponse(Map<String, Object> messageResponse) {
         logger.info("Processing pre-AI response with keys: {}", messageResponse.keySet());
         if (!(messageResponse instanceof Map<?, ?>)) {
             logger.error("Invalid pre-AI response format: expected Map, got {}", messageResponse.getClass().getSimpleName());
-            return Map.of("error", ERROR_INVALID_FORMAT);
+            return createErrorResponse(ERROR_INVALID_FORMAT);
         }
         
         Map<String, Object> responseMap = (Map<String, Object>) messageResponse;
@@ -158,7 +159,7 @@ public class PostProcessingConsumer {
         Map<String, Object> aiResultMap = (Map<String, Object>) responseMap.get("result");
         if (aiResultMap == null) {
             logger.error("Result map is null in pre-AI response: {}", responseMap);
-            return Map.of("error", ERROR_RESULT_NULL);
+            return createErrorResponse(ERROR_RESULT_NULL);
         }
 
         // Convert the request objects from LinkedHashMap to SlackMessage objects
@@ -199,21 +200,29 @@ public class PostProcessingConsumer {
             processedAtTime = LocalDateTime.now();
         }
 
-        // Create a new response map with the processed data
-        Map<String, Object> processedResponse = new HashMap<>();
-        processedResponse.put("messageId", messageId);
-        processedResponse.put("correlationId", correlationId);
-        processedResponse.put("taskType", taskType);
-        processedResponse.put("status", SUCCESS_STATUS);
-        processedResponse.put("result", parsedResult);
-        processedResponse.put("processedAt", processedAtTime);
-        processedResponse.put("tenantId", tenantId);
-        processedResponse.put("tenantSchema", tenantSchema);
-        processedResponse.put("userId", userId);
-        processedResponse.put("deemergeUserId", deemergeUserId);
-        processedResponse.put("deemergeUserName", deemergeUserName);
-        processedResponse.put("teamId", teamId);
-        return processedResponse;
+        // Create a new response object with the processed data
+        EnrichmentResponse enrichmentResponse = new EnrichmentResponse();
+        enrichmentResponse.setMessageId(messageId);
+        enrichmentResponse.setCorrelationId(correlationId);
+        enrichmentResponse.setTaskType(taskType);
+        enrichmentResponse.setSuccess(true);
+        enrichmentResponse.setStatus(SUCCESS_STATUS);
+        enrichmentResponse.setResult(parsedResult);
+        enrichmentResponse.setProcessedAt(List.of(
+                processedAtTime.getYear(),
+                processedAtTime.getMonthValue(),
+                processedAtTime.getDayOfMonth(),
+                processedAtTime.getHour(),
+                processedAtTime.getMinute(),
+                processedAtTime.getSecond()
+        ));
+        enrichmentResponse.setTenantId(tenantId);
+        enrichmentResponse.setTenantSchema(tenantSchema);
+        enrichmentResponse.setUserId(userId);
+        enrichmentResponse.setDeemergeUserId(deemergeUserId);
+        enrichmentResponse.setDeemergeUserName(deemergeUserName);
+        enrichmentResponse.setTeamId(teamId);
+        return enrichmentResponse;
     }
     
     /**
@@ -227,6 +236,25 @@ public class PostProcessingConsumer {
         } catch (Exception e) {
             logger.error("Failed to send message to final ai-responses topic: {}, error: {}", aiResponsesTopic, e.getMessage(), e);
         }
+    }
+
+    /**
+     * Create an error EnrichmentResponse
+     */
+    private EnrichmentResponse createErrorResponse(String errorMessage) {
+        EnrichmentResponse response = new EnrichmentResponse();
+        response.setSuccess(false);
+        response.setStatus("error");
+        response.setErrorMessage(errorMessage);
+        response.setProcessedAt(List.of(
+                LocalDateTime.now().getYear(),
+                LocalDateTime.now().getMonthValue(),
+                LocalDateTime.now().getDayOfMonth(),
+                LocalDateTime.now().getHour(),
+                LocalDateTime.now().getMinute(),
+                LocalDateTime.now().getSecond()
+        ));
+        return response;
     }
 
     private ConversationEnrichment parseConversationEnrichmentResponse(String response, List<SlackMessage> messages) {
@@ -701,6 +729,30 @@ public class PostProcessingConsumer {
      * Extract DateTime from map with ISO format support
      */
     private LocalDateTime extractDateTime(Map<?, ?> map, String key) {
+        Object dateTimeObj = map.get(key);
+        
+        // Handle array format [year, month, day, hour, minute, second]
+        if (dateTimeObj instanceof List<?> dateList) {
+            try {
+                if (dateList.size() >= 6) {
+                    int year = ((Number) dateList.get(0)).intValue();
+                    int month = ((Number) dateList.get(1)).intValue();
+                    int day = ((Number) dateList.get(2)).intValue();
+                    int hour = ((Number) dateList.get(3)).intValue();
+                    int minute = ((Number) dateList.get(4)).intValue();
+                    int second = ((Number) dateList.get(5)).intValue();
+                    
+                    LocalDateTime result = LocalDateTime.of(year, month, day, hour, minute, second);
+                    logger.debug("SUMMARY_DEBUG: Parsed date array {} for key '{}' to: {}", dateList, key, result);
+                    return result;
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to parse date array {} for key '{}': {}", dateList, key, e.getMessage());
+                return null;
+            }
+        }
+        
+        // Handle string format (existing logic)
         String dateTimeStr = extractStringValue(map, key, null);
         if (dateTimeStr == null || dateTimeStr.trim().isEmpty()) {
             return null;
@@ -711,13 +763,18 @@ public class PostProcessingConsumer {
             if (dateTimeStr.endsWith("Z")) {
                 dateTimeStr = dateTimeStr.substring(0, dateTimeStr.length() - 1);
             }
-            return LocalDateTime.parse(dateTimeStr, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            LocalDateTime result = LocalDateTime.parse(dateTimeStr, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            logger.debug("SUMMARY_DEBUG: Parsed date string '{}' for key '{}' to: {}", dateTimeStr, key, result);
+            return result;
         } catch (Exception e) {
             try {
                 // Try without time part (just date)
-                return LocalDateTime.parse(dateTimeStr + "T00:00:00", DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                LocalDateTime result = LocalDateTime.parse(dateTimeStr + "T00:00:00", DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                logger.debug("SUMMARY_DEBUG: Parsed date string '{}' (with default time) for key '{}' to: {}", dateTimeStr, key, result);
+                return result;
             } catch (Exception e2) {
                 // If all parsing fails, return null
+                logger.warn("Failed to parse date string '{}' for key '{}': {}", dateTimeStr, key, e2.getMessage());
                 return null;
             }
         }
@@ -748,9 +805,12 @@ public class PostProcessingConsumer {
 
     private List<SummaryPerPerson> extractSummaryPerPerson(Map<?, ?> topicMap, String tenantId, String workspaceId, List<SlackMessage> messages) {
         Object summaryPerPersonObj = topicMap.get("summaryPerPerson");
+        logger.debug("SUMMARY_DEBUG: extractSummaryPerPerson called with summaryPerPersonObj type: {}, value: {}", 
+                    summaryPerPersonObj != null ? summaryPerPersonObj.getClass().getSimpleName() : "null", summaryPerPersonObj);
         
         // Handle new format: simple map of userId -> summary
         if (summaryPerPersonObj instanceof Map<?, ?> summaryMap) {
+            logger.info("SUMMARY_DEBUG: Processing summaryPerPerson as Map with {} entries", summaryMap.size());
             List<SummaryPerPerson> summaries = new ArrayList<>();
             
             for (Map.Entry<?, ?> entry : summaryMap.entrySet()) {
@@ -762,9 +822,11 @@ public class PostProcessingConsumer {
                     userId, summary, tenantId, workspaceId, messages
                 );
                 summaries.add(enrichedSummary);
+                logger.debug("SUMMARY_DEBUG: Added enriched summary for user {}: {}", userId, enrichedSummary);
             }
             return summaries;
         } else if (summaryPerPersonObj instanceof List<?> summaryList) {
+            logger.info("SUMMARY_DEBUG: Processing summaryPerPerson as List with {} entries", summaryList.size());
             List<SummaryPerPerson> summaries = new ArrayList<>();
             
             for (Object summaryObj : summaryList) {
@@ -779,6 +841,10 @@ public class PostProcessingConsumer {
                     LocalDateTime lastMessageDate = extractDateTime(summaryObjMap, "lastMessageDate");
                     List<String> keyContributions = extractStringList(summaryObjMap, "keyContributions");
                     List<String> actionItems = extractStringList(summaryObjMap, "actionItems");
+                    
+                    logger.debug("SUMMARY_DEBUG: Processing user {} - firstDate: {}, lastDate: {}", 
+                               id, firstMessageDate, lastMessageDate);
+                    
                     // check if username is empty or null, fallback to id
                     if (username == null || username.trim().isEmpty()) {
                         username = id;
@@ -791,11 +857,14 @@ public class PostProcessingConsumer {
                         keyContributions, actionItems
                     );
                     summaries.add(summaryPerPerson);
+                    logger.debug("SUMMARY_DEBUG: Created SummaryPerPerson for user {}: {}", id, summaryPerPerson);
                 }
             }
+            logger.info("SUMMARY_DEBUG: Returning {} summaries from List processing", summaries.size());
             return summaries;
         }
         
+        logger.warn("SUMMARY_DEBUG: summaryPerPerson is not Map or List, returning empty list");
         return List.of();
     }
     
