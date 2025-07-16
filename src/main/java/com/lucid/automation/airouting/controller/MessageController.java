@@ -138,6 +138,7 @@ public class MessageController {
                 .text(message.getText())
                 .messageType(message.getMessageType())
                 .subtype(message.getSubtype())
+                .permaLink(message.getPermaLink())
                 .metadata(message.getMetadata())
                 .ingestedAt(message.getIngestedAt())
                 .build();

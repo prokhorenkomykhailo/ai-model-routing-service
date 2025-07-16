@@ -261,6 +261,11 @@ public class Message implements Serializable {
     private String subtype;
     
     /**
+     * Permanent link to the message in Slack
+     */
+    private String permaLink;
+    
+    /**
      * Additional metadata for the message
      */
     private Map<String, Object> metadata;

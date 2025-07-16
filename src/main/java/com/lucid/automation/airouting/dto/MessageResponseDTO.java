@@ -33,6 +33,7 @@ public class MessageResponseDTO {
     private String text;
     private String messageType;
     private String subtype;
+    private String permaLink;
     private Map<String, Object> metadata;
     private Long ingestedAt;
 }

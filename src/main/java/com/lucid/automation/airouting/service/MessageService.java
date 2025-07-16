@@ -281,6 +281,7 @@ public class MessageService {
         message.setText(msg.getText());
         message.setMessageType(msg.getType());
         message.setSubtype(msg.getSubtype());
+        message.setPermaLink(msg.getPermaLink());
     }
     
     private void setUserFields(Message message, IngestionEventDTO dto) {
