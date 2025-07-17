@@ -344,6 +344,7 @@ public class PostProcessingConsumer {
             null, // periodStartDate
             null, // periodEndDate
             null, // latestMessageDate
+            null, // lastUpdated
             List.of(), // peopleInvolved
             List.of(), // summaryPerPerson
             Map.of(), // lastMessageDatePerPerson
@@ -413,6 +414,17 @@ public class PostProcessingConsumer {
         List<SuggestedReply> suggestedReplies = extractSuggestedRepliesWithChannelLookup(topicMap, tenantId, workspaceId);
         ForwardInfo suggestedForwardRecipient = extractForwardInfo(topicMap);
         
+        // Calculate lastUpdated from the latest message timestamp
+        LocalDateTime lastUpdated = null;
+        if (!messages.isEmpty()) {
+            lastUpdated = messages.stream()
+                .map(SlackMessage::getTimestamp)
+                .filter(Objects::nonNull)
+                .max(LocalDateTime::compareTo)
+                .orElse(null);
+            logger.debug("Calculated lastUpdated from {} messages: {}", messages.size(), lastUpdated);
+        }
+        
         // Log permaLink status
         logger.debug("Processing {} messages, permaLink status: {}", 
                     messages.size(), 
@@ -421,7 +433,7 @@ public class PostProcessingConsumer {
         return new TopicEnrichment(title, shortSummary, fullSummary, suggestedAction, 
                                  clientOrSupplier, deadline, urgency, category, subCategory,
                                  startTime, endTime, periodStartDate, periodEndDate, latestMessageDate,
-                                 peopleInvolved, summaryPerPerson, lastMessageDatePerPerson, 
+                                 lastUpdated, peopleInvolved, summaryPerPerson, lastMessageDatePerPerson, 
                                  suggestedReplies, suggestedForwardRecipient);
     }
     
@@ -849,65 +861,34 @@ public class PostProcessingConsumer {
 
     private List<SummaryPerPerson> extractSummaryPerPerson(Map<?, ?> topicMap, String tenantId, String workspaceId, List<SlackMessage> messages) {
         Object summaryPerPersonObj = topicMap.get("summaryPerPerson");
-        logger.debug("SUMMARY_DEBUG: extractSummaryPerPerson called with summaryPerPersonObj type: {}, value: {}", 
-                    summaryPerPersonObj != null ? summaryPerPersonObj.getClass().getSimpleName() : "null", summaryPerPersonObj);
-        
+        Map<String, String> lastMessageDatePerPerson = extractStringMap(topicMap, "lastMessageDatePerPerson");
+        if (summaryPerPersonObj == null) {
+            return List.of();
+        }
+        // extract lastMessageDate per person if available instead of using the whole map
+        if (lastMessageDatePerPerson == null || lastMessageDatePerPerson.isEmpty()) {
+            lastMessageDatePerPerson = Map.of(); // Ensure we have an empty map if not
+        }
+        lastMessageDatePerPerson.forEach((userId, dateStr) -> {
+            LocalDateTime lastMessageDate = parseDeadline(dateStr);
+            if (lastMessageDate != null) {
+                logger.debug("SUMMARY_DEBUG: Parsed lastMessageDate for user {}: {}", userId, lastMessageDate);
+            } else {
+                logger.warn("SUMMARY_DEBUG: Failed to parse lastMessageDate for user {}: {}", userId, dateStr);
+            }
+        });
+
         // Handle new format: simple map of userId -> summary
         if (summaryPerPersonObj instanceof Map<?, ?> summaryMap) {
-            logger.info("SUMMARY_DEBUG: Processing summaryPerPerson as Map with {} entries", summaryMap.size());
             List<SummaryPerPerson> summaries = new ArrayList<>();
-            
             for (Map.Entry<?, ?> entry : summaryMap.entrySet()) {
                 String userId = String.valueOf(entry.getKey());
                 String summary = String.valueOf(entry.getValue());
                 
-                // Enrich with user data from Redis
-                SummaryPerPerson enrichedSummary = enrichSummaryWithUserData(
-                    userId, summary, tenantId, workspaceId, messages
-                );
+                // Enrich with user data from Redis, passing lastMessageDatePerPerson map
+                SummaryPerPerson enrichedSummary = enrichSummaryWithUserData(userId, summary, tenantId, workspaceId, messages, lastMessageDatePerPerson);
                 summaries.add(enrichedSummary);
-                logger.debug("SUMMARY_DEBUG: Added enriched summary for user {}: {}", userId, enrichedSummary);
             }
-            return summaries;
-        } else if (summaryPerPersonObj instanceof List<?> summaryList) {
-            logger.info("SUMMARY_DEBUG: Processing summaryPerPerson as List with {} entries", summaryList.size());
-            List<SummaryPerPerson> summaries = new ArrayList<>();
-            
-            for (Object summaryObj : summaryList) {
-                if (summaryObj instanceof Map<?, ?> summaryObjMap) {
-                    String id = extractStringValue(summaryObjMap, "id", null);
-                    String username = extractStringValue(summaryObjMap, "username", null);
-                    String displayName = extractStringValue(summaryObjMap, "displayName", null);
-                    String imageUrl = extractStringValue(summaryObjMap, "imageUrl", null);
-                    String summary = extractStringValue(summaryObjMap, "summary", DEFAULT_SUMMARY_FOR_PERSON);
-                    Integer messageCount = extractIntegerValue(summaryObjMap, "messageCount", 0);
-                    LocalDateTime firstMessageDate = extractDateTime(summaryObjMap, "firstMessageDate");
-                    LocalDateTime lastMessageDate = extractDateTime(summaryObjMap, "lastMessageDate");
-                    List<String> keyContributions = extractStringList(summaryObjMap, "keyContributions");
-                    List<String> actionItems = extractStringList(summaryObjMap, "actionItems");
-                    
-                    // Extract sources from user's messages
-                    List<SourceDTO> sources = extractUserSources(id, messages);
-                    
-                    logger.debug("SUMMARY_DEBUG: Processing user {} - firstDate: {}, lastDate: {}", 
-                               id, firstMessageDate, lastMessageDate);
-                    
-                    // check if username is empty or null, fallback to id
-                    if (username == null || username.trim().isEmpty()) {
-                        username = id;
-                    }
-                    // Enhance displayName with user data from Redis
-                    displayName = enhanceDisplayName(id, displayName, username, tenantId, workspaceId);
-                    SummaryPerPerson summaryPerPerson = new SummaryPerPerson(
-                        id, username, displayName, imageUrl, summary,
-                        messageCount, firstMessageDate, lastMessageDate,
-                        keyContributions, actionItems, sources
-                    );
-                    summaries.add(summaryPerPerson);
-                    logger.debug("SUMMARY_DEBUG: Created SummaryPerPerson for user {}: {}", id, summaryPerPerson);
-                }
-            }
-            logger.info("SUMMARY_DEBUG: Returning {} summaries from List processing", summaries.size());
             return summaries;
         }
         
@@ -918,7 +899,7 @@ public class PostProcessingConsumer {
     /**
      * Enriches a basic SummaryPerPerson with user data from Redis and message statistics
      */
-    private SummaryPerPerson enrichSummaryWithUserData(String userId, String summary, String tenantId, String workspaceId, List<SlackMessage> messages) {
+    private SummaryPerPerson enrichSummaryWithUserData(String userId, String summary, String tenantId, String workspaceId, List<SlackMessage> messages, Map<String, String> lastMessageDatePerPerson) {
         try {
             // Get user details from Redis
             User user = null;
@@ -936,11 +917,25 @@ public class PostProcessingConsumer {
                 .filter(Objects::nonNull)
                 .min(LocalDateTime::compareTo)
                 .orElse(null);
-            LocalDateTime lastMessageDate = userMessages.stream()
-                .map(SlackMessage::getTimestamp)
-                .filter(Objects::nonNull)
-                .max(LocalDateTime::compareTo)
-                .orElse(null);
+            
+            // Use lastMessageDatePerPerson if available, otherwise calculate from messages
+            LocalDateTime lastMessageDate = null;
+            if (lastMessageDatePerPerson != null && lastMessageDatePerPerson.containsKey(userId)) {
+                String lastMessageDateStr = lastMessageDatePerPerson.get(userId);
+                lastMessageDate = parseDeadline(lastMessageDateStr);
+                logger.debug("SUMMARY_DEBUG: Using lastMessageDatePerPerson for user {}: {} -> {}", userId, lastMessageDateStr, lastMessageDate);
+            }
+            
+            // Fallback to calculating from user messages if not available from lastMessageDatePerPerson
+            if (lastMessageDate == null) {
+                lastMessageDate = userMessages.stream()
+                    .map(SlackMessage::getTimestamp)
+                    .filter(Objects::nonNull)
+                    .max(LocalDateTime::compareTo)
+                    .orElse(null);
+                logger.debug("SUMMARY_DEBUG: Calculated lastMessageDate from messages for user {}: {}", userId, lastMessageDate);
+            }
+            
             // Extract user details from Redis or fall back to basic info
             String username = user != null ? user.getName() : null;
             if (username == null || username.trim().isEmpty()) {
