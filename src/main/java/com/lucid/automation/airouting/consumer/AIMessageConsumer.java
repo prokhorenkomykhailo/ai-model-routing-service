@@ -68,23 +68,10 @@ public class AIMessageConsumer {
             acknowledgment.acknowledge();
             return;
         }
-                   
-        logger.info("[X] Received enrichment request: messageId={}, taskType={}, tenantId={}", messageRequest.getMessageId(), messageRequest.getTaskType(), messageRequest.getTenantId());
-        logger.info("[X] context: {}", messageRequest.getContext());
 
         if (messageRequest.getReplyTopic() == null || messageRequest.getReplyTopic().trim().isEmpty()) {
             logger.info("No reply topic specified for messageId={}, setting default ai-responses topic", messageRequest.getMessageId());
             messageRequest.setReplyTopic(preAiResponsesTopic);
-        }
-
-        // log the first message permaLink if available
-        if (messageRequest.getMessages() != null && !messageRequest.getMessages().isEmpty()) {
-            SlackMessage firstMessage = messageRequest.getMessages().get(0);
-            if (firstMessage.getPermaLink() != null) {
-                logger.info("First message permalink: {}", firstMessage.getPermaLink());
-            } else {
-                logger.info("First message has no permalink");
-            }
         }
 
         try {            

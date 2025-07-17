@@ -70,6 +70,7 @@ public class SlackMessage {
     // Additional Slack-specific fields
     private String type;
     private String subtype;
+    private String source;
     private String user;
     private String ts;
     private String channel;
@@ -276,6 +277,9 @@ public class SlackMessage {
     
     public String getSubtype() { return subtype; }
     public void setSubtype(String subtype) { this.subtype = subtype; }
+    
+    public String getSource() { return source; }
+    public void setSource(String source) { this.source = source; }
     
     public String getUser() { return user; }
     public void setUser(String user) { this.user = user; }

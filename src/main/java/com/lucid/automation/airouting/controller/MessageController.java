@@ -146,6 +146,7 @@ public class MessageController {
         logger.debug("Converting message to response DTO: {}", message);
         return MessageResponseDTO.builder()
                 .id(message.getId())
+                .source(message.getSource())
                 .tenantId(message.getTenantId())
                 .workspaceId(message.getWorkspaceId())
                 .channelId(message.getChannelId())

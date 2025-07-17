@@ -54,9 +54,11 @@ public class IngestionMessageConsumer {
             return;
         }
         
-        logger.info("Processing message: tenantId={}, messageId={}", 
+        logger.info("Processing message: tenantId={}, messageId={}, source={}, permaLink={}", 
             ingestionEventDto.getTenantId(), 
-            ingestionEventDto.getMessage() != null ? ingestionEventDto.getMessage().getTs() : "null");
+            ingestionEventDto.getMessage() != null ? ingestionEventDto.getMessage().getTs() : "null",
+            ingestionEventDto.getMessage() != null ? ingestionEventDto.getMessage().getSource() : "null",
+            ingestionEventDto.getMessage() != null ? ingestionEventDto.getMessage().getPermaLink() : "null");
         
         if (ingestionEventDto.getMessage() == null || ingestionEventDto.getMessage().getTs() == null) {
             logger.warn("Invalid message data - skipping (messageId=null or ts=null)");
@@ -70,7 +72,10 @@ public class IngestionMessageConsumer {
             boolean processingSuccessful = processMessage(ingestionEventDto);
             
             if (processingSuccessful) {
-                logger.info("Message processed successfully: {}", ingestionEventDto.getMessage().getTs());
+                logger.info("Message processed successfully: messageId={}, source={}, permaLink={}", 
+                    ingestionEventDto.getMessage().getTs(),
+                    ingestionEventDto.getMessage().getSource(),
+                    ingestionEventDto.getMessage().getPermaLink());
                 acknowledgment.acknowledge();
             } else {
                 logger.error("Message processing failed: {}", ingestionEventDto.getMessage().getTs());

@@ -337,6 +337,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
             permalink = "deemerge.ai"; // Default value to ensure field is not null
         }
         slackMessage.setPermaLink(permalink);
+        slackMessage.setSource(message.getSource() != null ? message.getSource() : "slack");
         
         // Debug: Log permalink setting
         log.debug("Setting permalink for message {}: {} -> {}", 

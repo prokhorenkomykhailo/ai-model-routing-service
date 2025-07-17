@@ -21,6 +21,7 @@ import java.util.Map;
 public class MessageResponseDTO {
     
     private String id;
+    private String source;
     private String tenantId;
     private String workspaceId;
     private String channelId;

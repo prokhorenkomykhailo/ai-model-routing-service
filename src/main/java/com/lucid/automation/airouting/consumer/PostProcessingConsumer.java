@@ -335,8 +335,6 @@ public class PostProcessingConsumer {
             DEFAULT_DETAILED_SUMMARY,
             DEFAULT_ACTION,
             null, // clientOrSupplier
-            null, // source
-            List.of(), // sources
             null, // deadline
             UrgencyLevel.LOW,
             DEFAULT_CATEGORY, // category
@@ -386,7 +384,6 @@ public class PostProcessingConsumer {
         suggestedAction = TextUtils.replaceSlackMentions(suggestedAction, userInfos);
 
         String clientOrSupplier = extractStringValue(topicMap, "clientOrSupplier", null);
-        String source = extractStringValue(topicMap, "source", null);
         String deadlineStr = extractStringValue(topicMap, "deadline", null);
         LocalDateTime deadline = parseDeadline(deadlineStr);
         String urgencyStr = extractStringValue(topicMap, "urgency", DEFAULT_URGENCY);
@@ -416,15 +413,13 @@ public class PostProcessingConsumer {
         List<SuggestedReply> suggestedReplies = extractSuggestedRepliesWithChannelLookup(topicMap, tenantId, workspaceId);
         ForwardInfo suggestedForwardRecipient = extractForwardInfo(topicMap);
         
-        // Log permaLink status before extracting sources
-        logger.debug("Extracting sources from {} messages, permaLink status: {}", 
+        // Log permaLink status
+        logger.debug("Processing {} messages, permaLink status: {}", 
                     messages.size(), 
                     messages.stream().map(msg -> msg.getId() + ":" + (msg.getPermaLink() != null ? "present" : "null")).collect(Collectors.joining(", ")));
         
-        List<SourceDTO> sources = extractSources(messages);
-        
         return new TopicEnrichment(title, shortSummary, fullSummary, suggestedAction, 
-                                 clientOrSupplier, source, sources, deadline, urgency, category, subCategory,
+                                 clientOrSupplier, deadline, urgency, category, subCategory,
                                  startTime, endTime, periodStartDate, periodEndDate, latestMessageDate,
                                  peopleInvolved, summaryPerPerson, lastMessageDatePerPerson, 
                                  suggestedReplies, suggestedForwardRecipient);
@@ -578,44 +573,6 @@ public class PostProcessingConsumer {
     }
 
     /**
-     * Extract sources from messages to create SourceDTO list
-     * Each message becomes a source entry with fallback handling for permaLink
-     */
-    private List<SourceDTO> extractSources(List<SlackMessage> messages) {
-        if (messages == null || messages.isEmpty()) {
-            return List.of();
-        }
-        
-        return messages.stream()
-            .map(msg -> {
-                // Get permalink with fallback handling
-                String permalink = msg.getPermaLink();
-                
-                // Fallback to a constructed URL if permaLink is null or empty
-                if (permalink == null || permalink.trim().isEmpty()) {
-                    // Try to construct a basic permalink if we have the necessary data
-                    if (msg.getTeamId() != null && msg.getChannelId() != null && msg.getTs() != null) {
-                        // This is a basic fallback - in real scenarios, you'd want to use the actual workspace URL
-                        permalink = String.format("slack://team=%s/channel=%s/message=%s", 
-                                                msg.getTeamId(), msg.getChannelId(), msg.getTs());
-                        logger.debug("Generated fallback permalink for message {}: {}", msg.getId(), permalink);
-                    } else {
-                        // Last resort fallback
-                        permalink = "deemerge.ai";
-                        logger.warn("Using default permalink fallback for message {} - teamId: {}, channelId: {}, ts: {}", 
-                                  msg.getId(), msg.getTeamId(), msg.getChannelId(), msg.getTs());
-                    }
-                }
-                
-                // Create a short text from the message content
-                String shortText = createShortTextFromMessage(msg);
-                return new SourceDTO(permalink, shortText);
-            })
-            .distinct() // Remove duplicates based on permaLink
-            .collect(Collectors.toList());
-    }
-    
-    /**
      * Create a short text representation of a message for source reference
      */
     private String createShortTextFromMessage(SlackMessage msg) {
@@ -624,7 +581,8 @@ public class PostProcessingConsumer {
         }
         
         String content = msg.getText() != null ? msg.getText() : msg.getContent();
-        String username = msg.getUsername() != null ? msg.getUsername() : "Unknown user";
+        String username = msg.getUsername() != null ? msg.getUsername() : 
+                         (msg.getUserId() != null ? msg.getUserId() : UNKNOWN_USER);
         
         if (content == null || content.trim().isEmpty()) {
             return username + ": (empty message)";
@@ -638,6 +596,45 @@ public class PostProcessingConsumer {
         truncatedContent = truncatedContent.replaceAll("\\s+", " ").trim();
         
         return username + ": " + truncatedContent;
+    }
+
+    /**
+     * Extract sources from user's messages to create SourceDTO list
+     * Each user message becomes a source entry with fallback handling for permaLink
+     */
+    private List<SourceDTO> extractUserSources(String userId, List<SlackMessage> messages) {
+        if (messages == null || messages.isEmpty() || userId == null) {
+            return List.of();
+        }
+        
+        return messages.stream()
+            .filter(msg -> userId.equals(msg.getUserId()))
+            .map(msg -> {
+                // Get permalink with fallback handling
+                String permalink = msg.getPermaLink();
+                
+                // Fallback to a constructed URL if permaLink is null or empty
+                if (permalink == null || permalink.trim().isEmpty()) {
+                    // Try to construct a basic permalink if we have the necessary data
+                    if (msg.getTeamId() != null && msg.getChannelId() != null && msg.getTs() != null) {
+                        permalink = String.format("slack://team=%s/channel=%s/message=%s", 
+                                                msg.getTeamId(), msg.getChannelId(), msg.getTs());
+                        logger.debug("Generated fallback permalink for message {}: {}", msg.getId(), permalink);
+                    } else {
+                        // Last resort fallback
+                        permalink = "deemerge.ai";
+                        logger.warn("Using default permalink fallback for message {} - teamId: {}, channelId: {}, ts: {}", 
+                                  msg.getId(), msg.getTeamId(), msg.getChannelId(), msg.getTs());
+                    }
+                }
+                
+                // Create a short text from the message content
+                String shortText = createShortTextFromMessage(msg);
+                
+                return new SourceDTO(permalink, shortText, msg.getSource());
+            })
+            .distinct() // Remove duplicates based on permaLink
+            .collect(Collectors.toList());
     }
 
     /**
@@ -889,6 +886,9 @@ public class PostProcessingConsumer {
                     List<String> keyContributions = extractStringList(summaryObjMap, "keyContributions");
                     List<String> actionItems = extractStringList(summaryObjMap, "actionItems");
                     
+                    // Extract sources from user's messages
+                    List<SourceDTO> sources = extractUserSources(id, messages);
+                    
                     logger.debug("SUMMARY_DEBUG: Processing user {} - firstDate: {}, lastDate: {}", 
                                id, firstMessageDate, lastMessageDate);
                     
@@ -901,7 +901,7 @@ public class PostProcessingConsumer {
                     SummaryPerPerson summaryPerPerson = new SummaryPerPerson(
                         id, username, displayName, imageUrl, summary,
                         messageCount, firstMessageDate, lastMessageDate,
-                        keyContributions, actionItems
+                        keyContributions, actionItems, sources
                     );
                     summaries.add(summaryPerPerson);
                     logger.debug("SUMMARY_DEBUG: Created SummaryPerPerson for user {}: {}", id, summaryPerPerson);
@@ -948,6 +948,10 @@ public class PostProcessingConsumer {
             }
             String displayName = getBestDisplayName(user, username);
             String imageUrl = user != null ? user.getImageOriginal() : null;
+            
+            // Extract sources from user's messages
+            List<SourceDTO> sources = extractUserSources(userId, messages);
+            
             return new SummaryPerPerson(
                 userId,
                 username,
@@ -958,7 +962,8 @@ public class PostProcessingConsumer {
                 firstMessageDate,
                 lastMessageDate,
                 List.of(), // keyContributions - could be enhanced later
-                List.of()  // actionItems - could be enhanced later
+                List.of(),  // actionItems - could be enhanced later
+                sources
             );
         } catch (Exception e) {
             logger.warn("Failed to enrich summary for user {}: {}", userId, e.getMessage());
@@ -972,8 +977,9 @@ public class PostProcessingConsumer {
                 0,     // messageCount
                 null,  // firstMessageDate
                 null,  // lastMessageDate
-                List.of(),
-                List.of()
+                List.of(), // keyContributions
+                List.of(), // actionItems
+                List.of()  // sources
             );
         }
     }
@@ -1114,8 +1120,9 @@ public class PostProcessingConsumer {
             // Always set permaLink in fallback conversion
             String permaLink = (String) map.get("permaLink");
             message.setPermaLink(permaLink);
-            logger.debug("Fallback conversion: Set permaLink for message {}: {}", message.getId(), permaLink);
-            
+            String source = (String) map.get("source");
+            message.setSource(source != null ? source : "slack");
+
             // Set additional required fields for complete SlackMessage
             message.setSlackUserId((String) map.get("slackUserId"));
             message.setDisplayName((String) map.get("displayName"));

@@ -295,6 +295,7 @@ public class MessageService {
         message.setText(msg.getText());
         message.setMessageType(msg.getType());
         message.setSubtype(msg.getSubtype());
+        message.setSource(msg.getSource());
         message.setPermaLink(msg.getPermaLink());
     }
     
