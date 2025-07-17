@@ -176,7 +176,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                 final var results = processWorkspace(workspace);
                 final int workspaceBatches = results[0];
                 final int workspaceMessages = results[1];
-                
+
                 log.info("Successfully processed workspace: {} - batches: {}, messages: {}", 
                     workspace.getName(), workspaceBatches, workspaceMessages);
                 successCount++;

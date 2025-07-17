@@ -45,6 +45,13 @@ import java.util.stream.Collectors;
  * Consumer service for post-processing AI responses from Kafka
  * Handles processing of pre-AI responses and converts them to final AI responses
  * 
+ * PERMALINK HANDLING IMPROVEMENTS:
+ * - Added defensive permaLink handling in ObjectMapper conversion
+ * - Enhanced fallback conversion to always preserve permaLink values
+ * - Added comprehensive logging for permaLink status tracking
+ * - Implemented fallback permalink generation when original is missing
+ * - Added support for array-based timestamp conversion in fallback scenarios
+ * 
  * @author AI Assistant
  */
 @Service
@@ -168,6 +175,11 @@ public class PostProcessingConsumer {
         List<SlackMessage> requestMessages;
         try {
             requestMessages = convertToSlackMessages(requestMapList);
+            // Log permaLink status for debugging
+            long messagesWithPermaLink = requestMessages.stream()
+                .mapToLong(msg -> msg.getPermaLink() != null && !msg.getPermaLink().trim().isEmpty() ? 1 : 0)
+                .sum();
+            logger.info("Converted {} request messages, {} have permaLink", requestMessages.size(), messagesWithPermaLink);
         } catch (Exception e) {
             logger.error("Failed to convert request maps to SlackMessage objects: {}", e.getMessage());
             requestMessages = new ArrayList<>();
@@ -403,6 +415,12 @@ public class PostProcessingConsumer {
         Map<String, String> lastMessageDatePerPerson = extractStringMap(topicMap, "lastMessageDatePerPerson");
         List<SuggestedReply> suggestedReplies = extractSuggestedRepliesWithChannelLookup(topicMap, tenantId, workspaceId);
         ForwardInfo suggestedForwardRecipient = extractForwardInfo(topicMap);
+        
+        // Log permaLink status before extracting sources
+        logger.debug("Extracting sources from {} messages, permaLink status: {}", 
+                    messages.size(), 
+                    messages.stream().map(msg -> msg.getId() + ":" + (msg.getPermaLink() != null ? "present" : "null")).collect(Collectors.joining(", ")));
+        
         List<SourceDTO> sources = extractSources(messages);
         
         return new TopicEnrichment(title, shortSummary, fullSummary, suggestedAction, 
@@ -561,7 +579,7 @@ public class PostProcessingConsumer {
 
     /**
      * Extract sources from messages to create SourceDTO list
-     * Each message becomes a source entry (permalink should never be null now)
+     * Each message becomes a source entry with fallback handling for permaLink
      */
     private List<SourceDTO> extractSources(List<SlackMessage> messages) {
         if (messages == null || messages.isEmpty()) {
@@ -570,8 +588,24 @@ public class PostProcessingConsumer {
         
         return messages.stream()
             .map(msg -> {
-                // Permalink should always be set (either real value or "deemerge.ai" default)
+                // Get permalink with fallback handling
                 String permalink = msg.getPermaLink();
+                
+                // Fallback to a constructed URL if permaLink is null or empty
+                if (permalink == null || permalink.trim().isEmpty()) {
+                    // Try to construct a basic permalink if we have the necessary data
+                    if (msg.getTeamId() != null && msg.getChannelId() != null && msg.getTs() != null) {
+                        // This is a basic fallback - in real scenarios, you'd want to use the actual workspace URL
+                        permalink = String.format("slack://team=%s/channel=%s/message=%s", 
+                                                msg.getTeamId(), msg.getChannelId(), msg.getTs());
+                        logger.debug("Generated fallback permalink for message {}: {}", msg.getId(), permalink);
+                    } else {
+                        // Last resort fallback
+                        permalink = "deemerge.ai";
+                        logger.warn("Using default permalink fallback for message {} - teamId: {}, channelId: {}, ts: {}", 
+                                  msg.getId(), msg.getTeamId(), msg.getChannelId(), msg.getTs());
+                    }
+                }
                 
                 // Create a short text from the message content
                 String shortText = createShortTextFromMessage(msg);
@@ -656,43 +690,6 @@ public class PostProcessingConsumer {
     /**
      * Resolves channelId from channelName by querying the database
      */
-    private String resolveChannelIdFromName(String channelName, String tenantId, String workspaceId) {
-        try {
-            if (channelName == null || channelName.trim().isEmpty()) {
-                logger.warn("Cannot resolve channelId: channelName is null or empty");
-                return null;
-            }
-
-            // First try to find by exact channel name (case-insensitive)
-            List<Channel> channels = channelService.findByChannelNameIgnoreCase(channelName.trim());
-            
-            // Filter by tenant and workspace if available
-            if (tenantId != null && workspaceId != null) {
-                channels = channels.stream()
-                    .filter(channel -> tenantId.equals(channel.getTenantId()) && 
-                                     workspaceId.equals(channel.getWorkspaceId()))
-                    .toList();
-            }
-            
-            if (!channels.isEmpty()) {
-                // Return the first matching channel's ID
-                String resolvedChannelId = channels.get(0).getChannelId();
-                logger.info("Successfully resolved channelId {} for channelName {} in tenant {} workspace {}", 
-                           resolvedChannelId, channelName, tenantId, workspaceId);
-                return resolvedChannelId;
-            } else {
-                logger.warn("No channel found with name '{}' in tenant {} workspace {}", 
-                           channelName, tenantId, workspaceId);
-                return channelName; // Return original channelName as fallback
-            }
-            
-        } catch (Exception e) {
-            logger.error("Error resolving channelId for channelName '{}' in tenant {} workspace {}: {}", 
-                        channelName, tenantId, workspaceId, e.getMessage());
-            return channelName; // Return original channelName as fallback
-        }
-    }
-
     /**
      * Resolves channelName from channelId by querying the database
      */
@@ -1075,10 +1072,19 @@ public class PostProcessingConsumer {
     private SlackMessage convertMapToSlackMessage(Map<String, Object> map) {
         try {
             // Use ObjectMapper to convert Map to SlackMessage
-            return objectMapper.convertValue(map, SlackMessage.class);
+            SlackMessage message = objectMapper.convertValue(map, SlackMessage.class);
+            
+            // Defensive check: ensure permaLink is preserved even if ObjectMapper misses it
+            if (message.getPermaLink() == null && map.containsKey("permaLink")) {
+                String permaLink = (String) map.get("permaLink");
+                message.setPermaLink(permaLink);
+                logger.debug("Defensively set permaLink for message {}: {}", message.getId(), permaLink);
+            }
+            
+            return message;
         } catch (Exception e) {
             logger.warn("Failed to convert map to SlackMessage: {}, error: {}", map, e.getMessage());
-            // Return a basic SlackMessage with minimal data including channelName
+            // Return a basic SlackMessage with minimal data including permaLink
             SlackMessage message = new SlackMessage();
             message.setId((String) map.get("id"));
             message.setContent((String) map.get("content"));
@@ -1104,11 +1110,39 @@ public class PostProcessingConsumer {
             message.setTeamId((String) map.get("teamId"));
             message.setTenantId(tenantId);
             message.setWorkspaceId(workspaceId);
-            message.setPermaLink((String) map.get("permaLink")); // ← Include permaLink from map!
             
-            // Handle timestamp conversion
+            // Always set permaLink in fallback conversion
+            String permaLink = (String) map.get("permaLink");
+            message.setPermaLink(permaLink);
+            logger.debug("Fallback conversion: Set permaLink for message {}: {}", message.getId(), permaLink);
+            
+            // Set additional required fields for complete SlackMessage
+            message.setSlackUserId((String) map.get("slackUserId"));
+            message.setDisplayName((String) map.get("displayName"));
+            message.setText((String) map.get("text"));
+            message.setTs((String) map.get("ts"));
+            message.setMessageTs((String) map.get("messageTs"));
+            message.setThreadTs((String) map.get("threadTs"));
+            
+            // Handle timestamp conversion with array support
             Object timestampObj = map.get("timestamp");
-            if (timestampObj instanceof String) {
+            if (timestampObj instanceof List<?> timestampArray) {
+                try {
+                    if (timestampArray.size() >= 6) {
+                        int year = ((Number) timestampArray.get(0)).intValue();
+                        int month = ((Number) timestampArray.get(1)).intValue();
+                        int day = ((Number) timestampArray.get(2)).intValue();
+                        int hour = ((Number) timestampArray.get(3)).intValue();
+                        int minute = ((Number) timestampArray.get(4)).intValue();
+                        int second = ((Number) timestampArray.get(5)).intValue();
+                        
+                        message.setTimestamp(LocalDateTime.of(year, month, day, hour, minute, second));
+                        logger.debug("Fallback: Parsed timestamp array for message {}: {}", message.getId(), message.getTimestamp());
+                    }
+                } catch (Exception tsException) {
+                    logger.debug("Failed to parse timestamp array: {}", timestampArray);
+                }
+            } else if (timestampObj instanceof String) {
                 try {
                     message.setTimestamp(LocalDateTime.parse((String) timestampObj));
                 } catch (Exception tsException) {

@@ -82,15 +82,10 @@ public class SlidingWindowService {
             
             logger.info("Loaded {} messages for workspaceId: {}", allMessages.size(), workspace);
             
-            // Sort messages chronologically by messageTs Ascending
-            // This ensures we process messages in the order they were sent from oldest to newest
-            logger.debug("Sorting messages chronologically by messageTs");
-            allMessages.sort(Comparator.comparing(Message::getMessageTs));
-            
-            
-            // Calculate overlap size, minimum of 10 messages or 20% of maxMessage
+            // Messages are already sorted chronologically by loadMessagesForWorkspace method
+            // Calculate overlap size, minimum of 20 messages or 20% of maxMessage
             int overlapSize = (maxMessage * overlaping) / 100;
-            overlapSize = Math.max(overlapSize, 10);
+            overlapSize = Math.max(overlapSize, 20); // Ensure at least 20 messages overlap
             
             logger.debug("Processing with batchSize: {}, overlapSize: {}", maxMessage, overlapSize);
             
@@ -105,12 +100,12 @@ public class SlidingWindowService {
     /**
      * Load all messages for a specific workspace from Redis.
      * 
-     * @param workspaceId The workspace ID
-     * @return List of messages sorted chronologically
+     * @param deemergeUserId The demerge user ID
+     * @return List of messages sorted chronologically (oldest first, newest last)
      */
     private List<Message> loadMessagesForWorkspace(String deemergeUserId) {
         try {
-            logger.debug("Loading messages for workspaceId: {}", deemergeUserId);
+            logger.debug("Loading messages for deemergeUserId: {}", deemergeUserId);
 
             List<Message> messages = messageRepository.findAllByDeemergeUserId(deemergeUserId);
             // add user information to messages
@@ -133,7 +128,10 @@ public class SlidingWindowService {
                 }
             });
             
-            logger.debug("Found {}", messages.size());
+            // Sort messages chronologically by messageTs (oldest first, newest last)
+            messages.sort(Comparator.comparing(Message::getMessageTs));
+            
+            logger.debug("Found and sorted {} messages chronologically", messages.size());
             
             return messages;
             
@@ -283,32 +281,26 @@ public class SlidingWindowService {
             return;
         }
         
+        int totalMessages = batchMessages.size();
+        int messagesToKeep = Math.min(overlapSize, totalMessages);
+        int messagesToDelete = totalMessages - messagesToKeep;
+        
+        if (messagesToDelete <= 0) {
+            logger.debug("Batch {}: No messages to delete. Total: {}, Keeping: {} for overlap", 
+                       batchNumber, totalMessages, messagesToKeep);
+            return;
+        }
+        
         try {
-            // Sort messages by timestamp (newest first) to identify latest messages to keep for overlap
-            List<Message> sortedMessages = batchMessages.stream()
-                    .sorted(Comparator.comparing(Message::getMessageTs).reversed())
-                    .collect(Collectors.toList());
-            
-            // Determine how many messages to delete from this batch
-            int messagesToKeep = Math.min(overlapSize, sortedMessages.size());
-            int messagesToDelete = sortedMessages.size() - messagesToKeep;
-            
-            if (messagesToDelete <= 0) {
-                logger.debug("Batch {}: No messages to delete. Total: {}, Keeping: {} for overlap", 
-                           batchNumber, sortedMessages.size(), messagesToKeep);
-                return;
-            }
-            
-            // Get the messages to delete (all except the latest N for overlap)
-            List<Message> messagesForDeletion = sortedMessages.subList(messagesToKeep, sortedMessages.size());
-            
-            // Extract IDs for batch deletion
-            List<String> messageIds = messagesForDeletion.stream()
+            // Messages are already sorted chronologically (oldest first) by loadMessagesForWorkspace
+            // Get IDs of oldest messages to delete, keeping newest for overlap
+            List<String> messageIdsToDelete = batchMessages.stream()
+                    .limit(messagesToDelete) // take only the oldest messages to delete
                     .map(Message::getId)
                     .collect(Collectors.toList());
             
             // Delete messages from Redis
-            messageRepository.deleteAllById(messageIds);
+            messageRepository.deleteAllById(messageIdsToDelete);
             
             logger.debug("Batch {}: Cleaned up {} processed messages, keeping {} for overlap", 
                        batchNumber, messagesToDelete, messagesToKeep);
@@ -333,16 +325,12 @@ public class SlidingWindowService {
             return 0;
         }
         
-        if (keepRecentCount < 0) {
-            logger.warn("Invalid keepRecentCount: {}. Using 0", keepRecentCount);
-            keepRecentCount = 0;
-        }
+        keepRecentCount = Math.max(0, keepRecentCount); // Ensure non-negative
         
         try {
             logger.info("Starting cleanup for workspaceId: {}, keeping {} recent messages", 
                        workspaceId, keepRecentCount);
             
-            // Load all messages for the workspace
             List<Message> allMessages = loadMessagesForWorkspace(workspaceId);
             
             if (allMessages.isEmpty()) {
@@ -350,61 +338,33 @@ public class SlidingWindowService {
                 return 0;
             }
             
-            // Sort messages chronologically by messageTs (newest first for keeping recent)
-            allMessages.sort(Comparator.comparing(Message::getMessageTs).reversed());
-            
-            if (allMessages.size() <= keepRecentCount) {
+            int totalMessages = allMessages.size();
+            if (totalMessages <= keepRecentCount) {
                 logger.info("Workspace {} has {} messages, keeping all (requested to keep {})", 
-                           workspaceId, allMessages.size(), keepRecentCount);
+                           workspaceId, totalMessages, keepRecentCount);
                 return 0;
             }
             
-            // Determine which messages to delete
-            List<Message> messagesToDelete = allMessages.subList(keepRecentCount, allMessages.size());
+            // Messages are already sorted (oldest first), reverse to get newest first
+            Collections.reverse(allMessages);
             
-            // Extract IDs for batch deletion
-            List<String> messageIds = messagesToDelete.stream()
+            // Get messages to delete (skip the first keepRecentCount messages)
+            List<String> messageIdsToDelete = allMessages.stream()
+                    .skip(keepRecentCount)
                     .map(Message::getId)
                     .collect(Collectors.toList());
             
             // Delete messages from Redis
-            messageRepository.deleteAllById(messageIds);
+            messageRepository.deleteAllById(messageIdsToDelete);
             
+            int deletedCount = messageIdsToDelete.size();
             logger.info("Successfully cleaned up workspace {}: deleted {} messages, kept {} recent messages", 
-                       workspaceId, messagesToDelete.size(), keepRecentCount);
+                       workspaceId, deletedCount, keepRecentCount);
             
-            return messagesToDelete.size();
+            return deletedCount;
             
         } catch (Exception e) {
             logger.error("Error during workspace cleanup for workspaceId: {}", workspaceId, e);
-            return 0;
-        }
-    }
-    
-    /**
-     * Get count of messages that would be deleted in a cleanup operation.
-     * Useful for preview before actual cleanup.
-     * 
-     * @param workspaceId The workspace ID to analyze
-     * @param keepRecentCount Number of most recent messages to keep
-     * @return Number of messages that would be deleted
-     */
-    public int previewCleanup(String workspaceId, int keepRecentCount) {
-        if (workspaceId == null || workspaceId.trim().isEmpty()) {
-            return 0;
-        }
-        
-        try {
-            List<Message> allMessages = loadMessagesForWorkspace(workspaceId);
-            
-            if (allMessages.size() <= keepRecentCount) {
-                return 0;
-            }
-            
-            return allMessages.size() - keepRecentCount;
-            
-        } catch (Exception e) {
-            logger.error("Error previewing cleanup for workspaceId: {}", workspaceId, e);
             return 0;
         }
     }
