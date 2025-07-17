@@ -89,7 +89,7 @@ public class KafkaErrorHandlingConfig {
         configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
         configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         
-        // FORCE ALWAYS START FROM BEGINNING - Set max poll interval to very high value
+        // CONFIGURATION: Start from latest offset - Skip historical messages
         // This ensures the consumer doesn't get kicked out of the group during processing
         configProps.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 300000); // 5 minutes
         configProps.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 10000); // 10 seconds

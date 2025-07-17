@@ -136,7 +136,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
      * Scheduled method to process message enrichment for all workspaces.
      */
     @Scheduled(cron = "${ai.enrichment.scheduler.cron:0 */5 * * * ?}")
-    public void processMessageEnrichment() {        
+    public void processMessageEnrichment() {
         log.info("=== SCHEDULER EXECUTED ===");
         log.info("Current time: {}", LocalDateTime.now());
         log.info("Thread: {}", Thread.currentThread().getName());
@@ -291,7 +291,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                     message.getId(), e.getMessage());
             }
         }
-        
+
         log.debug("Processed {} messages resulting in {} slack messages and {} unique participants", 
             messages.size(), slackMessages.size(), participants.size());
     }
@@ -330,6 +330,18 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         slackMessage.setType(message.getMessageType());
         slackMessage.setMessageType(message.getMessageType());
         slackMessage.setSubtype(message.getSubtype());
+        
+        // Set permalink with default value to prevent null exclusion during Kafka serialization
+        String permalink = message.getPermaLink();
+        if (permalink == null || permalink.trim().isEmpty()) {
+            permalink = "deemerge.ai"; // Default value to ensure field is not null
+        }
+        slackMessage.setPermaLink(permalink);
+        
+        // Debug: Log permalink setting
+        log.debug("Setting permalink for message {}: {} -> {}", 
+                  message.getId(), message.getPermaLink(), slackMessage.getPermaLink());
+        
         slackMessage.setTenantId(message.getTenantId());
         slackMessage.setTenantSchema(message.getTenantSchema());
         slackMessage.setWorkspaceId(message.getWorkspaceId());
@@ -486,9 +498,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         
         final String conversationId = workspace.getId() + BATCH_CONVERSATION_ID_SEPARATOR + batchNumber;
         final var context = createBatchContext(workspace, batchNumber, slackMessages.size(), participants.size());
-        final String tenantSchema = workspace.getTenantSchema() != null 
-            ? workspace.getTenantSchema() 
-            : defaultTenantSchema;
+        final String tenantSchema = workspace.getTenantSchema() != null ? workspace.getTenantSchema() : defaultTenantSchema;
 
         try {
             aiMessageProducer.publishAIRequest(

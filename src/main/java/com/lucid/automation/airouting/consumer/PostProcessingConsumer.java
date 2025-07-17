@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lucid.automation.common.dto.enrichment.ConversationEnrichment;
 import com.lucid.automation.common.dto.enrichment.EnrichmentResponse;
 import com.lucid.automation.common.dto.enrichment.ForwardInfo;
+import com.lucid.automation.common.dto.enrichment.SourceDTO;
 import com.lucid.automation.common.dto.enrichment.SuggestedReply;
 import com.lucid.automation.common.dto.enrichment.SummaryPerPerson;
 import com.lucid.automation.common.dto.enrichment.TopicEnrichment;
@@ -323,6 +324,7 @@ public class PostProcessingConsumer {
             DEFAULT_ACTION,
             null, // clientOrSupplier
             null, // source
+            List.of(), // sources
             null, // deadline
             UrgencyLevel.LOW,
             DEFAULT_CATEGORY, // category
@@ -401,9 +403,10 @@ public class PostProcessingConsumer {
         Map<String, String> lastMessageDatePerPerson = extractStringMap(topicMap, "lastMessageDatePerPerson");
         List<SuggestedReply> suggestedReplies = extractSuggestedRepliesWithChannelLookup(topicMap, tenantId, workspaceId);
         ForwardInfo suggestedForwardRecipient = extractForwardInfo(topicMap);
+        List<SourceDTO> sources = extractSources(messages);
         
         return new TopicEnrichment(title, shortSummary, fullSummary, suggestedAction, 
-                                 clientOrSupplier, source, deadline, urgency, category, subCategory,
+                                 clientOrSupplier, source, sources, deadline, urgency, category, subCategory,
                                  startTime, endTime, periodStartDate, periodEndDate, latestMessageDate,
                                  peopleInvolved, summaryPerPerson, lastMessageDatePerPerson, 
                                  suggestedReplies, suggestedForwardRecipient);
@@ -554,6 +557,53 @@ public class PostProcessingConsumer {
             return new ForwardInfo(channel, to, subject, body);
         }
         return null;
+    }
+
+    /**
+     * Extract sources from messages to create SourceDTO list
+     * Each message becomes a source entry (permalink should never be null now)
+     */
+    private List<SourceDTO> extractSources(List<SlackMessage> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return List.of();
+        }
+        
+        return messages.stream()
+            .map(msg -> {
+                // Permalink should always be set (either real value or "deemerge.ai" default)
+                String permalink = msg.getPermaLink();
+                
+                // Create a short text from the message content
+                String shortText = createShortTextFromMessage(msg);
+                return new SourceDTO(permalink, shortText);
+            })
+            .distinct() // Remove duplicates based on permaLink
+            .collect(Collectors.toList());
+    }
+    
+    /**
+     * Create a short text representation of a message for source reference
+     */
+    private String createShortTextFromMessage(SlackMessage msg) {
+        if (msg == null) {
+            return "Unknown message";
+        }
+        
+        String content = msg.getText() != null ? msg.getText() : msg.getContent();
+        String username = msg.getUsername() != null ? msg.getUsername() : "Unknown user";
+        
+        if (content == null || content.trim().isEmpty()) {
+            return username + ": (empty message)";
+        }
+        
+        // Truncate content to a reasonable length for short text
+        String truncatedContent = content.length() > 100 ? 
+            content.substring(0, 97) + "..." : content;
+            
+        // Remove newlines and extra spaces
+        truncatedContent = truncatedContent.replaceAll("\\s+", " ").trim();
+        
+        return username + ": " + truncatedContent;
     }
 
     /**
@@ -1054,6 +1104,7 @@ public class PostProcessingConsumer {
             message.setTeamId((String) map.get("teamId"));
             message.setTenantId(tenantId);
             message.setWorkspaceId(workspaceId);
+            message.setPermaLink((String) map.get("permaLink")); // ← Include permaLink from map!
             
             // Handle timestamp conversion
             Object timestampObj = map.get("timestamp");

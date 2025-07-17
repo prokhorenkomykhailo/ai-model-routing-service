@@ -1,6 +1,7 @@
 package com.lucid.automation.airouting.consumer;
 
 import com.lucid.automation.airouting.model.AITaskType;
+import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.message.AIMessage;
 import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.provider.AIProviderFactory;
@@ -41,22 +42,22 @@ public class AIMessageConsumer {
         this.providerFactory = providerFactory;
         this.kafkaTemplate = kafkaTemplate;
         
-        // Log the guarantee about ai-enrich processing
-        logger.info("=== AI-ENRICH PROCESSING GUARANTEE ===");
+        // Log the configuration about ai-enrich processing
+        logger.info("=== AI-ENRICH PROCESSING CONFIGURATION ===");
         logger.info("AIMessageConsumer initialized");
-        logger.info("GUARANTEE: ai-enrich topic will ALWAYS be processed from the beginning");
+        logger.info("CONFIGURATION: ai-enrich topic will process from LATEST offset");
         logger.info("Mechanisms ensuring this:");
-        logger.info("1. aiMessageConsumerFactory with auto-offset-reset=earliest");
-        logger.info("2. KafkaOffsetResetService resets offsets on startup");
-        logger.info("3. Dedicated consumer group: {}-ai-enrich", "ai-routing-service-group");
-        logger.info("======================================");
+        logger.info("1. aiMessageConsumerFactory with auto-offset-reset=latest");
+        logger.info("2. Dedicated consumer group: {}-ai-enrich", "ai-routing-service-group");
+        logger.info("3. Only NEW messages will be processed, historical messages are SKIPPED");
+        logger.info("==========================================");
     }
 
     /**
      * Consume enrichment requests (conversation, message, participant analysis, etc.)
-     * GUARANTEE: This consumer ALWAYS processes ai-enrich topic from the beginning
-     * due to the dedicated aiMessageConsumerFactory configuration with auto-offset-reset=earliest
-     * and KafkaOffsetResetService that resets offsets on startup.
+     * CONFIGURATION: This consumer processes ai-enrich topic from the LATEST offset
+     * due to the dedicated aiMessageConsumerFactory configuration with auto-offset-reset=latest.
+     * Only NEW messages will be processed, historical messages are SKIPPED.
      */
     @KafkaListener(topics = "${kafka.topics.ai-enrich:ai-enrich}", containerFactory = "aiMessageListenerContainerFactory")
     public void handleEnrichmentRequest(@Payload AIMessage messageRequest,
@@ -76,6 +77,16 @@ public class AIMessageConsumer {
             messageRequest.setReplyTopic(preAiResponsesTopic);
         }
 
+        // log the first message permaLink if available
+        if (messageRequest.getMessages() != null && !messageRequest.getMessages().isEmpty()) {
+            SlackMessage firstMessage = messageRequest.getMessages().get(0);
+            if (firstMessage.getPermaLink() != null) {
+                logger.info("First message permalink: {}", firstMessage.getPermaLink());
+            } else {
+                logger.info("First message has no permalink");
+            }
+        }
+
         try {            
             // Handle null or empty preferred provider
             String preferredProvider = messageRequest.getPreferredProvider();
@@ -83,11 +94,9 @@ public class AIMessageConsumer {
                 logger.warn("No preferred provider specified for messageId={}, using default provider", messageRequest.getMessageId());
                 preferredProvider = null; // This will trigger default provider selection
             }
-            
-            AIProvider provider = preferredProvider != null ? 
-                providerFactory.getProvider(preferredProvider) : 
-                providerFactory.getDefaultProvider();
-                
+
+            AIProvider provider = preferredProvider != null ? providerFactory.getProvider(preferredProvider) : providerFactory.getDefaultProvider();
+
             if (provider == null) {
                 throw new RuntimeException("No AI provider available for processing enrichment request");
             }

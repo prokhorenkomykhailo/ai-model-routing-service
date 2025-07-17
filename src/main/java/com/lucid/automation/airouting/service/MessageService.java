@@ -149,6 +149,20 @@ public class MessageService {
         }
     }
     
+    /**
+     * Deletes all messages from the repository
+     */
+    public void deleteAllMessages() {
+        try {
+            logger.warn("🗑️ Deleting ALL messages from repository");
+            messageRepository.deleteAll();
+            logger.info("✅ All messages deleted successfully");
+        } catch (Exception e) {
+            logger.error("❌ Failed to delete all messages: {}", e.getMessage());
+            throw e;
+        }
+    }
+    
  
     
     /**

@@ -83,6 +83,26 @@ public class MessageController {
         }
     }
     
+    @DeleteMapping
+    @Operation(summary = "Delete all messages", description = "Deletes all messages from the system")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "204", description = "All messages deleted successfully"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    public ResponseEntity<Void> deleteAllMessages() {
+        logger.warn("⚠️ Request to delete ALL messages received");
+        
+        try {
+            messageService.deleteAllMessages();
+            logger.info("✅ Successfully deleted all messages");
+            return ResponseEntity.noContent().build();
+            
+        } catch (Exception e) {
+            logger.error("❌ Error deleting all messages", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+    
     @GetMapping
     @Operation(summary = "Search messages", description = "Search and filter messages with pagination")
     @ApiResponses(value = {

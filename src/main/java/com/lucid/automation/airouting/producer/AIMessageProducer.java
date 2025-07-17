@@ -1,6 +1,5 @@
 package com.lucid.automation.airouting.producer;
 
-import com.lucid.automation.airouting.model.request.ConversationEnrichmentRequest;
 import com.lucid.automation.airouting.model.AITaskType;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.SlackParticipant;
@@ -46,43 +45,8 @@ public class AIMessageProducer {
         this.messageConverter = messageConverter;
     }
     
-    /**
-     * Publish a categorization request
-     */
-    public String publishCategorizationRequest(String content, String tenantId, String tenantSchema,
-                                             String userId, String preferredProvider, String replyTopic) {
-        return publishAIRequest(AITaskType.CATEGORIZE, content, tenantId, tenantSchema, userId, 
-                              null, null, null, null, preferredProvider, replyTopic);
-    }
-    
-    /**
-     * Publish a summarization request
-     */
-    public String publishSummarizationRequest(String content, String tenantId, String tenantSchema,
-                                            String userId, String preferredProvider, String replyTopic) {
-        return publishAIRequest(AITaskType.SUMMARIZE, content, tenantId, tenantSchema, userId,
-                              null, null, null, null, preferredProvider, replyTopic);
-    }
-    
-    /**
-     * Publish a conversation enrichment request using a request object
-     */
-    public String publishConversationEnrichmentRequest(ConversationEnrichmentRequest request, String userId) {
-        return publishAIRequest(AITaskType.ENRICH_CONVERSATION, "", request.getTenantId(), request.getTenantSchema(),
-                              userId, request.getConversationId(), request.getMessages(), request.getParticipants(), 
-                              request.getContext(), request.getPreferredProvider(), request.getReplyTopic());
-    }
-    
-    
-    /**
-     * Publish a message enrichment request
-     */
-    public String publishMessageEnrichmentRequest(String content, Map<String, Object> context,
-                                                String tenantId, String tenantSchema, String userId,
-                                                String preferredProvider, String replyTopic) {
-        return publishAIRequest(AITaskType.ENRICH_MESSAGE, content, tenantId, tenantSchema, userId,
-                              null, null, null, context, preferredProvider, replyTopic);
-    }
+
+
     
     /**
      * Generic method to publish AI requests

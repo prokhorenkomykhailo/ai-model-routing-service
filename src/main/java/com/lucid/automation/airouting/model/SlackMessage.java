@@ -1,5 +1,7 @@
 package com.lucid.automation.airouting.model;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -59,6 +61,9 @@ public class SlackMessage {
     // Message content and metadata
     private String text;
     private String messageType;
+    @JsonProperty("permaLink")
+    @JsonInclude(JsonInclude.Include.ALWAYS)
+    private String permaLink;
     private Map<String, Object> metadata;
     private Long ingestedAt;
     
@@ -255,6 +260,9 @@ public class SlackMessage {
     
     public String getMessageType() { return messageType; }
     public void setMessageType(String messageType) { this.messageType = messageType; }
+    
+    public String getPermaLink() { return permaLink; }
+    public void setPermaLink(String permaLink) { this.permaLink = permaLink; }
     
     public Map<String, Object> getMetadata() { return metadata; }
     public void setMetadata(Map<String, Object> metadata) { this.metadata = metadata; }
