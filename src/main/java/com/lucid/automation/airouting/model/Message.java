@@ -303,7 +303,8 @@ public class Message implements Serializable {
     }
     
     /**
-     * Override setters to automatically update composite indexes
+     * Custom setters to automatically update composite indexes
+     * These override the Lombok-generated setters
      */
     public void setTenantId(String tenantId) {
         this.tenantId = tenantId;

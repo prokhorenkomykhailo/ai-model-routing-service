@@ -5,6 +5,9 @@ server:
 spring:
   application:
     name: ai-routing-service
+  config:
+    import:
+      - classpath:pipeline-config-docker.yml
   # Redis Configuration
   data:
     redis:

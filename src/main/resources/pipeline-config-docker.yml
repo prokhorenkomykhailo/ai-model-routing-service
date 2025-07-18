@@ -1,0 +1,113 @@
+# Docker-specific Pipeline Configuration
+# This file contains Docker environment specific overrides for the pipeline configuration
+
+# Pipeline configuration for Docker environment
+pipeline:
+  enabled: ${PIPELINE_ENABLED:true}
+  type: ${PIPELINE_TYPE:STANDARD}  # STANDARD, COMPREHENSIVE, MINIMAL, CUSTOM
+  continue-on-failure: ${PIPELINE_CONTINUE_ON_FAILURE:true}
+  max-execution-time-ms: ${PIPELINE_MAX_EXECUTION_TIME:30000}
+  custom-steps: ${PIPELINE_CUSTOM_STEPS:}  # Comma-separated list for CUSTOM type
+  
+  # Step-specific configurations for Docker
+  steps:
+    # Context validation step
+    context-validation:
+      enabled: ${PIPELINE_CONTEXT_VALIDATION_ENABLED:true}
+      timeout-ms: ${PIPELINE_CONTEXT_VALIDATION_TIMEOUT:5000}
+      strict-mode: ${PIPELINE_CONTEXT_STRICT_MODE:false}
+      
+    # Tenant mapping step
+    tenant-mapping:
+      enabled: ${PIPELINE_TENANT_MAPPING_ENABLED:true}
+      timeout-ms: ${PIPELINE_TENANT_MAPPING_TIMEOUT:5000}
+      cache-ttl-seconds: ${PIPELINE_TENANT_CACHE_TTL:300}
+      cache-enabled: ${PIPELINE_TENANT_CACHE_ENABLED:true}
+      
+    # User enrichment step
+    user-enrichment:
+      enabled: ${PIPELINE_USER_ENRICHMENT_ENABLED:true}
+      timeout-ms: ${PIPELINE_USER_ENRICHMENT_TIMEOUT:10000}
+      batch-size: ${PIPELINE_USER_BATCH_SIZE:10}
+      retry-attempts: ${PIPELINE_USER_RETRY_ATTEMPTS:3}
+      retry-delay-ms: ${PIPELINE_USER_RETRY_DELAY:1000}
+      include-profile-images: ${PIPELINE_USER_INCLUDE_IMAGES:true}
+      
+    # Channel enrichment step
+    channel-enrichment:
+      enabled: ${PIPELINE_CHANNEL_ENRICHMENT_ENABLED:true}
+      timeout-ms: ${PIPELINE_CHANNEL_ENRICHMENT_TIMEOUT:8000}
+      include-member-count: ${PIPELINE_CHANNEL_INCLUDE_MEMBERS:true}
+      include-channel-stats: ${PIPELINE_CHANNEL_INCLUDE_STATS:false}
+      
+    # Topic enrichment step
+    topic-enrichment:
+      enabled: ${PIPELINE_TOPIC_ENRICHMENT_ENABLED:true}
+      timeout-ms: ${PIPELINE_TOPIC_ENRICHMENT_TIMEOUT:15000}
+      ai-enabled: ${PIPELINE_TOPIC_AI_ENABLED:true}
+      ai-provider: ${PIPELINE_TOPIC_AI_PROVIDER:gemini}
+      confidence-threshold: ${PIPELINE_TOPIC_CONFIDENCE_THRESHOLD:0.7}
+      max-topics: ${PIPELINE_TOPIC_MAX_TOPICS:5}
+      
+    # Sentiment analysis step
+    sentiment-analysis:
+      enabled: ${PIPELINE_SENTIMENT_ANALYSIS_ENABLED:true}
+      timeout-ms: ${PIPELINE_SENTIMENT_ANALYSIS_TIMEOUT:10000}
+      provider: ${PIPELINE_SENTIMENT_PROVIDER:gemini}
+      include-confidence: ${PIPELINE_SENTIMENT_INCLUDE_CONFIDENCE:true}
+      batch-processing: ${PIPELINE_SENTIMENT_BATCH_PROCESSING:false}
+      
+    # Response formatting step
+    response-formatting:
+      enabled: ${PIPELINE_RESPONSE_FORMATTING_ENABLED:true}
+      timeout-ms: ${PIPELINE_RESPONSE_FORMATTING_TIMEOUT:5000}
+      include-metadata: ${PIPELINE_INCLUDE_METADATA:true}
+      include-processing-stats: ${PIPELINE_INCLUDE_PROCESSING_STATS:true}
+      compact-format: ${PIPELINE_COMPACT_FORMAT:false}
+      
+    # Audit logging step
+    audit-logging:
+      enabled: ${PIPELINE_AUDIT_LOGGING_ENABLED:true}
+      timeout-ms: ${PIPELINE_AUDIT_LOGGING_TIMEOUT:3000}
+      log-level: ${PIPELINE_AUDIT_LOG_LEVEL:INFO}
+      include-payload: ${PIPELINE_AUDIT_INCLUDE_PAYLOAD:false}
+      structured-logging: ${PIPELINE_AUDIT_STRUCTURED:true}
+
+# AI Configuration for Docker
+ai:
+  enrichment:
+    enabled: ${AI_ENRICHMENT_ENABLED:true}
+    timeout-ms: ${AI_ENRICHMENT_TIMEOUT:30000}
+    
+# Sliding Window Configuration for Docker
+sliding:
+  window:
+    default:
+      batch:
+        size: ${SLIDING_WINDOW_BATCH_SIZE:30}  # Smaller batches for Docker
+      overlap:
+        percentage: ${SLIDING_WINDOW_OVERLAP_PERCENTAGE:25}  # Slightly more overlap for reliability
+
+# Docker-specific Kafka Configuration
+kafka:
+  topics:
+    ingestion-events: ${KAFKA_TOPIC_INGESTION_EVENTS:ingestion.events.queue}
+    pre-ai-responses: ${KAFKA_TOPIC_PRE_AI_RESPONSES:pre.ai.responses.queue}
+    ai-responses: ${KAFKA_TOPIC_AI_RESPONSES:ai.responses.queue}
+  consumer:
+    max-poll-records: ${KAFKA_CONSUMER_MAX_POLL_RECORDS:10}  # Smaller batches for containers
+    session-timeout-ms: ${KAFKA_CONSUMER_SESSION_TIMEOUT:45000}  # Longer timeout for Docker networking
+    heartbeat-interval-ms: ${KAFKA_CONSUMER_HEARTBEAT_INTERVAL:15000}
+
+# Docker Health Check Configuration
+management:
+  health:
+    pipeline:
+      enabled: true
+      threshold:
+        success-rate: ${PIPELINE_HEALTH_SUCCESS_RATE:0.8}  # 80% success rate minimum
+        max-response-time: ${PIPELINE_HEALTH_MAX_RESPONSE_TIME:30000}  # 30 seconds max
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,pipeline  # Expose pipeline metrics for monitoring

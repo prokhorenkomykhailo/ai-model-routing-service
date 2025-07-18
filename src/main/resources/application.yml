@@ -118,6 +118,25 @@ ai:
     scheduler:
       cron: "${AI_ENRICHMENT_CRON:0 */5 * * * ?}"  # Every 5 minutes by default
       enabled: "${AI_ENRICHMENT_ENABLED:true}"
+
+# Lucid Post-Processing Pipeline Configuration
+lucid:
+  post-processing:
+    pipeline:
+      enabled: ${LUCID_PIPELINE_ENABLED:true}
+      type: ${LUCID_PIPELINE_TYPE:STANDARD}  # Options: STANDARD, COMPREHENSIVE, MINIMAL, CUSTOM
+      continueOnFailure: ${LUCID_PIPELINE_CONTINUE_ON_FAILURE:false}
+      maxExecutionTimeMs: ${LUCID_PIPELINE_MAX_EXECUTION_TIME:30000}
+      detailedLogging: ${LUCID_PIPELINE_DETAILED_LOGGING:false}
+      metricsEnabled: ${LUCID_PIPELINE_METRICS_ENABLED:true}
+      # Custom steps configuration (used when type is CUSTOM)
+      customSteps:
+        - INPUT_VALIDATION
+        - MESSAGE_CONVERSION
+        - TIMESTAMP_PROCESSING
+        - CONVERSATION_ENRICHMENT
+        - TOPIC_ENRICHMENT
+        - RESPONSE_BUILDING
       batch-size: "${AI_ENRICHMENT_BATCH_SIZE:50}"
       max-retries: "${AI_ENRICHMENT_MAX_RETRIES:3}"
       default-tenant-id: "${DEFAULT_TENANT_ID:default-tenant}"
