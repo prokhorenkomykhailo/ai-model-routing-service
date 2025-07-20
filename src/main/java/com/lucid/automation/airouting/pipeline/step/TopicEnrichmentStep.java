@@ -103,11 +103,11 @@ public class TopicEnrichmentStep implements PipelineStep {
                 periodEndDate = messages.get(messages.size() - 1).getTimestamp().toString();
             }
             
-            // Extract enhanced people involved
-            List<EnrichmentUserDTO> enhancedPeopleInvolved = extractPeopleInvolved(messages, tenantId, workspaceId);
+            // Extract enhanced people involved - use AI data if available, fallback to message analysis
+            List<EnrichmentUserDTO> enhancedPeopleInvolved = enhancePeopleInvolved(topic.peopleInvolved(), messages, tenantId, workspaceId);
             
-            // Extract enhanced summary per person
-            List<SummaryPerPerson> enhancedSummaryPerPerson = extractSummaryPerPerson(messages, tenantId, workspaceId);
+            // Extract enhanced summary per person - use AI data if available, fallback to message analysis
+            List<SummaryPerPerson> enhancedSummaryPerPerson = enhanceSummaryPerPerson(topic.summaryPerPerson(), messages, tenantId, workspaceId);
             
             // Extract enhanced suggested replies
             List<SuggestedReply> enhancedSuggestedReplies = enhanceSuggestedReplies(topic.suggestedReplies(), tenantId, workspaceId);
@@ -283,7 +283,149 @@ public class TopicEnrichmentStep implements PipelineStep {
         }
     }
     
-    private List<EnrichmentUserDTO> extractPeopleInvolved(List<SlackMessage> messages, String tenantId, String workspaceId) {
+    /**
+     * Enhance people involved using AI-generated data with full user details
+     */
+    private List<EnrichmentUserDTO> enhancePeopleInvolved(List<EnrichmentUserDTO> aiPeopleInvolved, 
+                                                         List<SlackMessage> messages, 
+                                                         String tenantId, 
+                                                         String workspaceId) {
+        // If AI has already provided people involved, enhance those with fresh user data
+        if (aiPeopleInvolved != null && !aiPeopleInvolved.isEmpty()) {
+            return aiPeopleInvolved.stream()
+                .map(aiUser -> enhanceUserWithLatestData(aiUser, tenantId, workspaceId))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        }
+        
+        // Fallback: extract from messages if AI data is not available
+        return extractPeopleInvolvedFromMessages(messages, tenantId, workspaceId);
+    }
+    
+    /**
+     * Enhance summary per person using AI-generated data with additional user details and metadata
+     */
+    private List<SummaryPerPerson> enhanceSummaryPerPerson(List<SummaryPerPerson> aiSummaryPerPerson,
+                                                          List<SlackMessage> messages,
+                                                          String tenantId,
+                                                          String workspaceId) {
+        // If AI has already provided summary per person, enhance those with user data and message metadata
+        if (aiSummaryPerPerson != null && !aiSummaryPerPerson.isEmpty()) {
+            return aiSummaryPerPerson.stream()
+                .map(aiSummary -> enhanceSummaryWithUserData(aiSummary, messages, tenantId, workspaceId))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        }
+        
+        // Fallback: extract from messages if AI data is not available
+        return extractSummaryPerPersonFromMessages(messages, tenantId, workspaceId);
+    }
+    
+    /**
+     * Enhance a user DTO with latest user data from the database
+     */
+    private EnrichmentUserDTO enhanceUserWithLatestData(EnrichmentUserDTO aiUser, String tenantId, String workspaceId) {
+        if (aiUser == null || aiUser.id() == null) {
+            return aiUser;
+        }
+        
+        try {
+            if (tenantId != null && workspaceId != null) {
+                Optional<User> userOptional = userService.getUser(tenantId, workspaceId, aiUser.id());
+                if (userOptional.isPresent()) {
+                    User dbUser = userOptional.get();
+                    String enhancedDisplayName = getBestDisplayNameFromUser(dbUser, aiUser.displayName());
+                    String enhancedUsername = getFieldValue(dbUser, "name");
+                    if (enhancedUsername == null || enhancedUsername.trim().isEmpty()) {
+                        enhancedUsername = aiUser.username() != null ? aiUser.username() : aiUser.id();
+                    }
+                    String enhancedImageUrl = getImageFromUser(dbUser);
+                    if (enhancedImageUrl == null) {
+                        enhancedImageUrl = aiUser.imageUrl(); // Keep AI image if no DB image
+                    }
+                    
+                    return new EnrichmentUserDTO(
+                        aiUser.id(),
+                        enhancedUsername,
+                        enhancedDisplayName,
+                        enhancedImageUrl
+                    );
+                }
+            }
+            return aiUser; // Return original if enhancement fails
+        } catch (Exception e) {
+            logger.warn("Failed to enhance user {} with latest data: {}", aiUser.id(), e.getMessage());
+            return aiUser;
+        }
+    }
+    
+    /**
+     * Enhance AI-generated summary per person with user data and message metadata
+     */
+    private SummaryPerPerson enhanceSummaryWithUserData(SummaryPerPerson aiSummary,
+                                                       List<SlackMessage> messages,
+                                                       String tenantId,
+                                                       String workspaceId) {
+        if (aiSummary == null || aiSummary.id() == null) {
+            return aiSummary;
+        }
+        
+        try {
+            String userId = aiSummary.id();
+            
+            // Enhance user details
+            EnrichmentUserDTO enhancedUser = enhanceUserWithLatestData(
+                new EnrichmentUserDTO(userId, aiSummary.username(), aiSummary.displayName(), aiSummary.imageUrl()),
+                tenantId,
+                workspaceId
+            );
+            
+            // Calculate message statistics from actual messages
+            List<SlackMessage> userMessages = messages.stream()
+                .filter(msg -> userId.equals(msg.getUserId()) || userId.equals(msg.getSlackUserId()))
+                .collect(Collectors.toList());
+            
+            int messageCount = userMessages.size();
+            LocalDateTime firstMessageDate = userMessages.stream()
+                .map(SlackMessage::getTimestamp)
+                .filter(Objects::nonNull)
+                .min(LocalDateTime::compareTo)
+                .orElse(aiSummary.firstMessageDate());
+            
+            LocalDateTime lastMessageDate = userMessages.stream()
+                .map(SlackMessage::getTimestamp)
+                .filter(Objects::nonNull)
+                .max(LocalDateTime::compareTo)
+                .orElse(aiSummary.lastMessageDate());
+            
+            // Extract sources from user's messages
+            List<SourceDTO> enhancedSources = extractUserSources(userId, messages, tenantId, workspaceId);
+            
+            // Keep AI-generated summary and contributions, enhance with user data and message stats
+            return new SummaryPerPerson(
+                userId,
+                enhancedUser.username(),
+                enhancedUser.displayName(),
+                enhancedUser.imageUrl(),
+                aiSummary.summary(), // Keep AI-generated summary
+                Math.max(messageCount, aiSummary.messageCount()), // Use higher count
+                firstMessageDate,
+                lastMessageDate,
+                aiSummary.keyContributions(), // Keep AI-generated contributions
+                aiSummary.actionItems(), // Keep AI-generated action items
+                enhancedSources.isEmpty() ? aiSummary.sources() : enhancedSources // Use enhanced sources if available
+            );
+            
+        } catch (Exception e) {
+            logger.warn("Failed to enhance summary for user {}: {}", aiSummary.id(), e.getMessage());
+            return aiSummary;
+        }
+    }
+    
+    /**
+     * Fallback method: extract people involved from messages (renamed from original method)
+     */
+    private List<EnrichmentUserDTO> extractPeopleInvolvedFromMessages(List<SlackMessage> messages, String tenantId, String workspaceId) {
         return messages.stream()
             .map(msg -> msg.getSlackUserId() != null ? msg.getSlackUserId() : msg.getUsername())
             .filter(Objects::nonNull)
@@ -320,7 +462,10 @@ public class TopicEnrichmentStep implements PipelineStep {
         }
     }
     
-    private List<SummaryPerPerson> extractSummaryPerPerson(List<SlackMessage> messages, String tenantId, String workspaceId) {
+    /**
+     * Fallback method: extract summary per person from messages (renamed from original method)
+     */
+    private List<SummaryPerPerson> extractSummaryPerPersonFromMessages(List<SlackMessage> messages, String tenantId, String workspaceId) {
         Map<String, List<SlackMessage>> messagesByUser = messages.stream()
             .filter(msg -> msg.getUserId() != null)
             .collect(Collectors.groupingBy(SlackMessage::getUserId));
