@@ -20,19 +20,19 @@ import org.springframework.stereotype.Service;
  * @author AI Assistant
  */
 @Service
-public class IngestionMessageConsumer {
+public class IngestionConsumer {
     
-    private static final Logger logger = LoggerFactory.getLogger(IngestionMessageConsumer.class);
+    private static final Logger logger = LoggerFactory.getLogger(IngestionConsumer.class);
     
     private final MessageService messageService;
     private final WorkspaceService workspaceService;
     private final UserService userService;
     
-    public IngestionMessageConsumer(MessageService messageService, WorkspaceService workspaceService, UserService userService) {
+    public IngestionConsumer(MessageService messageService, WorkspaceService workspaceService, UserService userService) {
         this.messageService = messageService;
         this.workspaceService = workspaceService;
         this.userService = userService;
-        logger.info("IngestionMessageConsumer initialized");
+        logger.info("IngestionConsumer initialized");
     }
     
     @KafkaListener(
