@@ -1,7 +1,7 @@
-package com.lucid.automation.airouting.pipeline.step;
+package com.lucid.automation.airouting.pipeline.postprocessing.step;
 
 import com.lucid.automation.common.dto.enrichment.EnrichmentResponse;
-import com.lucid.automation.airouting.pipeline.context.PostProcessingContext;
+import com.lucid.automation.airouting.pipeline.postprocessing.PostProcessingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;

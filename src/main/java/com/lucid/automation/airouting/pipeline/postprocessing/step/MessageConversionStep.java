@@ -1,9 +1,9 @@
-package com.lucid.automation.airouting.pipeline.step;
+package com.lucid.automation.airouting.pipeline.postprocessing.step;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lucid.automation.airouting.model.Channel;
 import com.lucid.automation.airouting.model.SlackMessage;
-import com.lucid.automation.airouting.pipeline.context.PostProcessingContext;
+import com.lucid.automation.airouting.pipeline.postprocessing.PostProcessingContext;
 import com.lucid.automation.airouting.service.ChannelService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

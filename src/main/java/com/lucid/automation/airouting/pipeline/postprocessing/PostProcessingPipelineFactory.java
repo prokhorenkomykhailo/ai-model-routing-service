@@ -1,6 +1,6 @@
-package com.lucid.automation.airouting.pipeline;
+package com.lucid.automation.airouting.pipeline.postprocessing;
 
-import com.lucid.automation.airouting.pipeline.step.*;
+import com.lucid.automation.airouting.pipeline.postprocessing.step.*;
 import org.springframework.stereotype.Component;
 
 import java.util.List;

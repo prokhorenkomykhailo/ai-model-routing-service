@@ -4,8 +4,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * Simplified configuration properties for the post-processing pipeline.
- * Only supports STANDARD pipeline type for simplicity.
+ * Configuration properties for pipeline processing.
  */
 @Component
 @ConfigurationProperties(prefix = "pipeline")
@@ -15,11 +14,6 @@ public class PipelineConfiguration {
      * Whether to enable the pipeline (default: true)
      */
     private boolean enabled = true;
-    
-    /**
-     * Pipeline type - simplified to only STANDARD
-     */
-    private PipelineType type = PipelineType.STANDARD;
     
     /**
      * Whether to continue processing if a step fails (default: true)
@@ -48,14 +42,6 @@ public class PipelineConfiguration {
     
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
-    }
-    
-    public PipelineType getType() {
-        return type;
-    }
-    
-    public void setType(PipelineType type) {
-        this.type = type;
     }
     
     public boolean isContinueOnFailure() {

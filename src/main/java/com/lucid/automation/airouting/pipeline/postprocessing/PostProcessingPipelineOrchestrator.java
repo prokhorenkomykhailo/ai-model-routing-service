@@ -1,8 +1,7 @@
-package com.lucid.automation.airouting.pipeline;
+package com.lucid.automation.airouting.pipeline.postprocessing;
 
-import com.lucid.automation.airouting.pipeline.context.PostProcessingContext;
-import com.lucid.automation.airouting.pipeline.step.PipelineStep;
-import com.lucid.automation.airouting.pipeline.step.PipelineStepResult;
+import com.lucid.automation.airouting.pipeline.postprocessing.step.PipelineStep;
+import com.lucid.automation.airouting.pipeline.postprocessing.step.PipelineStepResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;

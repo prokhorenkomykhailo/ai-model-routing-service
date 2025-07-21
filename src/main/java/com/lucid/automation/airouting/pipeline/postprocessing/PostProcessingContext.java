@@ -1,4 +1,4 @@
-package com.lucid.automation.airouting.pipeline.context;
+package com.lucid.automation.airouting.pipeline.postprocessing;
 
 import com.lucid.automation.common.dto.enrichment.ConversationEnrichment;
 import com.lucid.automation.common.dto.enrichment.EnrichmentResponse;

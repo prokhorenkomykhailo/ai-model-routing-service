@@ -1,9 +1,9 @@
-package com.lucid.automation.airouting.pipeline.step;
+package com.lucid.automation.airouting.pipeline.postprocessing.step;
 
 import com.lucid.automation.common.dto.enrichment.*;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.User;
-import com.lucid.automation.airouting.pipeline.context.PostProcessingContext;
+import com.lucid.automation.airouting.pipeline.postprocessing.PostProcessingContext;
 import com.lucid.automation.airouting.service.ChannelService;
 import com.lucid.automation.airouting.service.UserService;
 import com.lucid.automation.airouting.util.TextUtils;

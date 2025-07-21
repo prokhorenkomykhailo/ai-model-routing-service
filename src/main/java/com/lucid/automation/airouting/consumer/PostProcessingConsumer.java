@@ -1,12 +1,12 @@
 package com.lucid.automation.airouting.consumer;
 
 import com.lucid.automation.common.dto.enrichment.EnrichmentResponse;
-import com.lucid.automation.airouting.pipeline.PostProcessingPipelineFactory;
-import com.lucid.automation.airouting.pipeline.PostProcessingPipelineOrchestrator;
-import com.lucid.automation.airouting.pipeline.PostProcessingPipelineResult;
+import com.lucid.automation.airouting.pipeline.postprocessing.PostProcessingPipelineFactory;
+import com.lucid.automation.airouting.pipeline.postprocessing.PostProcessingPipelineOrchestrator;
+import com.lucid.automation.airouting.pipeline.postprocessing.PostProcessingPipelineResult;
 import com.lucid.automation.airouting.pipeline.config.PipelineConfiguration;
-import com.lucid.automation.airouting.pipeline.context.PostProcessingContext;
-import com.lucid.automation.airouting.pipeline.step.PipelineStep;
+import com.lucid.automation.airouting.pipeline.postprocessing.PostProcessingContext;
+import com.lucid.automation.airouting.pipeline.postprocessing.step.PipelineStep;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
@@ -55,7 +55,6 @@ public class PostProcessingConsumer {
         logger.info("Final output topic: {}", aiResponsesTopic);
         logger.info("Pipeline orchestrator: {}", pipelineOrchestrator.getClass().getSimpleName());
         logger.info("Pipeline enabled: {}", pipelineConfiguration.isEnabled());
-        logger.info("Pipeline type: {}", pipelineConfiguration.getType());
         logger.info("Continue on failure: {}", pipelineConfiguration.isContinueOnFailure());
         logger.info("Max execution time: {}ms", pipelineConfiguration.getMaxExecutionTimeMs());
         logger.info("============================================");

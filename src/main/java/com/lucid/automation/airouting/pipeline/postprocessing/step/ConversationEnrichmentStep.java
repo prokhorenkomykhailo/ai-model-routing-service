@@ -1,4 +1,4 @@
-package com.lucid.automation.airouting.pipeline.step;
+package com.lucid.automation.airouting.pipeline.postprocessing.step;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
@@ -11,7 +11,7 @@ import com.lucid.automation.common.dto.enrichment.SummaryPerPerson;
 import com.lucid.automation.common.dto.enrichment.TopicEnrichment;
 import com.lucid.automation.common.dto.enrichment.UrgencyLevel;
 import com.lucid.automation.airouting.model.SlackMessage;
-import com.lucid.automation.airouting.pipeline.context.PostProcessingContext;
+import com.lucid.automation.airouting.pipeline.postprocessing.PostProcessingContext;
 import com.lucid.automation.airouting.util.json.JsonCleaner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

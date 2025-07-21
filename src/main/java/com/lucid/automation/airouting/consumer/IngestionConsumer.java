@@ -1,10 +1,8 @@
 package com.lucid.automation.airouting.consumer;
 
 import com.lucid.automation.common.dto.messaging.IngestionEventDTO;
-import com.lucid.automation.airouting.model.Workspace;
-import com.lucid.automation.airouting.service.MessageService;
-import com.lucid.automation.airouting.service.WorkspaceService;
-import com.lucid.automation.airouting.service.UserService;
+import com.lucid.automation.airouting.pipeline.ingestion.IngestionPipelineOrchestrator;
+import com.lucid.automation.airouting.pipeline.ProcessingResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -16,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 /**
  * Consumer service for processing ingestion messages from Kafka
+ * Now uses the pipeline architecture for modular processing.
  * 
  * @author AI Assistant
  */
@@ -24,15 +23,11 @@ public class IngestionConsumer {
     
     private static final Logger logger = LoggerFactory.getLogger(IngestionConsumer.class);
     
-    private final MessageService messageService;
-    private final WorkspaceService workspaceService;
-    private final UserService userService;
+    private final IngestionPipelineOrchestrator pipelineOrchestrator;
     
-    public IngestionConsumer(MessageService messageService, WorkspaceService workspaceService, UserService userService) {
-        this.messageService = messageService;
-        this.workspaceService = workspaceService;
-        this.userService = userService;
-        logger.info("IngestionConsumer initialized");
+    public IngestionConsumer(IngestionPipelineOrchestrator pipelineOrchestrator) {
+        this.pipelineOrchestrator = pipelineOrchestrator;
+        logger.info("IngestionConsumer initialized with pipeline architecture");
     }
     
     @KafkaListener(
@@ -69,17 +64,19 @@ public class IngestionConsumer {
         validateTimestamp(ingestionEventDto, acknowledgment);
 
         try {
-            boolean processingSuccessful = processMessage(ingestionEventDto);
+            ProcessingResult processingResult = pipelineOrchestrator.processMessage(ingestionEventDto);
             
-            if (processingSuccessful) {
+            if (processingResult.isSuccess()) {
                 logger.info("Message processed successfully: messageId={}, source={}, permaLink={}", 
                     ingestionEventDto.getMessage().getTs(),
                     ingestionEventDto.getMessage().getSource(),
                     ingestionEventDto.getMessage().getPermaLink());
                 acknowledgment.acknowledge();
             } else {
-                logger.error("Message processing failed: {}", ingestionEventDto.getMessage().getTs());
-                throw new RuntimeException("Critical processing step failed");
+                logger.error("Message processing failed: messageId={}, error={}", 
+                    ingestionEventDto.getMessage().getTs(), 
+                    processingResult.getErrorMessage());
+                throw new RuntimeException("Pipeline processing failed: " + processingResult.getErrorMessage());
             }
             
         } catch (Exception e) {
@@ -108,32 +105,6 @@ public class IngestionConsumer {
         } catch (NumberFormatException e) {
             logger.warn("Invalid timestamp format: {} - continuing", ingestionEventDto.getMessage().getTs());
         }
-    }
-    
-    private boolean processMessage(IngestionEventDTO ingestionEventDto) {
-        boolean success = true;
-        
-        // Save message to Redis
-        boolean stored = messageService.storeMessage(ingestionEventDto);
-        if (!stored) {
-            logger.error("Failed to save message to Redis: {}", ingestionEventDto.getMessage().getTs());
-            success = false;
-        }
-        
-        // Store/update user information
-        var user = userService.createOrUpdateUser(ingestionEventDto);
-        if (user == null) {
-            logger.warn("User service returned null for: {}", 
-                ingestionEventDto.getUser() != null ? ingestionEventDto.getUser().getSlackUserId() : "null");
-        }
-        
-        // Update workspace
-        Workspace workspace = workspaceService.createOrUpdateWorkspace(ingestionEventDto);
-        if (workspace == null) {
-            logger.warn("Workspace service returned null for tenantId: {}", ingestionEventDto.getTenantId());
-        }
-        
-        return success;
     }
     
     private boolean isRetryableException(Exception exception) {

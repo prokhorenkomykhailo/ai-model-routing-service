@@ -1,6 +1,6 @@
-package com.lucid.automation.airouting.pipeline.step;
+package com.lucid.automation.airouting.pipeline.postprocessing.step;
 
-import com.lucid.automation.airouting.pipeline.context.PostProcessingContext;
+import com.lucid.automation.airouting.pipeline.postprocessing.PostProcessingContext;
 
 /**
  * Interface for all post-processing pipeline steps.
