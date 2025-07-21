@@ -43,8 +43,10 @@ public class SlidingWindowService {
     
     /**
      * Process messages for a workspace using sliding window approach.
-     * Messages are loaded from Redis, sorted chronologically, and processed in batches with overlap.
-     * After processing, always deletes all processed messages and keeps only the latest N messages (where N = overlap size).
+     * Messages are loaded from Redis (all messages), sorted chronologically, and processed in batches with overlap.
+     * Only processes if there's at least one unprocessed message. After processing, marks all processed messages with isProcessed=true 
+     * and deletes all processed messages keeping only the latest N messages (where N = overlap size).
+     * If all messages are already marked as processed, the sliding window will not run.
      * 
      * @param workspace The workspace ID to process messages for
      * @param maxMessage Maximum number of messages to process per batch
@@ -76,11 +78,27 @@ public class SlidingWindowService {
             List<Message> allMessages = loadMessagesForWorkspace(deemergeUserId);
             
             if (allMessages.isEmpty()) {
-                logger.info("No messages found for workspaceId: {}", workspace);
+                logger.info("📭 No Messages: No messages found for workspace '{}' - nothing to process", 
+                           workspace.getDeemergeUserId());
                 return 0;
             }
             
-            logger.info("Loaded {} messages for workspaceId: {}", allMessages.size(), workspace);
+            // Check if there are any unprocessed messages
+            long unprocessedCount = allMessages.stream()
+                .filter(msg -> msg.getIsProcessed() == null || !msg.getIsProcessed())
+                .count();
+            long processedCount = allMessages.size() - unprocessedCount;
+            
+            if (unprocessedCount == 0) {
+                logger.info("📋 Workspace Analysis: All {} messages have been processed - no new messages to process for workspace '{}'", 
+                           allMessages.size(), workspace.getDeemergeUserId());
+                logger.info("🚫 Sliding Window: Skipping processing - no unprocessed messages found");
+                return 0;
+            }
+            
+            logger.info("📊 Workspace Analysis: Found {} total messages ({} already processed, {} new messages) for workspace '{}'", 
+                       allMessages.size(), processedCount, unprocessedCount, workspace.getDeemergeUserId());
+            logger.info("✅ Sliding Window: Starting processing - {} new messages available for processing", unprocessedCount);
             
             // Messages are already sorted chronologically by loadMessagesForWorkspace method
             // Calculate overlap size, minimum of 20 messages or 20% of maxMessage
@@ -107,7 +125,16 @@ public class SlidingWindowService {
         try {
             logger.debug("Loading messages for deemergeUserId: {}", deemergeUserId);
 
+            // Load all messages for the workspace
             List<Message> messages = messageRepository.findAllByDeemergeUserId(deemergeUserId);
+            
+            if (messages.isEmpty()) {
+                logger.info("No messages found for deemergeUserId: {}", deemergeUserId);
+                return Collections.emptyList();
+            }
+            
+            logger.info("Found {} messages for deemergeUserId: {}", messages.size(), deemergeUserId);
+            
             // add user information to messages
             messages.forEach(message -> {
                 if (message.getUserId() != null && !message.getUserId().trim().isEmpty()) {
@@ -223,25 +250,40 @@ public class SlidingWindowService {
             // Extract current batch
             List<Message> currentBatch = new ArrayList<>(allMessages.subList(startIndex, endIndex));
             
-            logger.debug("Processing batch {}: messages [{}-{}] (size: {})", 
-                        batchNumber, startIndex, endIndex - 1, currentBatch.size());
+            // Check if this batch has at least one unprocessed message
+            long unprocessedInBatch = currentBatch.stream()
+                .filter(msg -> msg.getIsProcessed() == null || !msg.getIsProcessed())
+                .count();
+            long processedInBatch = currentBatch.size() - unprocessedInBatch;
             
-            try {
-                // Process the batch using the callback function
-                callbackFunction.apply(currentBatch);
-                
-                totalProcessed += currentBatch.size();
-                
-                logger.debug("Successfully processed batch {} with {} messages", 
+            logger.info("📦 Batch {} Analysis: Processing messages [{} to {}] - {} total ({} already processed, {} new)", 
+                        batchNumber, startIndex + 1, endIndex, currentBatch.size(), processedInBatch, unprocessedInBatch);
+            
+            // Only process the batch if it has at least one unprocessed message
+            if (unprocessedInBatch > 0) {
+                try {
+                    // Process the batch using the callback function
+                    callbackFunction.apply(currentBatch);
+                    
+                    // Mark all messages in this batch as processed
+                    markMessagesAsProcessed(currentBatch);
+                    
+                    totalProcessed += currentBatch.size();
+                    
+                    logger.info("✅ Batch {} Success: Processed {} messages ({} were new, {} were already processed)", 
+                               batchNumber, currentBatch.size(), unprocessedInBatch, processedInBatch);
+                    
+                    // Immediately clean up this batch after successful processing
+                    cleanupBatchMessages(currentBatch, overlapSize, batchNumber);
+                    
+                } catch (Exception e) {
+                    logger.error("Error processing batch {} for messages [{}-{}]", 
+                               batchNumber, startIndex, endIndex - 1, e);
+                    // Continue processing other batches even if one fails
+                }
+            } else {
+                logger.info("⏭️  Batch {} Skipped: All {} messages already processed - no new messages to process", 
                            batchNumber, currentBatch.size());
-                
-                // Immediately clean up this batch after successful processing
-                cleanupBatchMessages(currentBatch, overlapSize, batchNumber);
-                
-            } catch (Exception e) {
-                logger.error("Error processing batch {} for messages [{}-{}]", 
-                           batchNumber, startIndex, endIndex - 1, e);
-                // Continue processing other batches even if one fails
             }
             
             // Calculate next start index with overlap
@@ -261,7 +303,7 @@ public class SlidingWindowService {
             batchNumber++;
         }
         
-        logger.info("Completed sliding window processing: {} batches, {} total messages processed", 
+        logger.info("🎯 Sliding Window Complete: Processed {} batches and handled {} total messages", 
                    batchNumber - 1, totalProcessed);
         
         return totalProcessed;
@@ -366,6 +408,45 @@ public class SlidingWindowService {
         } catch (Exception e) {
             logger.error("Error during workspace cleanup for workspaceId: {}", workspaceId, e);
             return 0;
+        }
+    }
+    
+    /**
+     * Mark a list of messages as processed by setting isProcessed to true.
+     * Only updates messages that are currently unprocessed (null or false).
+     * 
+     * @param messages The list of messages to mark as processed
+     */
+    private void markMessagesAsProcessed(List<Message> messages) {
+        if (messages == null || messages.isEmpty()) {
+            logger.debug("No messages to mark as processed");
+            return;
+        }
+        
+        try {
+            List<Message> updatedMessages = new ArrayList<>();
+            
+            for (Message message : messages) {
+                // Only mark as processed if it's currently unprocessed
+                if (message.getIsProcessed() == null || !message.getIsProcessed()) {
+                    message.setIsProcessed(true);
+                    updatedMessages.add(message);
+                }
+            }
+            
+            if (updatedMessages.isEmpty()) {
+                logger.debug("No unprocessed messages to mark as processed in this batch");
+                return;
+            }
+            
+            // Save all updated messages back to Redis
+            messageRepository.saveAll(updatedMessages);
+            
+            logger.debug("Marked {} messages as processed", updatedMessages.size());
+            
+        } catch (Exception e) {
+            logger.error("Error marking messages as processed: {}", e.getMessage(), e);
+            // Don't throw exception - let processing continue even if marking fails
         }
     }
     

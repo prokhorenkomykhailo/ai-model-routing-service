@@ -261,6 +261,7 @@ public class MessageService {
             .threadTs(threadTs)
             .metadata(metadata)
             .ingestedAt(Instant.now().toEpochMilli())
+            .isProcessed(false)  // Initialize as unprocessed
             .build();
     }
     

@@ -281,6 +281,12 @@ public class Message implements Serializable {
     private Long ingestedAt;
     
     /**
+     * Flag indicating whether this message has been processed by sliding window
+     */
+    @Indexed
+    private Boolean isProcessed;
+    
+    /**
      * Update composite indexes when core fields change
      * This method should be called after setting tenantId, workspaceId, channelId, or threadTs
      */

@@ -162,6 +162,7 @@ public class MessageController {
                 .permaLink(message.getPermaLink())
                 .metadata(message.getMetadata())
                 .ingestedAt(message.getIngestedAt())
+                .isProcessed(message.getIsProcessed())
                 .build();
     }
     
