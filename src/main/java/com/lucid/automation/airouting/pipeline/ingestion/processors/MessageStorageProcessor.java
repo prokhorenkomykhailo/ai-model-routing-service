@@ -1,8 +1,8 @@
 package com.lucid.automation.airouting.pipeline.ingestion.processors;
 
 import com.lucid.automation.airouting.pipeline.ingestion.MessageProcessor;
+import com.lucid.automation.airouting.pipeline.ingestion.IngestionProcessingContext;
 import com.lucid.automation.airouting.pipeline.ProcessingResult;
-import com.lucid.automation.airouting.pipeline.context.MessageProcessingContext;
 import com.lucid.automation.airouting.service.MessageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,11 +26,11 @@ public class MessageStorageProcessor implements MessageProcessor {
     }
     
     @Override
-    public ProcessingResult process(MessageProcessingContext context) {
+    public ProcessingResult process(IngestionProcessingContext context) {
         var ingestionEvent = context.getIngestionEvent();
         
         logger.debug("Storing message for messageId: {}, tenantId: {}", 
-            ingestionEvent.getMessage().getTs(), ingestionEvent.getTenantId());
+            context.getMessageId(), context.getTenantId());
         
         try {
             // Call the message service to store the message
@@ -38,16 +38,17 @@ public class MessageStorageProcessor implements MessageProcessor {
             boolean stored = messageService.storeMessage(ingestionEvent);
             
             if (!stored) {
-                String errorMsg = "Failed to store message to Redis for messageId: " + ingestionEvent.getMessage().getTs();
+                String errorMsg = "Failed to store message to Redis for messageId: " + context.getMessageId();
                 logger.error(errorMsg);
                 return ProcessingResult.failure(getProcessorName(), errorMsg);
             }
             
-            logger.debug("Message stored successfully for messageId: {}", ingestionEvent.getMessage().getTs());
+            logger.debug("Message stored successfully for messageId: {}", context.getMessageId());
             
             // Store the processing result in context for other processors
+            context.setMessageStored(true);
             context.setProcessingData("messageStored", true);
-            context.setProcessingData("messageId", ingestionEvent.getMessage().getTs());
+            context.setProcessingData("messageId", context.getMessageId());
             
             return ProcessingResult.success(getProcessorName());
             

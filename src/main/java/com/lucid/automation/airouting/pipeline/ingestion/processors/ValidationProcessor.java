@@ -1,8 +1,8 @@
 package com.lucid.automation.airouting.pipeline.ingestion.processors;
 
 import com.lucid.automation.airouting.pipeline.ingestion.MessageProcessor;
+import com.lucid.automation.airouting.pipeline.ingestion.IngestionProcessingContext;
 import com.lucid.automation.airouting.pipeline.ProcessingResult;
-import com.lucid.automation.airouting.pipeline.context.MessageProcessingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -19,10 +19,10 @@ public class ValidationProcessor implements MessageProcessor {
     private static final Logger logger = LoggerFactory.getLogger(ValidationProcessor.class);
     
     @Override
-    public ProcessingResult process(MessageProcessingContext context) {
+    public ProcessingResult process(IngestionProcessingContext context) {
         var ingestionEvent = context.getIngestionEvent();
         
-        logger.debug("Validating ingestion event for tenantId: {}", ingestionEvent.getTenantId());
+        logger.debug("Validating ingestion event for tenantId: {}", context.getTenantId());
         
         // Check if message exists
         if (ingestionEvent.getMessage() == null) {
@@ -48,11 +48,11 @@ public class ValidationProcessor implements MessageProcessor {
         }
         
         // Check tenant ID
-        if (ingestionEvent.getTenantId() == null || ingestionEvent.getTenantId().trim().isEmpty()) {
+        if (context.getTenantId() == null || context.getTenantId().trim().isEmpty()) {
             return ProcessingResult.failure(getProcessorName(), "Tenant ID is null or empty");
         }
         
-        logger.debug("Validation completed successfully for messageId: {}", ingestionEvent.getMessage().getTs());
+        logger.debug("Validation completed successfully for messageId: {}", context.getMessageId());
         return ProcessingResult.success(getProcessorName());
     }
     

@@ -1,6 +1,5 @@
 package com.lucid.automation.airouting.pipeline.ingestion;
 
-import com.lucid.automation.airouting.pipeline.context.MessageProcessingContext;
 import com.lucid.automation.airouting.pipeline.ProcessingResult;
 
 /**
@@ -14,10 +13,10 @@ public interface MessageProcessor {
     /**
      * Processes a message and returns the result.
      * 
-     * @param context The processing context containing the ingestion event and accumulated data
+     * @param context The ingestion processing context containing the ingestion event and accumulated data
      * @return ProcessingResult indicating success/failure and any error details
      */
-    ProcessingResult process(MessageProcessingContext context);
+    ProcessingResult process(IngestionProcessingContext context);
     
     /**
      * Returns the name of this processor for logging and debugging.

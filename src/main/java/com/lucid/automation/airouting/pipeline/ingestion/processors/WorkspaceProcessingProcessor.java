@@ -1,8 +1,8 @@
 package com.lucid.automation.airouting.pipeline.ingestion.processors;
 
 import com.lucid.automation.airouting.pipeline.ingestion.MessageProcessor;
+import com.lucid.automation.airouting.pipeline.ingestion.IngestionProcessingContext;
 import com.lucid.automation.airouting.pipeline.ProcessingResult;
-import com.lucid.automation.airouting.pipeline.context.MessageProcessingContext;
 import com.lucid.automation.airouting.service.WorkspaceService;
 import com.lucid.automation.airouting.model.Workspace;
 import org.slf4j.Logger;
@@ -27,7 +27,7 @@ public class WorkspaceProcessingProcessor implements MessageProcessor {
     }
     
     @Override
-    public ProcessingResult process(MessageProcessingContext context) {
+    public ProcessingResult process(IngestionProcessingContext context) {
         var ingestionEvent = context.getIngestionEvent();
         
         logger.debug("Processing workspace information for messageId: {}, tenantId: {}", 
@@ -40,11 +40,11 @@ public class WorkspaceProcessingProcessor implements MessageProcessor {
             if (workspace == null) {
                 logger.warn("Workspace service returned null for tenantId: {}", ingestionEvent.getTenantId());
                 // This is not a critical failure, so we continue
-                context.setProcessingData("workspaceProcessed", false);
+                context.setWorkspaceProcessed(false);
                 context.setProcessingData("workspaceWarning", "Workspace service returned null");
             } else {
                 logger.debug("Workspace processed successfully: {}", workspace.getName());
-                context.setProcessingData("workspaceProcessed", true);
+                context.setWorkspaceProcessed(true);
                 context.setProcessedWorkspace(workspace);
             }
             
@@ -55,7 +55,7 @@ public class WorkspaceProcessingProcessor implements MessageProcessor {
             logger.error(errorMsg, e);
             
             // Workspace processing failure is not critical, so we continue
-            context.setProcessingData("workspaceProcessed", false);
+            context.setWorkspaceProcessed(false);
             context.setProcessingData("workspaceError", errorMsg);
             
             return ProcessingResult.success(getProcessorName()); // Return success to continue pipeline

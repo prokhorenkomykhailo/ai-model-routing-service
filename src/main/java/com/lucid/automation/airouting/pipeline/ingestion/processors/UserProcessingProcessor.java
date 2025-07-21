@@ -1,8 +1,8 @@
 package com.lucid.automation.airouting.pipeline.ingestion.processors;
 
 import com.lucid.automation.airouting.pipeline.ingestion.MessageProcessor;
+import com.lucid.automation.airouting.pipeline.ingestion.IngestionProcessingContext;
 import com.lucid.automation.airouting.pipeline.ProcessingResult;
-import com.lucid.automation.airouting.pipeline.context.MessageProcessingContext;
 import com.lucid.automation.airouting.service.UserService;
 import com.lucid.automation.airouting.model.User;
 import org.slf4j.Logger;
@@ -27,7 +27,7 @@ public class UserProcessingProcessor implements MessageProcessor {
     }
     
     @Override
-    public ProcessingResult process(MessageProcessingContext context) {
+    public ProcessingResult process(IngestionProcessingContext context) {
         var ingestionEvent = context.getIngestionEvent();
         
         logger.debug("Processing user information for messageId: {}, tenantId: {}", 
@@ -41,11 +41,11 @@ public class UserProcessingProcessor implements MessageProcessor {
                 String userId = ingestionEvent.getUser() != null ? ingestionEvent.getUser().getSlackUserId() : "null";
                 logger.warn("User service returned null for userId: {}", userId);
                 // This is not a critical failure, so we continue
-                context.setProcessingData("userProcessed", false);
+                context.setUserProcessed(false);
                 context.setProcessingData("userWarning", "User service returned null");
             } else {
                 logger.debug("User processed successfully: {}", user.getSlackUserId());
-                context.setProcessingData("userProcessed", true);
+                context.setUserProcessed(true);
                 context.setProcessedUser(user);
             }
             
@@ -56,7 +56,7 @@ public class UserProcessingProcessor implements MessageProcessor {
             logger.error(errorMsg, e);
             
             // User processing failure is not critical, so we continue
-            context.setProcessingData("userProcessed", false);
+            context.setUserProcessed(false);
             context.setProcessingData("userError", errorMsg);
             
             return ProcessingResult.success(getProcessorName()); // Return success to continue pipeline

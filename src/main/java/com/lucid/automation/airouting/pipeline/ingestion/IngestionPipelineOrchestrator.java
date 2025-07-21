@@ -4,7 +4,6 @@ import com.lucid.automation.common.dto.messaging.IngestionEventDTO;
 import com.lucid.automation.airouting.pipeline.ingestion.processors.MessageStorageProcessor;
 import com.lucid.automation.airouting.pipeline.ingestion.processors.ValidationProcessor;
 import com.lucid.automation.airouting.pipeline.ProcessingResult;
-import com.lucid.automation.airouting.pipeline.context.MessageProcessingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -42,11 +41,10 @@ public class IngestionPipelineOrchestrator {
      * @return ProcessingResult indicating overall success/failure
      */
     public ProcessingResult processMessage(IngestionEventDTO ingestionEvent) {
-        MessageProcessingContext context = new MessageProcessingContext(ingestionEvent);
+        IngestionProcessingContext context = new IngestionProcessingContext(ingestionEvent);
         
         logger.debug("Starting ingestion pipeline for messageId: {}, tenantId: {}", 
-            ingestionEvent.getMessage() != null ? ingestionEvent.getMessage().getTs() : "null",
-            ingestionEvent.getTenantId());
+            context.getMessageId(), context.getTenantId());
         
         boolean overallSuccess = true;
         String failureReason = null;
@@ -86,13 +84,11 @@ public class IngestionPipelineOrchestrator {
         }
         
         if (overallSuccess) {
-            logger.info("Ingestion pipeline completed successfully for messageId: {}", 
-                ingestionEvent.getMessage() != null ? ingestionEvent.getMessage().getTs() : "null");
+            logger.info("Ingestion pipeline completed successfully for messageId: {}", context.getMessageId());
             return ProcessingResult.success("IngestionPipelineOrchestrator");
         } else {
             logger.error("Ingestion pipeline failed for messageId: {}, reason: {}", 
-                ingestionEvent.getMessage() != null ? ingestionEvent.getMessage().getTs() : "null",
-                failureReason);
+                context.getMessageId(), failureReason);
             return ProcessingResult.failure("IngestionPipelineOrchestrator", failureReason);
         }
     }
