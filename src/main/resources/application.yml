@@ -21,8 +21,8 @@ spring:
       enabled: true
 
   kafka:
-    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:10.113.213.31:9092}
-    
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:10.113.213.31:9094}
+
     # Security Configuration
     security:
       protocol: ${SPRING_KAFKA_SECURITY_PROTOCOL:SASL_PLAINTEXT}
@@ -73,6 +73,7 @@ kafka:
     ai-enrich: ${KAFKA_TOPIC_AI_ENRICH:ai-enrich}
     ai-responses: ${KAFKA_TOPIC_AI_RESPONSES:ai.responses.queue}
     pre-ai-responses: ${KAFKA_TOPIC_PRE_AI_RESPONSES:pre.ai.responses.queue}
+    user-channel: ${KAFKA_TOPIC_USER_CHANNEL_EVENTS:user-channel-topic}
   # Offset Reset Configuration:
   # true = Always process from beginning (debugging mode - processes ALL historical messages)
   # false = Process only new messages from latest offset (production mode)

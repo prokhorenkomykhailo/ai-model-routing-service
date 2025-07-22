@@ -23,7 +23,7 @@ public class UserChannelProducer {
     
     private final KafkaTemplate<String, Object> kafkaTemplate;
     
-    @Value("${kafka.topics.user-channel:user-channel-events}")
+    @Value("${kafka.topics.user-channel:user-channel-topic}")
     private String userChannelTopic;
     
     public UserChannelProducer(KafkaTemplate<String, Object> kafkaTemplate) {
