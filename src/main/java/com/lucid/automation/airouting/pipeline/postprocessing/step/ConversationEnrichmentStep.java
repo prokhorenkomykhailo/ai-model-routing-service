@@ -165,43 +165,23 @@ public class ConversationEnrichmentStep implements PipelineStep {
             endTime = parseDeadline(periodEndDate);
         }
         
-        // If not provided by AI, calculate from messages
-        if (messages != null && !messages.isEmpty()) {
-            // Calculate startTime as the earliest message timestamp if not provided by AI
-            if (startTime == null) {
-                startTime = messages.stream()
-                    .map(SlackMessage::getTimestamp)
-                    .filter(timestamp -> timestamp != null)
-                    .min(LocalDateTime::compareTo)
-                    .orElse(null);
-            }
-            
-            // Calculate endTime as the latest message timestamp if not provided by AI
-            if (endTime == null) {
-                endTime = messages.stream()
-                    .map(SlackMessage::getTimestamp)
-                    .filter(timestamp -> timestamp != null)
-                    .max(LocalDateTime::compareTo)
-                    .orElse(null);
-            }
-            
-            // Set lastUpdated to the latest message time if not provided by AI
-            if (lastUpdated == null) {
-                lastUpdated = endTime;
-            }
-            
-            logger.debug("Calculated topic '{}' timestamps: startTime={} (AI: {}, period: {}), endTime={} (AI: {}, latest: {}, period: {}), lastUpdated={} (AI: {})", 
-                        title, startTime, aiStartTime, periodStartDate, endTime, aiEndTime, aiLatestMessageDate, periodEndDate, lastUpdated, aiLastUpdated);
-        }
-        
         // Extract people involved
         List<EnrichmentUserDTO> peopleInvolved = extractPeopleInvolved(topicMap);
+        // Extract lastMessageDatePerPerson 
+        Map<String, String> lastMessageDatePerPerson = extractStringMap(topicMap, "lastMessageDatePerPerson");
+        
+        // Calculate lastUpdated from lastMessageDatePerPerson - find the latest date
+        if (lastUpdated == null && !lastMessageDatePerPerson.isEmpty()) {
+            lastUpdated = lastMessageDatePerPerson.values().stream()
+                .map(this::parseDeadline)
+                .filter(date -> date != null)
+                .max(LocalDateTime::compareTo)
+                .orElse(null);
+        }
         
         // Extract summaryPerPerson from the AI response
-        List<SummaryPerPerson> summaryPerPerson = extractSummaryPerPerson(topicMap);
+        List<SummaryPerPerson> summaryPerPerson = extractSummaryPerPerson(topicMap, lastMessageDatePerPerson);
         
-        // Extract lastMessageDatePerPerson
-        Map<String, String> lastMessageDatePerPerson = extractStringMap(topicMap, "lastMessageDatePerPerson");
         
         // Extract suggested replies
         List<SuggestedReply> suggestedReplies = extractSuggestedReplies(topicMap);
@@ -241,7 +221,7 @@ public class ConversationEnrichmentStep implements PipelineStep {
     /**
      * Extract summaryPerPerson from the AI response topic map
      */
-    private List<SummaryPerPerson> extractSummaryPerPerson(Map<?, ?> topicMap) {
+    private List<SummaryPerPerson> extractSummaryPerPerson(Map<?, ?> topicMap, Map<String, String> lastMessageDatePerPerson) {
         Object summaryPerPersonObj = topicMap.get("summaryPerPerson");
         
         // Handle new format: simple map of userId -> summary
@@ -251,6 +231,10 @@ public class ConversationEnrichmentStep implements PipelineStep {
             for (Map.Entry<?, ?> entry : summaryMap.entrySet()) {
                 String userId = String.valueOf(entry.getKey());
                 String summary = String.valueOf(entry.getValue());
+                
+                // Get last message date for this user
+                String lastMessageDateStr = lastMessageDatePerPerson.get(userId);
+                LocalDateTime lastMessageDate = parseDeadline(lastMessageDateStr);
                 
                 // Create basic SummaryPerPerson with the summary from AI response
                 SummaryPerPerson summaryPerPerson = 
@@ -262,7 +246,7 @@ public class ConversationEnrichmentStep implements PipelineStep {
                         summary,
                         0,      // messageCount
                         null,   // firstMessageDate
-                        null,   // lastMessageDate
+                        lastMessageDate, // lastMessageDate from lastMessageDatePerPerson
                         List.of(), // keyContributions
                         List.of(), // actionItems
                         List.of()  // sources
@@ -282,6 +266,10 @@ public class ConversationEnrichmentStep implements PipelineStep {
                     String summary = extractStringValue(summaryObjMap, "summary", DEFAULT_SUMMARY);
                     Integer messageCount = extractIntegerValue(summaryObjMap, "messageCount", 0);
                     
+                    // Get last message date for this user
+                    String lastMessageDateStr = lastMessageDatePerPerson.get(id);
+                    LocalDateTime lastMessageDate = parseDeadline(lastMessageDateStr);
+                    
                     // For now, skip complex date parsing and just use basic fields
                     // The TopicEnrichmentStep can enhance these later
                     if (id != null) {
@@ -294,7 +282,7 @@ public class ConversationEnrichmentStep implements PipelineStep {
                                 summary,
                                 messageCount,
                                 null, // firstMessageDate
-                                null, // lastMessageDate
+                                lastMessageDate, // lastMessageDate from lastMessageDatePerPerson
                                 List.of(), // keyContributions
                                 List.of(), // actionItems
                                 List.of()  // sources
