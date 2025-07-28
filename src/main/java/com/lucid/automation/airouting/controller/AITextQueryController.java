@@ -31,22 +31,22 @@ import java.time.LocalDateTime;
 @Validated
 @Tag(name = "AI Text Query (Internal)", description = "Internal API for AI text query processing")
 public class AITextQueryController {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(AITextQueryController.class);
-    
+
     private final AIProvider aiProvider;
-    
+
     @Value("${ai.routing.default-provider:geminiProvider}")
     private String defaultProviderName;
-    
-    public AITextQueryController(ApplicationContext applicationContext, 
+
+    public AITextQueryController(ApplicationContext applicationContext,
                                 @Value("${ai.routing.default-provider:geminiProvider}") String defaultProviderName) {
         this.defaultProviderName = defaultProviderName;
         this.aiProvider = applicationContext.getBean(defaultProviderName, AIProvider.class);
         logger.info("AI-CONTROLLER: Initialized with provider: {}", defaultProviderName);
     }
-    
-    @PostMapping("/text-query")
+
+    @PostMapping(value = "/text-query", headers = {"X-User-Id", "X-Tenant-Id", "X-Tenant-Schema"})
     @Operation(
         summary = "Process text query with AI",
         description = "Submit a text query to be processed by the AI provider and receive a response"
@@ -58,12 +58,14 @@ public class AITextQueryController {
         @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     public ResponseEntity<APIResponse<TextQueryResponseDTO>> processTextQuery(
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-Tenant-Id") String tenantId,
             @Parameter(description = "Text query request payload", required = true)
             @Valid @RequestBody TextQueryRequestDTO request) {
-        
+
         String debugId = "AI-CONTROLLER-" + System.currentTimeMillis();
         logger.info("AI-CONTROLLER [{}]: Received text query request, using provider: {}", debugId, aiProvider.getProviderId());
-        
+
         try {
             // Check if AI provider is available
             if (!aiProvider.isAvailable()) {
@@ -71,10 +73,10 @@ public class AITextQueryController {
                 return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .body(APIResponse.error("AI service is currently unavailable"));
             }
-            
+
             // Process the query using the configured provider
-            String aiResponse = aiProvider.processTextQuery(request.getQuery());
-            
+            String aiResponse = aiProvider.processTextQuery(request.getQuery(), userId, tenantId);
+
             // Build response DTO
             TextQueryResponseDTO response = TextQueryResponseDTO.builder()
                     .response(aiResponse)
@@ -82,24 +84,24 @@ public class AITextQueryController {
                     .providerId(aiProvider.getProviderId())
                     .timestamp(LocalDateTime.now())
                     .build();
-            
-            logger.info("AI-CONTROLLER [{}]: Successfully processed text query with provider: {}", 
+
+            logger.info("AI-CONTROLLER [{}]: Successfully processed text query with provider: {}",
                        debugId, aiProvider.getProviderId());
-            
+
             return ResponseEntity.ok(
                 APIResponse.success("Query processed successfully", response)
             );
-            
+
         } catch (IllegalArgumentException e) {
             logger.error("AI-CONTROLLER [{}]: Invalid request: {}", debugId, e.getMessage());
             return ResponseEntity.badRequest()
                 .body(APIResponse.error("Invalid request: " + e.getMessage()));
-                
+
         } catch (RuntimeException e) {
             logger.error("AI-CONTROLLER [{}]: Service error: {}", debugId, e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(APIResponse.error("Service error: " + e.getMessage()));
-                
+
         } catch (Exception e) {
             logger.error("AI-CONTROLLER [{}]: Unexpected error: {}", debugId, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)

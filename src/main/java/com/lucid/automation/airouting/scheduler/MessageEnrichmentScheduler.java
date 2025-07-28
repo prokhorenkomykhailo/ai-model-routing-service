@@ -8,7 +8,9 @@ import com.lucid.automation.airouting.model.Workspace;
 import com.lucid.automation.airouting.producer.AIMessageProducer;
 import com.lucid.automation.airouting.service.SlidingWindowService;
 import com.lucid.automation.airouting.service.WorkspaceService;
+
 import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -63,14 +65,6 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
             @Value("${ai.enrichment.scheduler.batch-size:" + DEFAULT_BATCH_SIZE + "}") final int batchSize,
             @Value("${ai.enrichment.scheduler.default-tenant-schema:" + DEFAULT_TENANT_SCHEMA + "}") final String defaultTenantSchema) {
 
-        log.info("=== MessageEnrichmentScheduler Constructor Called ===");
-        log.info("AIMessageProducer: {}", aiMessageProducer != null ? "PRESENT" : "NULL");
-        log.info("WorkspaceService: {}", workspaceService != null ? "PRESENT" : "NULL");
-        log.info("SlidingWindowService: {}", slidingWindowService != null ? "PRESENT" : "NULL");
-        log.info("ApplicationContext: {}", applicationContext != null ? "PRESENT" : "NULL");
-        log.info("Batch Size: {}", batchSize);
-        log.info("Default Tenant Schema: {}", defaultTenantSchema);
-
         this.aiMessageProducer = aiMessageProducer;
         this.workspaceService = workspaceService;
         this.slidingWindowService = slidingWindowService;
@@ -124,15 +118,6 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     }
 
     /**
-     * Simple heartbeat scheduler to verify that scheduling is working at all
-     */
-    @Scheduled(fixedDelay = 60000) // Every 60 seconds
-    public void schedulerHeartbeat() {
-        log.info("=== SCHEDULER HEARTBEAT === Time: {} Thread: {}",
-                LocalDateTime.now(), Thread.currentThread().getName());
-    }
-
-    /**
      * Scheduled method to process message enrichment for all workspaces.
      */
     @Scheduled(cron = "${ai.enrichment.scheduler.cron:0 */5 * * * ?}")
@@ -150,7 +135,6 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                 return;
             }
 
-            log.info("Found {} workspaces to process for enrichment", workspaces.size());
             processAllWorkspaces(workspaces);
             log.info("Completed scheduled message enrichment process for {} workspaces", workspaces.size());
 

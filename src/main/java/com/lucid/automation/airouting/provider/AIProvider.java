@@ -35,9 +35,11 @@ public abstract class AIProvider {
      * Process a simple text query and return a response
      *
      * @param query The text query to process
+     * @param userId The user ID associated with the request
+     * @param tenantId The tenant ID associated with the request
      * @return String response from the AI provider
      */
-    public abstract String processTextQuery(String query);
+    public abstract String processTextQuery(String query, String userId, String tenantId);
 
     /**
      * Get provider identifier
@@ -86,20 +88,5 @@ public abstract class AIProvider {
         } catch (Exception e) {
             logger.error("Failed to send token consumption data to Kafka: {}", e.getMessage(), e);
         }
-    }
-
-    /**
-     * Convenience method to send token consumption data without cost
-     */
-    protected void sendTokenConsumption(String operation, int inputTokens, int outputTokens, int totalTokens) {
-        sendTokenConsumption(operation, "unknown", "unknown", inputTokens, outputTokens, totalTokens, null, null);
-    }
-
-    /**
-     * Convenience method to send token consumption data with metadata
-     */
-    protected void sendTokenConsumption(String operation, int inputTokens, int outputTokens,
-                                      int totalTokens, Map<String, Object> metadata) {
-        sendTokenConsumption(operation, "unknown", "unknown", inputTokens, outputTokens, totalTokens, null, metadata);
     }
 }

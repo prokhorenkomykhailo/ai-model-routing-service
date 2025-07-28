@@ -21,20 +21,20 @@ import java.util.Optional;
  */
 @Service
 public class WorkspaceService {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(WorkspaceService.class);
-    
+
     private final WorkspaceRepository workspaceRepository;
     private final SlidingWindowService slidingWindowService;
-    
+
     public WorkspaceService(WorkspaceRepository workspaceRepository, SlidingWindowService slidingWindowService) {
         this.workspaceRepository = workspaceRepository;
         this.slidingWindowService = slidingWindowService;
     }
-    
+
     /**
      * Create or update workspace from message data
-     * 
+     *
      * @param ingestionEventDto The ingestion event DTO containing message data
      * @return The created or updated workspace
      */
@@ -43,7 +43,7 @@ public class WorkspaceService {
             logger.warn("Cannot create/update workspace: missing tenantId or message data");
             return null;
         }
-        
+
         String deemergeUserId = ingestionEventDto.getDeemergeUserId();
         if (deemergeUserId == null || deemergeUserId.trim().isEmpty()) {
             logger.warn("Cannot create/update workspace: missing deemergeUserId");
@@ -61,28 +61,28 @@ public class WorkspaceService {
             logger.warn("Cannot create/update workspace: missing teamId in message data");
             return null;
         }
-        
+
         try {
             Workspace workspace = workspaceRepository.findByTeamIdAndTenantIdAndDeemergeUserId(teamId, tenantId, deemergeUserId)
                     .orElse(new Workspace(teamId, tenantId, deemergeUserId));
             updateWorkspaceFromMessage(workspace, ingestionEventDto);
-            
+
             // Save and return
             Workspace savedWorkspace = workspaceRepository.save(workspace);
             logger.debug("Updated workspace: {}", savedWorkspace);
-            
+
             return savedWorkspace;
-            
+
         } catch (Exception e) {
-            logger.error("Error creating/updating workspace: deemergeUserId={}, error={}", 
+            logger.error("Error creating/updating workspace: deemergeUserId={}, error={}",
                         deemergeUserId, e);
             return null;
         }
     }
-    
+
     /**
      * Update workspace statistics from message
-     * 
+     *
      * @param workspace The workspace to update
      * @param ingestionEventDto The message data
      */
@@ -131,7 +131,7 @@ public class WorkspaceService {
             workspace.setDeemergeUserName(ingestionEventDto.getDeemergeUserName());
         }
     }
-    
+
     /**
      * Parse message timestamp
      */
@@ -140,7 +140,7 @@ public class WorkspaceService {
         if (dto.getIngestedAt() != null) {
             return dto.getIngestedAt();
         }
-        
+
         // Try to parse message timestamp
         if (messageData.getTs() != null) {
             try {
@@ -154,11 +154,11 @@ public class WorkspaceService {
                 logger.warn("Could not parse message timestamp: {}", messageData.getTs());
             }
         }
-        
+
         // Fallback to current time
         return Instant.now();
     }
-    
+
     /**
      * Extract workspace name from message metadata
      */
@@ -171,10 +171,10 @@ public class WorkspaceService {
             workspace.setName("Workspace " + workspace.getId());
         }
     }
-    
+
     /**
      * Get all workspaces
-     * 
+     *
      * @return List of all workspaces
      */
     public List<Workspace> getAllWorkspaces() {
@@ -191,7 +191,7 @@ public class WorkspaceService {
 
     /**
      * Delete a workspace by ID along with all its associated messages
-     * 
+     *
      * @param id The workspace ID to delete
      * @return true if the workspace was found and deleted, false if not found
      */
@@ -200,7 +200,7 @@ public class WorkspaceService {
             logger.warn("Cannot delete workspace: ID is null or empty");
             return false;
         }
-        
+
         try {
             // Check if workspace exists
             Optional<Workspace> workspaceOpt = workspaceRepository.findById(id);
@@ -208,26 +208,27 @@ public class WorkspaceService {
                 logger.warn("Workspace with ID {} not found", id);
                 return false;
             }
-            
+
             Workspace workspace = workspaceOpt.get();
             String deemergeUserId = workspace.getDeemergeUserId();
-            
+            String tenantId = workspace.getTenantId();
+
             logger.info("Deleting workspace {} (ID: {}) and all associated messages", workspace.getName(), id);
-            
+
             // Clean up all messages associated with this workspace
             if (deemergeUserId != null && !deemergeUserId.trim().isEmpty()) {
-                int deletedMessages = slidingWindowService.cleanupWorkspace(deemergeUserId, 0);
+                int deletedMessages = slidingWindowService.cleanupWorkspace(workspace, 0);
                 logger.info("Deleted {} messages for workspace {}", deletedMessages, id);
             } else {
                 logger.warn("Workspace {} has no deemergeUserId, skipping message cleanup", id);
             }
-            
+
             // Delete the workspace itself
             workspaceRepository.deleteById(id);
-            
+
             logger.info("Successfully deleted workspace {} (ID: {})", workspace.getName(), id);
             return true;
-            
+
         } catch (Exception e) {
             logger.error("Error deleting workspace with ID: {}", id, e);
             return false;

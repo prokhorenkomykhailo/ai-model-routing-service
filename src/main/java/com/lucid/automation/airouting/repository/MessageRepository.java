@@ -14,7 +14,7 @@ import java.util.List;
 public interface MessageRepository extends CrudRepository<Message, String> {
     /**
      * Find all messages by tenant ID with pagination
-     * 
+     *
      * @param tenantId The tenant ID
      * @param pageable Pagination information
      * @return List of messages limited by pagination
@@ -22,5 +22,14 @@ public interface MessageRepository extends CrudRepository<Message, String> {
     List<Message> findByTenantId(String tenantId, Pageable pageable);
 
     List<Message> findAllByDeemergeUserId(String deemergeUserId);
-       
+
+    /**
+     * Find all messages by tenant ID and channel ID
+     *
+     * @param tenantId The tenant ID
+     * @param deemergeUserId The deemerge user ID
+     * @return List of messages
+     */
+    List<Message> findByTenantIdAndDeemergeUserId(String tenantId, String deemergeUserId);
+
 }

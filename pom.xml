@@ -246,6 +246,9 @@
             <properties>
                 <activatedProperties>local</activatedProperties>
             </properties>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
         </profile>
         <profile>
             <id>dev</id>
@@ -270,9 +273,6 @@
             <properties>
                 <activatedProperties>docker</activatedProperties>
             </properties>
-            <activation>
-                <activeByDefault>true</activeByDefault>
-            </activation>
         </profile>
         <profile>
             <id>prod</id>

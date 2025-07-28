@@ -37,7 +37,7 @@ ai:
       endpoint: https://generativelanguage.googleapis.com/v1/models
       timeout: 45000
       enabled: ${GEMINI_ENABLED:true}
-    
+
     openai:
       type: openai
       api-key: ${OPENAI_API_KEY:}
