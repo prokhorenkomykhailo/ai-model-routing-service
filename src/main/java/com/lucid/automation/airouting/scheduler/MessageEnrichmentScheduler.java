@@ -33,7 +33,7 @@ import java.util.function.Function;
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(value = "ai.enrichment.scheduler.enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(value = "ai.enrichment.scheduler.enabled", havingValue = "true", matchIfMissing = false)
 public final class MessageEnrichmentScheduler implements InitializingBean {
 
     // Configuration constants
@@ -62,7 +62,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
             final ApplicationContext applicationContext,
             @Value("${ai.enrichment.scheduler.batch-size:" + DEFAULT_BATCH_SIZE + "}") final int batchSize,
             @Value("${ai.enrichment.scheduler.default-tenant-schema:" + DEFAULT_TENANT_SCHEMA + "}") final String defaultTenantSchema) {
-        
+
         log.info("=== MessageEnrichmentScheduler Constructor Called ===");
         log.info("AIMessageProducer: {}", aiMessageProducer != null ? "PRESENT" : "NULL");
         log.info("WorkspaceService: {}", workspaceService != null ? "PRESENT" : "NULL");
@@ -70,21 +70,21 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         log.info("ApplicationContext: {}", applicationContext != null ? "PRESENT" : "NULL");
         log.info("Batch Size: {}", batchSize);
         log.info("Default Tenant Schema: {}", defaultTenantSchema);
-        
+
         this.aiMessageProducer = aiMessageProducer;
         this.workspaceService = workspaceService;
         this.slidingWindowService = slidingWindowService;
         this.applicationContext = applicationContext;
         this.batchSize = batchSize;
         this.defaultTenantSchema = defaultTenantSchema;
-        
+
         log.info("=== MessageEnrichmentScheduler Constructor Completed ===");
     }
 
     @PostConstruct
     public void postConstruct() {
         log.info("=== MessageEnrichmentScheduler @PostConstruct Called ===");
-        
+
         // Check if scheduling is enabled globally
         try {
             String[] schedulingBeans = applicationContext.getBeanNamesForAnnotation(org.springframework.scheduling.annotation.EnableScheduling.class);
@@ -92,13 +92,13 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         } catch (Exception e) {
             log.warn("Error checking @EnableScheduling beans: {}", e.getMessage());
         }
-        
+
         // Check property values
         try {
             org.springframework.core.env.Environment env = applicationContext.getEnvironment();
             String enabledProperty = env.getProperty("ai.enrichment.scheduler.enabled");
             String cronProperty = env.getProperty("ai.enrichment.scheduler.cron");
-            
+
             log.info("ai.enrichment.scheduler.enabled property: {}", enabledProperty);
             log.info("ai.enrichment.scheduler.cron property: {}", cronProperty);
             log.info("AI_ENRICHMENT_ENABLED env var: {}", env.getProperty("AI_ENRICHMENT_ENABLED"));
@@ -106,7 +106,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         } catch (Exception e) {
             log.warn("Error checking environment properties: {}", e.getMessage());
         }
-        
+
         // Check if this bean is being created
         log.info("MessageEnrichmentScheduler bean successfully created and initialized");
         log.info("=== MessageEnrichmentScheduler @PostConstruct Completed ===");
@@ -116,7 +116,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     public void afterPropertiesSet() throws Exception {
         log.info("=== MessageEnrichmentScheduler afterPropertiesSet Called ===");
         log.info("All dependencies have been injected successfully");
-        
+
         // Schedule a test run in 10 seconds to verify scheduling works
         log.info("Scheduler will attempt to run every 5 minutes according to cron expression");
         log.info("Next scheduled execution should occur at the next 5-minute interval");
@@ -128,7 +128,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
      */
     @Scheduled(fixedDelay = 60000) // Every 60 seconds
     public void schedulerHeartbeat() {
-        log.info("=== SCHEDULER HEARTBEAT === Time: {} Thread: {}", 
+        log.info("=== SCHEDULER HEARTBEAT === Time: {} Thread: {}",
                 LocalDateTime.now(), Thread.currentThread().getName());
     }
 
@@ -141,10 +141,10 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         log.info("Current time: {}", LocalDateTime.now());
         log.info("Thread: {}", Thread.currentThread().getName());
         log.info("Starting scheduled message enrichment process");
-        
+
         try {
             final var workspaces = workspaceService.getAllWorkspaces();
-            
+
             if (workspaces.isEmpty()) {
                 log.info("No workspaces found, skipping enrichment cycle");
                 return;
@@ -157,7 +157,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         } catch (Exception e) {
             log.error("Critical error during scheduled message enrichment process: {}", e.getMessage(), e);
         }
-        
+
         log.info("=== SCHEDULER EXECUTION COMPLETED ===");
     }
 
@@ -167,27 +167,27 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     private void processAllWorkspaces(final List<Workspace> workspaces) {
         var successCount = 0;
         var failureCount = 0;
-        
+
         for (final var workspace : workspaces) {
             try {
-                log.info("Processing workspace: {} (ID: {}) - tenant: {} schema: {}", 
+                log.info("Processing workspace: {} (ID: {}) - tenant: {} schema: {}",
                     workspace.getName(), workspace.getId(), workspace.getTenantId(), workspace.getTenantSchema());
 
                 final var results = processWorkspace(workspace);
                 final int workspaceBatches = results[0];
                 final int workspaceMessages = results[1];
 
-                log.info("Successfully processed workspace: {} - batches: {}, messages: {}", 
+                log.info("Successfully processed workspace: {} - batches: {}, messages: {}",
                     workspace.getName(), workspaceBatches, workspaceMessages);
                 successCount++;
-                    
+
             } catch (Exception e) {
                 log.error("Error processing workspace {}: {}", workspace.getName(), e.getMessage(), e);
                 failureCount++;
             }
         }
-        
-        log.info("Workspace processing summary: {} successful, {} failed out of {} total", 
+
+        log.info("Workspace processing summary: {} successful, {} failed out of {} total",
             successCount, failureCount, workspaces.size());
     }
 
@@ -200,14 +200,14 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         final var batchCount = new AtomicInteger(0);
         final var totalProcessed = new AtomicInteger(0);
         final Function<List<Message>, Void> enrichmentProcessor = createEnrichmentProcessor(workspace, batchCount, totalProcessed);
-        
+
         try {
             final int messagesProcessed = slidingWindowService.processMessages(
                 workspace, batchSize, DEFAULT_SLIDING_WINDOW_SIZE, enrichmentProcessor);
-                
-            log.info("Completed processing workspace: {} - {} batches, {} messages processed", 
+
+            log.info("Completed processing workspace: {} - {} batches, {} messages processed",
                 workspace.getName(), batchCount.get(), messagesProcessed);
-                
+
             return new int[]{batchCount.get(), messagesProcessed};
 
         } catch (Exception e) {
@@ -219,20 +219,20 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     /**
      * Creates the enrichment processor function for handling message batches.
      */
-    private Function<List<Message>, Void> createEnrichmentProcessor(final Workspace workspace, 
+    private Function<List<Message>, Void> createEnrichmentProcessor(final Workspace workspace,
                                                                    final AtomicInteger batchCount,
                                                                    final AtomicInteger totalProcessed) {
         return messages -> {
             final int currentBatch = batchCount.incrementAndGet();
-            log.info("Processing batch #{} with {} messages for workspace: {}", 
+            log.info("Processing batch #{} with {} messages for workspace: {}",
                 currentBatch, messages.size(), workspace.getName());
             try {
                 processMessageBatchForEnrichment(messages, workspace, currentBatch);
                 totalProcessed.addAndGet(messages.size());
-                log.debug("Successfully processed batch #{} for workspace: {}", 
+                log.debug("Successfully processed batch #{} for workspace: {}",
                     currentBatch, workspace.getName());
             } catch (Exception e) {
-                log.error("Error processing batch #{} for workspace {}: {}", 
+                log.error("Error processing batch #{} for workspace {}: {}",
                     currentBatch, workspace.getName(), e.getMessage(), e);
             }
             return null;
@@ -243,33 +243,33 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
      * Process a batch of messages from Redis for AI enrichment.
      * Converts Redis Message objects to SlackMessage format and processes them as a batch.
      */
-    private void processMessageBatchForEnrichment(final List<Message> messages, 
-                                                 final Workspace workspace, 
+    private void processMessageBatchForEnrichment(final List<Message> messages,
+                                                 final Workspace workspace,
                                                  final int batchNumber) {
         if (messages == null || messages.isEmpty()) {
             log.debug("No messages to process in batch #{} for workspace: {}", batchNumber, workspace.getName());
             return;
         }
-        
-        log.debug("Starting enrichment processing for batch #{} with {} messages for workspace: {}", 
+
+        log.debug("Starting enrichment processing for batch #{} with {} messages for workspace: {}",
             batchNumber, messages.size(), workspace.getName());
-        
+
         try {
             final var slackMessages = new ArrayList<SlackMessage>();
             final var participants = new ArrayList<SlackParticipant>();
-            
+
             processMessagesInBatch(messages, slackMessages, participants);
-            
+
             if (!slackMessages.isEmpty()) {
                 publishEnrichmentRequest(slackMessages, participants, workspace, batchNumber);
-                log.debug("Published enrichment request for batch #{} with {} messages and {} participants", 
+                log.debug("Published enrichment request for batch #{} with {} messages and {} participants",
                     batchNumber, slackMessages.size(), participants.size());
             } else {
                 log.warn("No valid messages found in batch #{} for workspace: {}", batchNumber, workspace.getName());
             }
-            
+
         } catch (Exception e) {
-            log.error("Critical error processing message batch #{} for workspace {}: {}", 
+            log.error("Critical error processing message batch #{} for workspace {}: {}",
                      batchNumber, workspace.getName(), e.getMessage(), e);
             throw new RuntimeException("Failed to process message batch: " + batchNumber, e);
         }
@@ -278,7 +278,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     /**
      * Processes all messages in a batch and converts them to SlackMessage format.
      */
-    private void processMessagesInBatch(final List<Message> messages, 
+    private void processMessagesInBatch(final List<Message> messages,
                                        final List<SlackMessage> slackMessages,
                                        final List<SlackParticipant> participants) {
         for (final var message : messages) {
@@ -287,12 +287,12 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                 slackMessages.add(slackMessage);
                 addParticipantIfNew(message, participants);
             } catch (Exception e) {
-                log.warn("Failed to process individual message {}: {}", 
+                log.warn("Failed to process individual message {}: {}",
                     message.getId(), e.getMessage());
             }
         }
 
-        log.debug("Processed {} messages resulting in {} slack messages and {} unique participants", 
+        log.debug("Processed {} messages resulting in {} slack messages and {} unique participants",
             messages.size(), slackMessages.size(), participants.size());
     }
 
@@ -303,13 +303,13 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         if (message == null) {
             throw new IllegalArgumentException("Message cannot be null");
         }
-        
+
         final var slackMessage = new SlackMessage();
-        
+
         setMessageCoreFields(slackMessage, message);
         setMessageUserFields(slackMessage, message);
         setMessageMetadata(slackMessage, message);
-        setMessageTimestamp(slackMessage, message);        
+        setMessageTimestamp(slackMessage, message);
         return slackMessage;
     }
 
@@ -330,7 +330,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         slackMessage.setType(message.getMessageType());
         slackMessage.setMessageType(message.getMessageType());
         slackMessage.setSubtype(message.getSubtype());
-        
+
         // Set permalink with default value to prevent null exclusion during Kafka serialization
         String permalink = message.getPermaLink();
         if (permalink == null || permalink.trim().isEmpty()) {
@@ -338,11 +338,11 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         }
         slackMessage.setPermaLink(permalink);
         slackMessage.setSource(message.getSource() != null ? message.getSource() : "slack");
-        
+
         // Debug: Log permalink setting
-        log.debug("Setting permalink for message {}: {} -> {}", 
+        log.debug("Setting permalink for message {}: {} -> {}",
                   message.getId(), message.getPermaLink(), slackMessage.getPermaLink());
-        
+
         slackMessage.setTenantId(message.getTenantId());
         slackMessage.setTenantSchema(message.getTenantSchema());
         slackMessage.setWorkspaceId(message.getWorkspaceId());
@@ -358,10 +358,10 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
      */
     private void setMessageUserFields(final SlackMessage slackMessage, final Message message) {
         final String normalizedDisplayName = determineNormalizedDisplayName(message);
-        final String displayName = message.getDisplayName() != null && !message.getDisplayName().isEmpty() 
-            ? message.getDisplayName() 
+        final String displayName = message.getDisplayName() != null && !message.getDisplayName().isEmpty()
+            ? message.getDisplayName()
             : normalizedDisplayName;
-        
+
         slackMessage.setSlackUserId(message.getSlackUserId());
         slackMessage.setTeamId(message.getTeamId());
         slackMessage.setName(message.getName());
@@ -376,9 +376,9 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         slackMessage.setLastName(message.getLastName());
         slackMessage.setPronouns(message.getPronouns());
         slackMessage.setStatusText(message.getStatusText());
-        
+
         setUserProfileImages(slackMessage, message);
-        
+
         slackMessage.setTeamName(message.getTeamName());
         slackMessage.setSlackUpdatedAt(message.getSlackUpdatedAt());
     }
@@ -403,15 +403,15 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
      */
     private String determineNormalizedDisplayName(final Message message) {
         var normalizedDisplayName = message.getDisplayNameNormalized();
-        
+
         if (normalizedDisplayName == null || normalizedDisplayName.trim().isEmpty()) {
             normalizedDisplayName = message.getRealNameNormalized();
         }
-        
+
         if (normalizedDisplayName == null || normalizedDisplayName.trim().isEmpty()) {
             normalizedDisplayName = message.getUsername();
         }
-        
+
         return normalizedDisplayName != null ? normalizedDisplayName : "";
     }
 
@@ -429,26 +429,26 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
      */
     private void setMessageTimestamp(final SlackMessage slackMessage, final Message message) {
         final String messageTs = message.getMessageTs();
-        
+
         if (messageTs == null || messageTs.trim().isEmpty()) {
             log.debug("No timestamp available for message {}", message.getId());
             return;
         }
-        
+
         try {
             final String[] timestampParts = messageTs.split(TIMESTAMP_SEPARATOR);
             final long epochSeconds = Long.parseLong(timestampParts[TIMESTAMP_EPOCH_INDEX]);
-            
+
             final var timestamp = LocalDateTime.ofEpochSecond(epochSeconds, 0, ZoneOffset.UTC);
-            slackMessage.setTimestamp(timestamp);            
+            slackMessage.setTimestamp(timestamp);
         } catch (NumberFormatException e) {
-            log.warn("Invalid timestamp format for message {}: '{}' - {}", 
+            log.warn("Invalid timestamp format for message {}: '{}' - {}",
                 message.getId(), messageTs, e.getMessage());
         } catch (ArrayIndexOutOfBoundsException e) {
-            log.warn("Malformed timestamp structure for message {}: '{}' - {}", 
+            log.warn("Malformed timestamp structure for message {}: '{}' - {}",
                 message.getId(), messageTs, e.getMessage());
         } catch (Exception e) {
-            log.warn("Unexpected error parsing timestamp for message {}: '{}' - {}", 
+            log.warn("Unexpected error parsing timestamp for message {}: '{}' - {}",
                 message.getId(), messageTs, e.getMessage());
         }
     }
@@ -459,15 +459,15 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
      */
     private void addParticipantIfNew(final Message message, final List<SlackParticipant> participants) {
         final String userId = message.getUserId();
-        
+
         if (userId == null || userId.trim().isEmpty()) {
             log.debug("Skipping participant addition for message {} - no valid user ID", message.getId());
             return;
         }
-        
+
         final boolean participantExists = participants.stream()
             .anyMatch(p -> userId.equals(p.getId()));
-        
+
         if (!participantExists) {
             final var participant = createParticipantFromMessage(message);
             participants.add(participant);
@@ -492,11 +492,11 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     /**
      * Publishes an enrichment request to the AI message producer.
      */
-    private void publishEnrichmentRequest(final List<SlackMessage> slackMessages, 
-                                        final List<SlackParticipant> participants, 
-                                        final Workspace workspace, 
+    private void publishEnrichmentRequest(final List<SlackMessage> slackMessages,
+                                        final List<SlackParticipant> participants,
+                                        final Workspace workspace,
                                         final int batchNumber) {
-        
+
         final String conversationId = workspace.getId() + BATCH_CONVERSATION_ID_SEPARATOR + batchNumber;
         final var context = createBatchContext(workspace, batchNumber, slackMessages.size(), participants.size());
         final String tenantSchema = workspace.getTenantSchema() != null ? workspace.getTenantSchema() : defaultTenantSchema;
@@ -515,12 +515,12 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                 null, // preferredProvider
                 null  // replyTopic
             );
-            
-            log.debug("Successfully published AI enrichment request for conversation: {} with {} messages and {} participants", 
+
+            log.debug("Successfully published AI enrichment request for conversation: {} with {} messages and {} participants",
                 conversationId, slackMessages.size(), participants.size());
-                
+
         } catch (Exception e) {
-            log.error("Failed to publish AI enrichment request for batch #{} in workspace {}: {}", 
+            log.error("Failed to publish AI enrichment request for batch #{} in workspace {}: {}",
                 batchNumber, workspace.getName(), e.getMessage(), e);
             throw new RuntimeException("Failed to publish enrichment request", e);
         }
@@ -529,12 +529,12 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     /**
      * Creates the context map for batch processing.
      */
-    private Map<String, Object> createBatchContext(final Workspace workspace, 
-                                                  final int batchNumber, 
-                                                  final int messageCount, 
+    private Map<String, Object> createBatchContext(final Workspace workspace,
+                                                  final int batchNumber,
+                                                  final int messageCount,
                                                   final int participantCount) {
         final var context = new HashMap<String, Object>();
-        
+
         context.put("workspaceId", workspace.getId());
         context.put("workspaceName", workspace.getName());
         context.put("tenantId", workspace.getTenantId());
@@ -546,10 +546,10 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         context.put("timestamp", LocalDateTime.now(ZoneOffset.UTC));
         context.put("deemergeUserId", workspace.getDeemergeUserId());
         context.put("deemergeUserName", workspace.getDeemergeUserName());
-        
-        log.debug("Created batch context for workspace {} batch #{}: {} messages, {} participants", 
+
+        log.debug("Created batch context for workspace {} batch #{}: {} messages, {} participants",
             workspace.getName(), batchNumber, messageCount, participantCount);
-        
+
         return context;
     }
 }

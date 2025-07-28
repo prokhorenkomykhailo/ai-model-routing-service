@@ -29,7 +29,7 @@ spring:
     properties:
       "[sasl.mechanism]": ${SPRING_KAFKA_SASL_MECHANISM:PLAIN}
       "[sasl.jaas.config]": ${SPRING_KAFKA_SASL_JAAS_CONFIG:org.apache.kafka.common.security.plain.PlainLoginModule required username="client" password="client-secret";}
-    
+
     # Consumer Configuration - Default for IngestionEventDTO
     consumer:
       group-id: ${SPRING_KAFKA_CONSUMER_GROUP_ID:ai-service-group}
@@ -46,7 +46,7 @@ spring:
         "spring.deserializer.value.function": "org.springframework.kafka.support.serializer.FailedDeserializationInfo::getException"
         "spring.kafka.consumer.enable-auto-commit": false
         "spring.kafka.listener.ack-mode": manual_immediate
-    
+
     # Producer Configuration (for publishing responses/results if needed)
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -58,7 +58,7 @@ spring:
         "[linger.ms]": 5
         "[buffer.memory]": 33554432
         "[enable.idempotence]": true
-    
+
     # Listener Configuration
     listener:
       ack-mode: manual-immediate

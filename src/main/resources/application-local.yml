@@ -1,11 +1,22 @@
+# Disable Eureka client for local profile
+eureka:
+  client:
+    enabled: false
+    register-with-eureka: false
+    fetch-registry: false
+    service-url:
+      defaultZone: ''
 spring:
+  cloud:
+    discovery:
+      enabled: false
   application:
     name: ai-routing-service
-  
+
   # Redis Configuration for local development
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
+      host: ${REDIS_HOST:10.113.213.30}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
       timeout: 2000
@@ -20,7 +31,7 @@ ai:
       endpoint: https://generativelanguage.googleapis.com/v1/models
       timeout: 30000
       enabled: true
-    
+
     openai:
       type: openai
       api-key: ${OPENAI_API_KEY:test-openai-key}
