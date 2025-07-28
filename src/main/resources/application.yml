@@ -74,6 +74,7 @@ kafka:
     ai-responses: ${KAFKA_TOPIC_AI_RESPONSES:ai.responses.queue}
     pre-ai-responses: ${KAFKA_TOPIC_PRE_AI_RESPONSES:pre.ai.responses.queue}
     user-channel: ${KAFKA_TOPIC_USER_CHANNEL_EVENTS:user-channel-topic}
+    ai-token-consumption: ${KAFKA_TOPIC_TOKEN_CONSUMPTION:ai-token-consumption}
   # Offset Reset Configuration:
   # true = Always process from beginning (debugging mode - processes ALL historical messages)
   # false = Process only new messages from latest offset (production mode)

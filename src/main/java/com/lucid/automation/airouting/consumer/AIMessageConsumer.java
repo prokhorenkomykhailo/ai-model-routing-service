@@ -1,7 +1,6 @@
 package com.lucid.automation.airouting.consumer;
 
 import com.lucid.automation.airouting.model.AITaskType;
-import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.message.AIMessage;
 import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.provider.AIProviderFactory;
@@ -23,25 +22,25 @@ import java.util.Map;
 
 /**
  * Consumer service for processing AI requests from Kafka
- * 
+ *
  * @author AI Assistant
  */
 @Service
 public class AIMessageConsumer {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(AIMessageConsumer.class);
-    
+
     private final AIProviderFactory providerFactory;
     private final KafkaTemplate<String, Object> kafkaTemplate;
-    
+
     @Value("${kafka.topics.pre-ai-responses:pre.ai.responses.queue}")
     private String preAiResponsesTopic;
-    
-    public AIMessageConsumer(AIProviderFactory providerFactory, 
+
+    public AIMessageConsumer(AIProviderFactory providerFactory,
                                   KafkaTemplate<String, Object> kafkaTemplate) {
         this.providerFactory = providerFactory;
         this.kafkaTemplate = kafkaTemplate;
-        
+
         // Log the configuration about ai-enrich processing
         logger.info("=== AI-ENRICH PROCESSING CONFIGURATION ===");
         logger.info("AIMessageConsumer initialized");
@@ -74,7 +73,7 @@ public class AIMessageConsumer {
             messageRequest.setReplyTopic(preAiResponsesTopic);
         }
 
-        try {            
+        try {
             // Handle null or empty preferred provider
             String preferredProvider = messageRequest.getPreferredProvider();
             if (preferredProvider == null || preferredProvider.trim().isEmpty()) {
@@ -87,17 +86,17 @@ public class AIMessageConsumer {
             if (provider == null) {
                 throw new RuntimeException("No AI provider available for processing enrichment request");
             }
-                        
+
             Object result = processEnrichmentTask(provider, messageRequest); // String
             sendResponse(messageRequest, result, messageRequest.getTaskType().toString().toLowerCase());
-            acknowledgment.acknowledge();            
+            acknowledgment.acknowledge();
         } catch (Exception e) {
             e.printStackTrace(); // Print full stack trace to console
             sendErrorResponse(messageRequest, messageRequest.getTaskType().toString().toLowerCase(), e.getMessage());
             acknowledgment.acknowledge(); // Acknowledge to avoid reprocessing
         }
     }
-    
+
     private Object processEnrichmentTask(AIProvider provider, AIMessage message) {
         AITaskType taskType = message.getTaskType();
         if (taskType == null) {
@@ -114,7 +113,7 @@ public class AIMessageConsumer {
             default -> throw new IllegalArgumentException("Unsupported enrichment task type: " + taskType);
         };
     }
-    
+
     private void sendResponse(AIMessage originalMessage, Object result, String taskType) {
         String replyTopic = originalMessage.getReplyTopic();
         if (replyTopic == null || replyTopic.trim().isEmpty()) {
@@ -139,23 +138,23 @@ public class AIMessageConsumer {
             response.put("deemergeUserId", deemergeUserIdObj != null ? deemergeUserIdObj.toString() : "NoId");
             response.put("deemergeUserName", deemergeUserNameObj != null ? deemergeUserNameObj.toString() : "NoUser");
             response.put("teamId", context != null && context.get("teamId") != null ? context.get("teamId").toString() : "");
-            
+
             kafkaTemplate.send(replyTopic, response);
         } catch (Exception e) {
             logger.error("Failed to send response to reply topic: messageId={}, replyTopic={}, error={}", originalMessage.getMessageId(), replyTopic, e.getMessage(), e);
         }
     }
-    
+
     private void sendErrorResponse(AIMessage originalMessage, String taskType, String errorMessage) {
         String replyTopic = originalMessage.getReplyTopic();
-        
+
         // The replyTopic should always be set by now (in handleEnrichmentRequest)
         if (replyTopic == null || replyTopic.trim().isEmpty()) {
-            logger.error("CRITICAL: Reply topic is null/empty even after setting default for error response! messageId={}", 
+            logger.error("CRITICAL: Reply topic is null/empty even after setting default for error response! messageId={}",
                         originalMessage.getMessageId());
             return;
         }
-        
+
         try {
             Map<String, Object> response = new HashMap<>();
             response.put("messageId", originalMessage.getMessageId());
@@ -167,20 +166,20 @@ public class AIMessageConsumer {
             response.put("tenantId", originalMessage.getTenantId());
             response.put("tenantSchema", originalMessage.getTenantSchema());
             response.put("userId", originalMessage.getUserId());
-            
+
             kafkaTemplate.send(replyTopic, response);
-            
+
             // Log whether this was sent to the default ai-responses topic
             if (preAiResponsesTopic.equals(replyTopic)) {
-                logger.info("ERROR: Sent error response to ai-responses topic: messageId={}, topic={}", 
+                logger.info("ERROR: Sent error response to ai-responses topic: messageId={}, topic={}",
                            originalMessage.getMessageId(), replyTopic);
             } else {
-                logger.info("Sent error response to reply topic: messageId={}, replyTopic={}", 
+                logger.info("Sent error response to reply topic: messageId={}, replyTopic={}",
                            originalMessage.getMessageId(), replyTopic);
             }
-            
+
         } catch (Exception e) {
-            logger.error("Failed to send error response to reply topic: messageId={}, replyTopic={}, error={}", 
+            logger.error("Failed to send error response to reply topic: messageId={}, replyTopic={}, error={}",
                         originalMessage.getMessageId(), replyTopic, e.getMessage(), e);
         }
     }
