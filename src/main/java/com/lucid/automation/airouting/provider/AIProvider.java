@@ -7,13 +7,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 
-
 import java.time.Instant;
 import java.util.Map;
 
 import com.lucid.automation.common.dto.TokenConsumptionDTO;
+import com.lucid.automation.airouting.service.TokenAvailabilityService;
 
 public abstract class AIProvider {
+
+    @Autowired
+    private TokenAvailabilityService tokenAvailabilityService;
 
     private static final Logger logger = LoggerFactory.getLogger(AIProvider.class);
 
@@ -88,5 +91,14 @@ public abstract class AIProvider {
         } catch (Exception e) {
             logger.error("Failed to send token consumption data to Kafka: {}", e.getMessage(), e);
         }
+    }
+
+        /**
+     * Checks if the tenant has tokens available before calling AI service.
+     * @param tenantId the tenant ID to check
+     * @return true if tokens are available, false otherwise
+     */
+    protected boolean isTokenAvailableForTenant(String tenantId) {
+        return tokenAvailabilityService.isTokenAvailable(tenantId);
     }
 }

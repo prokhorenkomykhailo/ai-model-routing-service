@@ -210,6 +210,12 @@ public class OpenAIProvider extends AIProvider {
 
             long startTime = System.currentTimeMillis();
 
+            // check if tokens are available for the tenant
+            if (!isTokenAvailableForTenant(tenantId)) {
+                logger.warn("OPENAI-API [{}]: No tokens available for tenant {}, cannot process operation : {}", debugId, tenantId, operation);
+                throw new RuntimeException("No tokens available for tenant " + tenantId);
+            }
+
             // Build OpenAI request using official client
             ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()
                     .model(model)

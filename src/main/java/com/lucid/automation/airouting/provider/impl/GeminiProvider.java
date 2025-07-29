@@ -202,6 +202,12 @@ public class GeminiProvider extends AIProvider {
 
             long startTime = System.currentTimeMillis();
 
+            // check if tokens are available for the tenant
+            if (!isTokenAvailableForTenant(tenantId)) {
+                logger.warn("GEMINI-API [{}]: No tokens available for tenant {}, cannot process operation: {}", debugId, tenantId, operation);
+                throw new RuntimeException("No tokens available for tenant " + tenantId);
+            }
+
             // Count input tokens
             CountTokensResponse inputTokenInfo = geminiClient.models.countTokens(model, prompt, null);
             int inputTokens = inputTokenInfo.totalTokens().orElse(0);
