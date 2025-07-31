@@ -124,7 +124,7 @@ public class AIMessageConsumer {
         try {
             Map<String, Object> response = new HashMap<>();
             response.put("messageId", originalMessage.getMessageId());
-            response.put("correlationId", originalMessage.getCorrelationId());
+            response.put("jobId", originalMessage.getJobId());
             response.put("taskType", taskType);
             response.put("status", "success");
             response.put("result", result);
@@ -158,7 +158,7 @@ public class AIMessageConsumer {
         try {
             Map<String, Object> response = new HashMap<>();
             response.put("messageId", originalMessage.getMessageId());
-            response.put("correlationId", originalMessage.getCorrelationId());
+            response.put("jobId", originalMessage.getJobId());
             response.put("taskType", taskType);
             response.put("status", "error");
             response.put("error", errorMessage);

@@ -71,8 +71,6 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         this.applicationContext = applicationContext;
         this.batchSize = batchSize;
         this.defaultTenantSchema = defaultTenantSchema;
-
-        log.info("=== MessageEnrichmentScheduler Constructor Completed ===");
     }
 
     @PostConstruct
@@ -235,9 +233,6 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
             return;
         }
 
-        log.debug("Starting enrichment processing for batch #{} with {} messages for workspace: {}",
-            batchNumber, messages.size(), workspace.getName());
-
         try {
             final var slackMessages = new ArrayList<SlackMessage>();
             final var participants = new ArrayList<SlackParticipant>();
@@ -246,18 +241,16 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
 
             if (!slackMessages.isEmpty()) {
                 publishEnrichmentRequest(slackMessages, participants, workspace, batchNumber);
-                log.debug("Published enrichment request for batch #{} with {} messages and {} participants",
-                    batchNumber, slackMessages.size(), participants.size());
             } else {
                 log.warn("No valid messages found in batch #{} for workspace: {}", batchNumber, workspace.getName());
             }
-
         } catch (Exception e) {
             log.error("Critical error processing message batch #{} for workspace {}: {}",
                      batchNumber, workspace.getName(), e.getMessage(), e);
             throw new RuntimeException("Failed to process message batch: " + batchNumber, e);
         }
     }
+
 
     /**
      * Processes all messages in a batch and converts them to SlackMessage format.
@@ -486,7 +479,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         final String tenantSchema = workspace.getTenantSchema() != null ? workspace.getTenantSchema() : defaultTenantSchema;
 
         try {
-            aiMessageProducer.publishAIRequest(
+            aiMessageProducer.scheduleAiProcessing(
                 AITaskType.ENRICH_CONVERSATION,
                 "", // content - empty for conversation enrichment
                 workspace.getTenantId(),

@@ -30,12 +30,19 @@ import java.util.Set;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final Logger logger = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
-    
+
     private final JwtService jwtService;
     private final UserDetailsService userDetailsService;
-    
+
     private static final Set<String> PUBLIC_PATH_PREFIXES = Set.of(
-        "/actuator", "/swagger-ui", "/v3/api-docs", "/swagger-ui.html", "/api/messages","/api/", "ai/"
+        "/actuator",
+        "/swagger-ui",
+        "/v3/api-docs",
+        "/swagger-ui.html",
+        "/api/messages",
+        "/api/",
+        "/ai/",
+        "/jobs"
     );
 
     public JwtAuthenticationFilter(JwtService jwtService, UserDetailsService userDetailsService) {
@@ -51,7 +58,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         try {
             String path = request.getRequestURI();
-            
+
             // Skip filter for public paths
             if (isPublicPath(path)) {
                 filterChain.doFilter(request, response);
@@ -59,7 +66,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
 
             final String authHeader = request.getHeader("Authorization");
-            
+
             // Check for missing or invalid Authorization header
             if (authHeader == null || !authHeader.startsWith("Bearer ")) {
                 handleUnauthorized(response, "Missing or invalid Authorization header");
@@ -67,22 +74,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
 
             final String jwt = authHeader.substring(7);
-            
+
             try {
                 String username = jwtService.extractUsername(jwt);
-                
+
                 if (username == null) {
                     handleUnauthorized(response, "Invalid token: username not found");
                     return;
                 }
-                
+
                 if (SecurityContextHolder.getContext().getAuthentication() == null) {
                     UserDetails userDetails = userDetailsService.loadUserByUsername(username);
-                    
+
                     if (jwtService.isTokenValid(jwt, userDetails)) {
                         // Create enhanced user details with tenant information
                         CustomUserDetails customUserDetails = createCustomUserDetails(jwt, userDetails);
-                        
+
                         UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                             customUserDetails,
                             null,
@@ -90,7 +97,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         );
                         authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                         SecurityContextHolder.getContext().setAuthentication(authToken);
-                        
+
                         // Add tenant information to request headers for downstream processing
                         addTenantInfoToRequest(request, jwt);
                     } else {
@@ -117,7 +124,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
 
             filterChain.doFilter(request, response);
-            
+
         } catch (Exception e) {
             logger.error("Authentication filter error: {}", e.getMessage(), e);
             handleUnauthorized(response, "Authentication failed");
@@ -132,7 +139,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String tenantSchema = jwtService.extractTenantSchema(jwt);
         String role = jwtService.extractRole(jwt);
         String userId = jwtService.extractUserId(jwt);
-        
+
         return new CustomUserDetails(
             userDetails.getUsername(),
             userDetails.getPassword(),
@@ -152,7 +159,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String tenantId = jwtService.extractTenantId(jwt);
         String tenantSchema = jwtService.extractTenantSchema(jwt);
         String userId = jwtService.extractUserId(jwt);
-        
+
         if (tenantId != null) {
             request.setAttribute("tenantId", tenantId);
         }
