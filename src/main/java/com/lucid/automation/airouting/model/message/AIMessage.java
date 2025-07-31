@@ -73,8 +73,12 @@ public class AIMessage {
     @JsonProperty("replyTopic")
     private String replyTopic;
 
+
     @JsonProperty("jobId")
     private String jobId;
+
+    @JsonProperty("parentId")
+    private String parentId;
 
     public enum MessagePriority {
         LOW, NORMAL, HIGH, URGENT

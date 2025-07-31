@@ -69,7 +69,7 @@ public class AIMessageProducer {
     public String scheduleAiProcessing(AITaskType taskType, String content, String tenantId, String tenantSchema,
                                  String userId, String conversationId, List<SlackMessage> messages,
                                  List<SlackParticipant> participants, Map<String, Object> context,
-                                 String preferredProvider, String replyTopic) {
+                                 String preferredProvider, String replyTopic, String parentId) {
 
         String messageId = IdUtil.generateId("msg-");
         String jobId = IdUtil.generateId("job-");
@@ -96,6 +96,7 @@ public class AIMessageProducer {
                     .preferredProvider(preferredProvider)
                     .replyTopic(replyTopic)
                     .jobId(jobId)
+                    .parentId(parentId)
                     .priority(determinePriority(taskType))
                     .messages(messages)
                     .participants(participantData)
@@ -109,6 +110,7 @@ public class AIMessageProducer {
             // Create EnrichmentJob after publishing (moved from scheduler)
             EnrichmentJob job = EnrichmentJob.builder()
                     .id(jobId) // Use jobId as job ID
+                    .parentId(parentId)
                     .status("PENDING")
                     .type(taskType.name())
                     .result(null)

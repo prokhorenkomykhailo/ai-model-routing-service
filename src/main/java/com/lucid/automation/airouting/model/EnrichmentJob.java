@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.redis.core.RedisHash;
+import org.springframework.data.redis.core.index.Indexed;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.io.Serializable;
 
@@ -20,6 +21,8 @@ import java.io.Serializable;
 public class EnrichmentJob implements Serializable {
     @Id
     private String id;
+    @Indexed
+    private String parentId; // Optional parent job ID for job hierarchy
     private String status;
     private String type;
     private String result;
@@ -35,9 +38,9 @@ public class EnrichmentJob implements Serializable {
     private Long estimatedTimeLeft;
 
     // Multi-tenant and user tracking fields
-    @org.springframework.data.redis.core.index.Indexed
+    @Indexed
     private String userId;
-    @org.springframework.data.redis.core.index.Indexed
+    @Indexed
     private String tenantId;
     private String tenantSchema;
 }

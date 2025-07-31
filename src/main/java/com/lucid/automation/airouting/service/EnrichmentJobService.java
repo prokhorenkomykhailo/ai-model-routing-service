@@ -31,10 +31,10 @@ public class EnrichmentJobService {
         return enrichmentJobRepository.findById(id).orElse(null);
     }
     /**
-     * Retrieve all EnrichmentJobs.
+     * Retrieve all EnrichmentJobs for a specific userId.
      */
-    public Iterable<EnrichmentJob> getAllJobs() {
-        return enrichmentJobRepository.findAll();
+    public Iterable<EnrichmentJob> getAllJobs(String userId) {
+        return enrichmentJobRepository.findByUserIdOrderByCreatedAtDesc(userId);
     }
 
     /**
