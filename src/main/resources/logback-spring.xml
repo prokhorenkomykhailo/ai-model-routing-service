@@ -21,12 +21,6 @@
         </encoder>
     </appender>
 
-    <!-- OpenTelemetry Logback Appender (requires opentelemetry-logback-appender dependency) -->
-    <appender name="OTLP" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
-        <otelExporterEndpoint>http://otel-collector:4317</otelExporterEndpoint>
-        <otelServiceName>ai-routing-service</otelServiceName>
-        <otelResourceAttributes>deployment.environment=dev</otelResourceAttributes>
-    </appender>
 
     <logger name="com.lucid.automation.airouting" level="DEBUG"/>
     <logger name="AI_AUDIT" level="INFO"/>
@@ -34,6 +28,5 @@
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="FILE"/>
-        <appender-ref ref="OTLP"/>
     </root>
 </configuration>
