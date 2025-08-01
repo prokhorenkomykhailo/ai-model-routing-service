@@ -2,6 +2,7 @@ package com.lucid.automation.airouting.pipeline.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import org.springframework.context.annotation.Configuration;
 import java.util.List;
 
 /**
@@ -10,6 +11,7 @@ import java.util.List;
  * Supports both 'pipeline.*' and 'lucid.post-processing.pipeline.*' configuration prefixes.
  */
 @ConfigurationProperties(prefix = "lucid.post-processing.pipeline")
+@Configuration
 public class PipelineConfiguration {
 
     /**

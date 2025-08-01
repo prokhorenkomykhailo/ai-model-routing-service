@@ -4,6 +4,7 @@ import com.lucid.automation.airouting.model.AITaskType;
 import com.lucid.automation.airouting.model.message.AIMessage;
 import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.provider.AIProviderFactory;
+import com.lucid.automation.airouting.service.EnrichmentJobProgressService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -42,6 +43,7 @@ public class AIMessageIntegrationConfig {
     private final ConsumerFactory<String, AIMessage> aiMessageListenerContainerFactory;
     private final AIProviderFactory providerFactory;
     private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final EnrichmentJobProgressService progressService;
 
     @Bean
     public MessageChannel aiEnrichInputChannel() {
@@ -72,7 +74,8 @@ public class AIMessageIntegrationConfig {
                 .transform(this::transformAIMessage)
                 .channel(aiEnrichTransformChannel())
                 .handle((payload, headers) -> {
-                    validateAIMessage((AIMessage) payload);
+                    AIMessage aiMessage = (AIMessage) payload;
+                    validateAIMessage(aiMessage);
                     return payload;
                 })
                 .channel(aiEnrichProcessChannel())
@@ -104,6 +107,23 @@ public class AIMessageIntegrationConfig {
                 throw new MessagingException("Received null AIMessage");
             }
 
+            // Initialize job progress tracking - ensure we have a valid jobId
+            String jobId = aiMessage.getJobId();
+            if (jobId != null && !jobId.trim().isEmpty()) {
+                progressService.initializeJob(
+                    jobId,
+                    aiMessage.getUserId(),
+                    aiMessage.getTenantId(),
+                    aiMessage.getTenantSchema(),
+                    aiMessage.getTaskType() != null ? aiMessage.getTaskType().toString() : "UNKNOWN"
+                );
+                progressService.updateProgress(jobId,
+                    EnrichmentJobProgressService.PipelineStage.STARTED,
+                    "AI message transformation started");
+            } else {
+                logger.debug("No jobId provided for message {}, skipping progress tracking", aiMessage.getMessageId());
+            }
+
             // Set default reply topic if not specified
             if (aiMessage.getReplyTopic() == null || aiMessage.getReplyTopic().trim().isEmpty()) {
                 logger.info("No reply topic specified for messageId={}, setting default", aiMessage.getMessageId());
@@ -117,12 +137,27 @@ public class AIMessageIntegrationConfig {
                 aiMessage.setPreferredProvider(null); // Will trigger default provider selection
             }
 
+            // Update progress for transformation completion
+            jobId = aiMessage.getJobId();
+            if (jobId != null && !jobId.trim().isEmpty()) {
+                progressService.updateProgress(jobId,
+                    EnrichmentJobProgressService.PipelineStage.TRANSFORMED,
+                    "AI message transformation completed successfully");
+            }
+
             logger.debug("AI message transformed successfully: messageId={}, taskType={}",
                        aiMessage.getMessageId(), aiMessage.getTaskType());
 
             return aiMessage;
 
         } catch (Exception e) {
+            // Mark job as failed if jobId is available
+            String jobId = (aiMessage != null) ? aiMessage.getJobId() : null;
+            if (jobId != null && !jobId.trim().isEmpty()) {
+                progressService.markJobFailed(jobId,
+                    "Transformation failed: " + e.getMessage());
+            }
+
             logger.error("Error during AI message transformation: {}", e.getMessage(), e);
             throw new MessagingException("Failed to transform AI message", e);
         }
@@ -152,10 +187,25 @@ public class AIMessageIntegrationConfig {
                 }
             }
 
+            // Update progress for validation completion
+            String jobId = aiMessage.getJobId();
+            if (jobId != null && !jobId.trim().isEmpty()) {
+                progressService.updateProgress(jobId,
+                    EnrichmentJobProgressService.PipelineStage.VALIDATED,
+                    "AI message validation completed successfully for task type: " + taskType);
+            }
+
             logger.debug("AI message validation successful: messageId={}, taskType={}",
                        aiMessage.getMessageId(), taskType);
 
         } catch (Exception e) {
+            // Mark job as failed if jobId is available
+            String jobId = aiMessage.getJobId();
+            if (jobId != null && !jobId.trim().isEmpty()) {
+                progressService.markJobFailed(jobId,
+                    "Validation failed: " + e.getMessage());
+            }
+
             logger.error("Error during AI message validation: {}", e.getMessage(), e);
             throw new MessagingException("Failed to validate AI message", e);
         }
@@ -185,16 +235,32 @@ public class AIMessageIntegrationConfig {
 
             Map<String, Object> response = createSuccessResponse(aiMessage, result);
 
+            // Update progress for enrichment completion
+            String jobId = aiMessage.getJobId();
+            if (jobId != null && !jobId.trim().isEmpty()) {
+                progressService.updateProgress(jobId,
+                    EnrichmentJobProgressService.PipelineStage.ENRICHED,
+                    "AI enrichment completed successfully using provider: " + provider.getProviderId());
+            }
+
             return org.springframework.messaging.support.MessageBuilder
                 .withPayload(response)
                 .copyHeaders(headers)
                 .setHeader("ai.reply.topic", aiMessage.getReplyTopic())
                 .setHeader("ai.status", "success")
                 .setHeader("ai.provider", provider.getProviderId())
+                .setHeader("ai.job.id", aiMessage.getJobId()) // Include jobId in headers
                 .build();
 
         } catch (Exception e) {
             logger.error("Error during AI message enrichment: {}", e.getMessage(), e);
+
+            // Mark job as failed if jobId is available
+            String jobId = aiMessage.getJobId();
+            if (jobId != null && !jobId.trim().isEmpty()) {
+                progressService.markJobFailed(jobId,
+                    "Enrichment failed: " + e.getMessage());
+            }
 
             Map<String, Object> errorResponse = createErrorResponse(aiMessage, e.getMessage());
 
@@ -204,6 +270,7 @@ public class AIMessageIntegrationConfig {
                 .setHeader("ai.reply.topic", aiMessage.getReplyTopic())
                 .setHeader("ai.status", "error")
                 .setHeader("ai.error", e.getMessage())
+                .setHeader("ai.job.id", aiMessage.getJobId()) // Include jobId in headers
                 .build();
         }
     }
@@ -212,8 +279,10 @@ public class AIMessageIntegrationConfig {
      * Handler component: Sends the response to the appropriate Kafka topic
      */
     public void sendAIResponse(Map<String, Object> response, MessageHeaders headers) {
+        String jobId = null;
         try {
             String replyTopic = (String) headers.get("ai.reply.topic");
+            jobId = (String) headers.get("ai.job.id");
 
             if (replyTopic == null || replyTopic.trim().isEmpty()) {
                 logger.error("CRITICAL: Reply topic is null/empty!");
@@ -222,6 +291,13 @@ public class AIMessageIntegrationConfig {
 
             // Send response to Kafka
             kafkaTemplate.send(replyTopic, response);
+
+            // Update progress for response sent
+            if (jobId != null && !jobId.trim().isEmpty()) {
+                progressService.updateProgress(jobId,
+                    EnrichmentJobProgressService.PipelineStage.RESPONSE_SENT,
+                    "Response sent successfully to topic: " + replyTopic);
+            }
 
             String status = (String) headers.get("ai.status");
             if ("error".equals(status)) {
@@ -234,6 +310,12 @@ public class AIMessageIntegrationConfig {
             }
 
         } catch (Exception e) {
+            // Mark job as failed if jobId is available
+            if (jobId != null && !jobId.trim().isEmpty()) {
+                progressService.markJobFailed(jobId,
+                    "Failed to send response: " + e.getMessage());
+            }
+
             logger.error("Error during AI message response handling: {}", e.getMessage(), e);
             throw new MessagingException("Failed to send AI response", e);
         }
@@ -243,17 +325,33 @@ public class AIMessageIntegrationConfig {
      * Handler component: Acknowledges the Kafka message
      */
     public void acknowledgeMessage(MessageHeaders headers) {
+        String jobId = null;
         try {
+            jobId = (String) headers.get("ai.job.id");
+
             Acknowledgment acknowledgment = (Acknowledgment) headers.get("kafka_acknowledgment");
             if (acknowledgment != null) {
                 acknowledgment.acknowledge();
                 logger.debug("Kafka message acknowledged successfully");
+
+                // Mark job as completed
+                if (jobId != null && !jobId.trim().isEmpty()) {
+                    progressService.updateProgress(jobId,
+                        EnrichmentJobProgressService.PipelineStage.COMPLETED,
+                        "AI enrichment pipeline completed successfully");
+                }
+
             } else {
                 logger.warn("No acknowledgment found in message headers");
             }
         } catch (Exception e) {
+            // Don't mark job as failed here since acknowledgment issues are usually not critical
+            // for the business logic, but log for monitoring
             logger.error("Error during message acknowledgment: {}", e.getMessage(), e);
-            // Don't throw exception to avoid breaking the flow
+
+            if (jobId != null && !jobId.trim().isEmpty()) {
+                logger.warn("Job {} completed processing but acknowledgment failed", jobId);
+            }
         }
     }
 

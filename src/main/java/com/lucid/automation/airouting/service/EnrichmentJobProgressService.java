@@ -1,0 +1,197 @@
+package com.lucid.automation.airouting.service;
+
+import com.lucid.automation.airouting.model.EnrichmentJob;
+import com.lucid.automation.airouting.repository.EnrichmentJobRepository;
+import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+import java.time.Instant;
+import java.util.Optional;
+
+/**
+ * Service for tracking and updating enrichment job progress through pipeline stages.
+ */
+@Service
+@RequiredArgsConstructor
+public class EnrichmentJobProgressService {
+
+    private static final Logger logger = LoggerFactory.getLogger(EnrichmentJobProgressService.class);
+
+    private final EnrichmentJobRepository enrichmentJobRepository;
+
+    /**
+     * Pipeline stage progress percentages
+     */
+    public enum PipelineStage {
+        STARTED(0.0),
+        TRANSFORMED(20.0),
+        VALIDATED(40.0),
+        ENRICHED(70.0),
+        RESPONSE_SENT(90.0),
+        COMPLETED(100.0),
+        FAILED(-1.0);
+
+        private final double progressPercentage;
+
+        PipelineStage(double progressPercentage) {
+            this.progressPercentage = progressPercentage;
+        }
+
+        public double getProgressPercentage() {
+            return progressPercentage;
+        }
+    }
+
+    /**
+     * Updates the progress of an enrichment job by jobId.
+     *
+     * @param jobId The job ID to update
+     * @param stage The current pipeline stage
+     * @param message Optional descriptive message about the current stage
+     */
+    public void updateProgress(String jobId, PipelineStage stage, String message) {
+        if (jobId == null || jobId.trim().isEmpty()) {
+            logger.warn("Cannot update progress: jobId is null or empty");
+            return;
+        }
+
+        try {
+            Optional<EnrichmentJob> jobOptional = enrichmentJobRepository.findById(jobId);
+
+            if (jobOptional.isPresent()) {
+                EnrichmentJob job = jobOptional.get();
+
+                // Update progress fields
+                double progressPercentage = stage.getProgressPercentage();
+                job.setProgress(progressPercentage / 100.0); // Convert to 0.0-1.0 range
+                job.setUpdatedAt(Instant.now().toEpochMilli());
+
+                // Calculate estimated completion time and time left
+                if (job.getCreatedAt() != null && progressPercentage > 0 && progressPercentage < 100) {
+                    long elapsedMs = job.getUpdatedAt() - job.getCreatedAt();
+                    long estimatedTotalMs = (long) (elapsedMs / (progressPercentage / 100.0));
+                    long estimatedTimeLeftMs = estimatedTotalMs - elapsedMs;
+
+                    job.setEstimatedTimeLeft(Math.max(0, estimatedTimeLeftMs));
+                    job.setEstimatedCompletionTime(
+                        Instant.ofEpochMilli(job.getUpdatedAt() + estimatedTimeLeftMs).toString()
+                    );
+                }
+
+                // Update status based on stage
+                switch (stage) {
+                    case STARTED -> job.setStatus("PROCESSING");
+                    case FAILED -> job.setStatus("FAILED");
+                    case COMPLETED -> {
+                        job.setStatus("COMPLETED");
+                        job.setEndTime(Instant.now().toString());
+                        job.setDurationMs(job.getUpdatedAt() - job.getCreatedAt());
+                        job.setEstimatedTimeLeft(0L);
+                    }
+                    default -> job.setStatus("PROCESSING");
+                }
+
+                // Save the updated job
+                enrichmentJobRepository.save(job);
+
+                logger.debug("Updated job progress: jobId={}, stage={}, progress={}%, status={}, estimatedTimeLeft={}ms",
+                           jobId, stage.name(), stage.getProgressPercentage(), job.getStatus(), job.getEstimatedTimeLeft());
+
+                if (message != null && !message.trim().isEmpty()) {
+                    logger.debug("Progress message for jobId={}: {}", jobId, message);
+                }
+
+            } else {
+                logger.warn("Job not found for progress update: jobId={}", jobId);
+            }
+
+        } catch (Exception e) {
+            logger.error("Failed to update job progress: jobId={}, stage={}, error={}",
+                        jobId, stage.name(), e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Marks a job as failed with error details.
+     *
+     * @param jobId The job ID to mark as failed
+     * @param errorMessage The error message to record
+     */
+    public void markJobFailed(String jobId, String errorMessage) {
+        if (jobId == null || jobId.trim().isEmpty()) {
+            logger.warn("Cannot mark job as failed: jobId is null or empty");
+            return;
+        }
+
+        try {
+            Optional<EnrichmentJob> jobOptional = enrichmentJobRepository.findById(jobId);
+
+            if (jobOptional.isPresent()) {
+                EnrichmentJob job = jobOptional.get();
+
+                job.setStatus("FAILED");
+                job.setProgress(-1.0); // Indicate failure
+                job.setUpdatedAt(Instant.now().toEpochMilli());
+                job.setEndTime(Instant.now().toString());
+                job.setResult(errorMessage);
+                job.setDurationMs(job.getUpdatedAt() - job.getCreatedAt());
+
+                enrichmentJobRepository.save(job);
+
+                logger.warn("Marked job as failed: jobId={}, error={}", jobId, errorMessage);
+
+            } else {
+                logger.warn("Job not found for failure marking: jobId={}", jobId);
+            }
+
+        } catch (Exception e) {
+            logger.error("Failed to mark job as failed: jobId={}, error={}",
+                        jobId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Initializes or creates a job for tracking if it doesn't exist.
+     *
+     * @param jobId The job ID
+     * @param userId The user ID
+     * @param tenantId The tenant ID
+     * @param tenantSchema The tenant schema
+     * @param taskType The task type being processed
+     */
+    public void initializeJob(String jobId, String userId, String tenantId, String tenantSchema, String taskType) {
+        if (jobId == null || jobId.trim().isEmpty()) {
+            logger.warn("Cannot initialize job: jobId is null or empty");
+            return;
+        }
+
+        try {
+            Optional<EnrichmentJob> existingJob = enrichmentJobRepository.findById(jobId);
+
+            if (existingJob.isEmpty()) {
+                EnrichmentJob newJob = EnrichmentJob.builder()
+                        .id(jobId)
+                        .status("PROCESSING")
+                        .type(taskType != null ? taskType : "UNKNOWN")
+                        .progress(0.0)
+                        .createdAt(Instant.now().toEpochMilli())
+                        .updatedAt(Instant.now().toEpochMilli())
+                        .startTime(Instant.now().toString())
+                        .userId(userId)
+                        .tenantId(tenantId)
+                        .tenantSchema(tenantSchema)
+                        .build();
+
+                enrichmentJobRepository.save(newJob);
+
+                logger.debug("Initialized new enrichment job: jobId={}, type={}, userId={}, tenantId={}",
+                           jobId, taskType, userId, tenantId);
+            }
+
+        } catch (Exception e) {
+            logger.error("Failed to initialize job: jobId={}, error={}", jobId, e.getMessage(), e);
+        }
+    }
+}
