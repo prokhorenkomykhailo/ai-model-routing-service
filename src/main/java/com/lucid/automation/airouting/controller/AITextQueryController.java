@@ -46,7 +46,7 @@ public class AITextQueryController {
         logger.info("AI-CONTROLLER: Initialized with provider: {}", defaultProviderName);
     }
 
-    @PostMapping(value = "/text-query", headers = {"X-User-Id", "X-Tenant-Id", "X-Tenant-Schema"})
+    @PostMapping(value = "/text-query")
     @Operation(
         summary = "Process text query with AI",
         description = "Submit a text query to be processed by the AI provider and receive a response"
@@ -60,11 +60,13 @@ public class AITextQueryController {
     public ResponseEntity<APIResponse<TextQueryResponseDTO>> processTextQuery(
             @RequestHeader("X-User-Id") String userId,
             @RequestHeader("X-Tenant-Id") String tenantId,
+            @RequestHeader(value = "X-Tenant-Schema", required = false) String tenantSchema,
             @Parameter(description = "Text query request payload", required = true)
             @Valid @RequestBody TextQueryRequestDTO request) {
 
         String debugId = "AI-CONTROLLER-" + System.currentTimeMillis();
-        logger.info("AI-CONTROLLER [{}]: Received text query request, using provider: {}", debugId, aiProvider.getProviderId());
+        logger.info("AI-CONTROLLER [{}]: Received text query request from UserId: [{}], TenantId: [{}], TenantSchema: [{}], using provider: {}",
+                   debugId, userId, tenantId, tenantSchema, aiProvider.getProviderId());
 
         try {
             // Check if AI provider is available

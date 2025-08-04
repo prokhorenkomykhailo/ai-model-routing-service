@@ -5,7 +5,7 @@ server:
 
 spring:
   application:
-    name: lucid-ai-routing-service
+    name: ai-routing-service
   profiles:
     active: '@activatedProperties@'  # Replace or override this at runtime
 
