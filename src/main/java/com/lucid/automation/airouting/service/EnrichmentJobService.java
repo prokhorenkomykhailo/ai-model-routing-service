@@ -47,4 +47,15 @@ public class EnrichmentJobService {
         }
         return null;
     }
+
+    /**
+     * Retrieve the latest EnrichmentJob for a user by userId and tenantId.
+     */
+    public EnrichmentJob getLatestJobByUserIdAndTenantId(String userId, String tenantId) {
+        Iterable<EnrichmentJob> jobs = enrichmentJobRepository.findByUserIdAndTenantIdOrderByCreatedAtDesc(userId, tenantId);
+        if (jobs.iterator().hasNext()) {
+            return jobs.iterator().next();
+        }
+        return null;
+    }
 }

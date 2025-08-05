@@ -64,7 +64,7 @@ public class JobController {
             @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestHeader("X-Tenant-Schema") String tenantSchema) {
         logger.debug("Getting latest enrichment job for userId={}, tenantId={}, tenantSchema={}", userId, tenantId, tenantSchema);
-        EnrichmentJob job = enrichmentJobService.getLatestJobByUserId(userId); // Filtering by userId only for now
+        EnrichmentJob job = enrichmentJobService.getLatestJobByUserIdAndTenantId(userId, tenantId);
         if (job != null) {
             return ResponseEntity.ok(job);
         } else {
