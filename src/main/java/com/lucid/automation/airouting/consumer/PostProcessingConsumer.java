@@ -24,22 +24,22 @@ import java.util.Map;
 /**
  * Consumer service for post-processing AI responses from Kafka using pipeline architecture.
  * This replaces the monolithic PostProcessingConsumer with a modular, pipeline-based approach.
- * 
+ *
  * @author AI Assistant
  */
 @Service
 public class PostProcessingConsumer {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(PostProcessingConsumer.class);
-    
+
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final PostProcessingPipelineOrchestrator pipelineOrchestrator;
     private final PostProcessingPipelineFactory pipelineFactory;
     private final PipelineConfiguration pipelineConfiguration;
-    
+
     @Value("${kafka.topics.ai-responses:ai.responses.queue}")
     private String aiResponsesTopic;
-    
+
     public PostProcessingConsumer(
             KafkaTemplate<String, Object> kafkaTemplate,
             PostProcessingPipelineOrchestrator pipelineOrchestrator,
@@ -49,7 +49,7 @@ public class PostProcessingConsumer {
         this.pipelineOrchestrator = pipelineOrchestrator;
         this.pipelineFactory = pipelineFactory;
         this.pipelineConfiguration = pipelineConfiguration;
-        
+
         logger.info("=== POST-PROCESSING CONSUMER INITIALIZED ===");
         logger.info("PostProcessingConsumer initialized with pipeline architecture");
         logger.info("Final output topic: {}", aiResponsesTopic);
@@ -59,17 +59,17 @@ public class PostProcessingConsumer {
         logger.info("Max execution time: {}ms", pipelineConfiguration.getMaxExecutionTimeMs());
         logger.info("============================================");
     }
-    
+
     /**
      * Consume pre-AI responses for further processing using pipeline architecture
      */
-    @KafkaListener(topics = "${kafka.topics.pre-ai-responses:pre.ai.responses.queue}", 
+    @KafkaListener(topics = "${kafka.topics.pre-ai-responses:pre.ai.responses.queue}",
                    containerFactory = "genericObjectListenerContainerFactory")
     public void handlePreAiResponses(ConsumerRecord<String, Object> record,
                                    Acknowledgment acknowledgment) {
         Object messageResponse = record.value();
         String topic = record.topic();
-        
+
         if (messageResponse == null) {
             logger.error("=== POST-PROCESSING-ERROR === Received NULL message from topic: {}", topic);
             acknowledgment.acknowledge();
@@ -80,21 +80,21 @@ public class PostProcessingConsumer {
         try {
             // Validate that the message is a Map
             if (!(messageResponse instanceof Map<?, ?>)) {
-                logger.error("Invalid pre-AI response format: expected Map, got {}", 
+                logger.error("Invalid pre-AI response format: expected Map, got {}",
                            messageResponse.getClass().getSimpleName());
                 acknowledgment.acknowledge();
                 return;
             }
-            
+
             @SuppressWarnings("unchecked")
             Map<String, Object> responseMap = (Map<String, Object>) messageResponse;
-            
+
             // Create processing context
             context = new PostProcessingContext(responseMap);
-            
+
             // Execute the pipeline
             PostProcessingPipelineResult pipelineResult = executePipeline(context);
-            
+
             // Handle pipeline result
             if (pipelineResult.isOverallSuccess()) {
                 EnrichmentResponse enrichmentResponse = context.getEnrichmentResponse();
@@ -111,21 +111,21 @@ public class PostProcessingConsumer {
                 // Send error response if needed
                 sendErrorResponse(context, pipelineResult.getErrorMessage());
             }
-            
+
             acknowledgment.acknowledge();
-            
+
         } catch (Exception e) {
             logger.error("Failed to process pre-AI response from topic: {}, error: {}", topic, e.getMessage(), e);
-            
+
             // Send error response if context is available
             if (context != null) {
                 sendErrorResponse(context, "Unexpected error: " + e.getMessage());
             }
-            
+
             acknowledgment.acknowledge(); // Acknowledge to avoid reprocessing
         }
     }
-    
+
     /**
      * Execute the processing pipeline
      */
@@ -136,19 +136,19 @@ public class PostProcessingConsumer {
                 logger.warn("Pipeline is disabled, skipping processing");
                 return PostProcessingPipelineResult.failure("Pipeline is disabled");
             }
-            
+
             // Create the appropriate pipeline based on configuration
             List<PipelineStep> pipelineSteps = createPipelineSteps();
-            
+
             // Execute the pipeline
             return pipelineOrchestrator.execute(context, pipelineSteps);
-            
+
         } catch (Exception e) {
             logger.error("Error creating or executing pipeline: {}", e.getMessage(), e);
             return PostProcessingPipelineResult.failure("Pipeline execution error: " + e.getMessage());
         }
     }
-    
+
     /**
      * Create pipeline steps - simplified to only use standard pipeline
      */
@@ -156,7 +156,7 @@ public class PostProcessingConsumer {
         // Always use standard pipeline for simplicity
         return pipelineFactory.createStandardPipeline();
     }
-    
+
     /**
      * Send processed message to the final ai-responses topic
      */
@@ -165,11 +165,11 @@ public class PostProcessingConsumer {
             kafkaTemplate.send(aiResponsesTopic, parsedAiResponse);
             logger.info("Successfully forwarded message to final ai-responses topic: {}", aiResponsesTopic);
         } catch (Exception e) {
-            logger.error("Failed to send message to final ai-responses topic: {}, error: {}", 
+            logger.error("Failed to send message to final ai-responses topic: {}, error: {}",
                         aiResponsesTopic, e.getMessage(), e);
         }
     }
-    
+
     /**
      * Send error response to the final topic
      */
@@ -182,13 +182,13 @@ public class PostProcessingConsumer {
             logger.error("Failed to send error response: {}", e.getMessage(), e);
         }
     }
-    
+
     /**
      * Create an error EnrichmentResponse
      */
     private EnrichmentResponse createErrorResponse(PostProcessingContext context, String errorMessage) {
         EnrichmentResponse response = new EnrichmentResponse();
-        
+
         // Set basic fields from context if available
         if (context != null) {
             response.setMessageId(context.getMessageId());
@@ -201,7 +201,7 @@ public class PostProcessingConsumer {
             response.setDeemergeUserName(context.getDeemergeUserName());
             response.setTeamId(context.getTeamId());
         }
-        
+
         response.setSuccess(false);
         response.setStatus("error");
         response.setErrorMessage(errorMessage);
@@ -213,7 +213,7 @@ public class PostProcessingConsumer {
             LocalDateTime.now().getMinute(),
             LocalDateTime.now().getSecond()
         ));
-        
+
         return response;
     }
 
@@ -227,7 +227,7 @@ public class PostProcessingConsumer {
         }
 
         EnrichmentResponse lightweightResponse = new EnrichmentResponse();
-        
+
         // Copy all basic fields (these are small)
         lightweightResponse.setMessageId(originalResponse.getMessageId());
         lightweightResponse.setCorrelationId(originalResponse.getCorrelationId());
@@ -246,7 +246,7 @@ public class PostProcessingConsumer {
         lightweightResponse.setDeemergeUserId(originalResponse.getDeemergeUserId());
         lightweightResponse.setDeemergeUserName(originalResponse.getDeemergeUserName());
         lightweightResponse.setTeamId(originalResponse.getTeamId());
-        
+
         // Handle metadata - copy but limit size
         if (originalResponse.getMetadata() != null) {
             Map<String, Object> lightweightMetadata = new java.util.HashMap<>();
@@ -265,34 +265,34 @@ public class PostProcessingConsumer {
             });
             lightweightResponse.setMetadata(lightweightMetadata);
         }
-        
+
         // Handle ConversationEnrichment result - create summary version
         if (originalResponse.getResult() != null) {
             lightweightResponse.setResult(createLightweightConversationEnrichment(originalResponse.getResult()));
         }
-        
-        logger.debug("Created lightweight response for messageId={}, removing large data collections", 
+
+        logger.debug("Created lightweight response for messageId={}, removing large data collections",
                     originalResponse.getMessageId());
-        
+
         return lightweightResponse;
     }
-    
+
     /**
      * Create a lightweight version of ConversationEnrichment by removing large data and keeping only summaries
      */
     private com.lucid.automation.common.dto.enrichment.ConversationEnrichment createLightweightConversationEnrichment(
             com.lucid.automation.common.dto.enrichment.ConversationEnrichment original) {
-        
+
         if (original == null) {
             return null;
         }
-        
+
         // Create lightweight metadata with counts instead of full data
         Map<String, Object> lightweightMetadata = new java.util.HashMap<>();
         if (original.metadata() != null) {
             lightweightMetadata.putAll(original.metadata());
         }
-        
+
         // Add summary counts instead of full data
         if (original.messages() != null) {
             lightweightMetadata.put("messages_count", original.messages().size());
@@ -303,7 +303,7 @@ public class PostProcessingConsumer {
         if (original.topics() != null) {
             lightweightMetadata.put("topics_count", original.topics().size());
         }
-        
+
         // Return only topics and metadata, exclude large message/participant lists
         return new com.lucid.automation.common.dto.enrichment.ConversationEnrichment(
             original.topics(), // Keep topics as they're usually small
