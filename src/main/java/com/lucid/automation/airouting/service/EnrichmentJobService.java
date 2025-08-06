@@ -2,8 +2,12 @@ package com.lucid.automation.airouting.service;
 
 import com.lucid.automation.airouting.model.EnrichmentJob;
 import com.lucid.automation.airouting.repository.EnrichmentJobRepository;
+
+import java.time.LocalDateTime;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cglib.core.Local;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -56,6 +60,25 @@ public class EnrichmentJobService {
         if (jobs.iterator().hasNext()) {
             return jobs.iterator().next();
         }
-        return null;
+        // if no job found, return a default job specifying that job is not completed
+        EnrichmentJob defaultJob = new EnrichmentJob();
+        defaultJob.setUserId(userId);
+        defaultJob.setTenantId(tenantId);
+        // set other default values as needed
+        defaultJob.setStartTime(null);
+        defaultJob.setEndTime(null);
+        defaultJob.setStatus("PENDING");
+        defaultJob.setEstimatedCompletionTime(LocalDateTime.now().plusMinutes(10).toString()); // Example: 30 minutes from now
+        defaultJob.setCreatedAt(System.currentTimeMillis());
+        defaultJob.setUpdatedAt(System.currentTimeMillis());
+        defaultJob.setProgress(0.0);
+        defaultJob.setDurationMs(0L);
+        defaultJob.setEstimatedTimeLeft(10*60L);
+        defaultJob.setType("ENRICHMENT");
+        defaultJob.setResult(null);
+        defaultJob.setTenantSchema(null); // Set tenant schema if needed
+        defaultJob.setId("default-" + userId + "-" + tenantId + "-" + System.currentTimeMillis()); // Generate a unique ID
+        defaultJob.setParentId(null); // No parent job for default
+        return defaultJob;
     }
 }

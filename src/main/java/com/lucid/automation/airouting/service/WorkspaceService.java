@@ -2,14 +2,12 @@ package com.lucid.automation.airouting.service;
 
 import com.lucid.automation.common.dto.messaging.IngestionEventDTO;
 import com.lucid.automation.common.dto.messaging.MessageDTO;
-import com.lucid.automation.airouting.dto.WorkspaceStats;
 import com.lucid.automation.airouting.model.Workspace;
 import com.lucid.automation.airouting.repository.WorkspaceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -69,8 +67,6 @@ public class WorkspaceService {
 
             // Save and return
             Workspace savedWorkspace = workspaceRepository.save(workspace);
-            logger.debug("Updated workspace: {}", savedWorkspace);
-
             return savedWorkspace;
 
         } catch (Exception e) {

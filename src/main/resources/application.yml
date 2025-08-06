@@ -44,6 +44,8 @@ spring:
         "[spring.json.fail.on.unknown.properties]": false
         "[spring.kafka.consumer.enable-auto-commit]": false
         "[spring.kafka.listener.ack-mode]": manual_immediate
+        "[max.partition.fetch.bytes]": 10485760
+        "[fetch.message.max.bytes]": 10485760
 
     # Producer Configuration (for publishing responses/results if needed)
     producer:
@@ -56,6 +58,7 @@ spring:
         "[linger.ms]": 5
         "[buffer.memory]": 33554432
         "[enable.idempotence]": true
+        "[max.request.size]": 10485760
 
     # Listener Configuration
     listener:

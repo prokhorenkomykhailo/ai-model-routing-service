@@ -88,18 +88,12 @@ public class SlidingWindowService {
             long unprocessedCount = allMessages.stream()
                 .filter(msg -> msg.getIsProcessed() == null || !msg.getIsProcessed())
                 .count();
-            long processedCount = allMessages.size() - unprocessedCount;
-
             if (unprocessedCount == 0) {
                 logger.info("📋 Workspace Analysis: All {} messages have been processed - no new messages to process for workspace '{}'",
                            allMessages.size(), workspace.getDeemergeUserId());
                 logger.info("🚫 Sliding Window: Skipping processing - no unprocessed messages found");
                 return 0;
             }
-
-            logger.info("📊 Workspace Analysis: Found {} total messages ({} already processed, {} new messages) for workspace '{}'",
-                       allMessages.size(), processedCount, unprocessedCount, workspace.getDeemergeUserId());
-            logger.info("✅ Sliding Window: Starting processing - {} new messages available for processing", unprocessedCount);
 
             // Messages are already sorted chronologically by loadMessagesForWorkspace method
             // Calculate overlap size, minimum of 20 messages or 20% of maxMessage
@@ -211,9 +205,6 @@ public class SlidingWindowService {
 
             // Slack metadata
             message.setSlackUpdatedAt(userData.getSlackUpdatedAt());
-
-            logger.debug("Successfully updated message {} with user data for slackUserId: {}",
-                        message.getId(), userData.getSlackUserId());
             return message;
         } catch (Exception e) {
             logger.error("Error updating message {} with user data for slackUserId: {}",
@@ -398,9 +389,6 @@ public class SlidingWindowService {
             messageRepository.deleteAllById(messageIdsToDelete);
 
             int deletedCount = messageIdsToDelete.size();
-            logger.info("Successfully cleaned up workspace {}: deleted {} messages, kept {} recent messages",
-                       workspaceId, deletedCount, keepRecentCount);
-
             return deletedCount;
 
         } catch (Exception e) {

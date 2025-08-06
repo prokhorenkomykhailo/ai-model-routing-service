@@ -99,7 +99,9 @@ public class PostProcessingConsumer {
             if (pipelineResult.isOverallSuccess()) {
                 EnrichmentResponse enrichmentResponse = context.getEnrichmentResponse();
                 if (enrichmentResponse != null) {
-                    sendToFinalAiResponsesTopic(enrichmentResponse);
+                    // Create lightweight version to avoid Kafka message size issues
+                    EnrichmentResponse lightweightResponse = createLightweightResponse(enrichmentResponse);
+                    sendToFinalAiResponsesTopic(lightweightResponse);
                     logger.info("Successfully processed pre-AI response using pipeline and forwarded to final topic");
                 } else {
                     logger.error("Pipeline succeeded but enrichment response is null");
@@ -213,5 +215,101 @@ public class PostProcessingConsumer {
         ));
         
         return response;
+    }
+
+    /**
+     * Create a lightweight version of EnrichmentResponse to avoid Kafka message size issues.
+     * This method removes or summarizes large data fields like full message and participant lists.
+     */
+    private EnrichmentResponse createLightweightResponse(EnrichmentResponse originalResponse) {
+        if (originalResponse == null) {
+            return null;
+        }
+
+        EnrichmentResponse lightweightResponse = new EnrichmentResponse();
+        
+        // Copy all basic fields (these are small)
+        lightweightResponse.setMessageId(originalResponse.getMessageId());
+        lightweightResponse.setCorrelationId(originalResponse.getCorrelationId());
+        lightweightResponse.setConversationId(originalResponse.getConversationId());
+        lightweightResponse.setTaskType(originalResponse.getTaskType());
+        lightweightResponse.setSuccess(originalResponse.isSuccess());
+        lightweightResponse.setStatus(originalResponse.getStatus());
+        lightweightResponse.setProviderId(originalResponse.getProviderId());
+        lightweightResponse.setErrorMessage(originalResponse.getErrorMessage());
+        lightweightResponse.setConfidence(originalResponse.getConfidence());
+        lightweightResponse.setProcessedAt(originalResponse.getProcessedAt());
+        lightweightResponse.setProcessingTimeMs(originalResponse.getProcessingTimeMs());
+        lightweightResponse.setTenantId(originalResponse.getTenantId());
+        lightweightResponse.setTenantSchema(originalResponse.getTenantSchema());
+        lightweightResponse.setUserId(originalResponse.getUserId());
+        lightweightResponse.setDeemergeUserId(originalResponse.getDeemergeUserId());
+        lightweightResponse.setDeemergeUserName(originalResponse.getDeemergeUserName());
+        lightweightResponse.setTeamId(originalResponse.getTeamId());
+        
+        // Handle metadata - copy but limit size
+        if (originalResponse.getMetadata() != null) {
+            Map<String, Object> lightweightMetadata = new java.util.HashMap<>();
+            originalResponse.getMetadata().forEach((key, value) -> {
+                // Only include small metadata fields, skip large collections
+                if (value instanceof String || value instanceof Number || value instanceof Boolean) {
+                    lightweightMetadata.put(key, value);
+                } else if (value instanceof Map || value instanceof List) {
+                    // Add summary info instead of full data
+                    if (value instanceof List) {
+                        lightweightMetadata.put(key + "_count", ((List<?>) value).size());
+                    } else if (value instanceof Map) {
+                        lightweightMetadata.put(key + "_keys", ((Map<?, ?>) value).keySet().size());
+                    }
+                }
+            });
+            lightweightResponse.setMetadata(lightweightMetadata);
+        }
+        
+        // Handle ConversationEnrichment result - create summary version
+        if (originalResponse.getResult() != null) {
+            lightweightResponse.setResult(createLightweightConversationEnrichment(originalResponse.getResult()));
+        }
+        
+        logger.debug("Created lightweight response for messageId={}, removing large data collections", 
+                    originalResponse.getMessageId());
+        
+        return lightweightResponse;
+    }
+    
+    /**
+     * Create a lightweight version of ConversationEnrichment by removing large data and keeping only summaries
+     */
+    private com.lucid.automation.common.dto.enrichment.ConversationEnrichment createLightweightConversationEnrichment(
+            com.lucid.automation.common.dto.enrichment.ConversationEnrichment original) {
+        
+        if (original == null) {
+            return null;
+        }
+        
+        // Create lightweight metadata with counts instead of full data
+        Map<String, Object> lightweightMetadata = new java.util.HashMap<>();
+        if (original.metadata() != null) {
+            lightweightMetadata.putAll(original.metadata());
+        }
+        
+        // Add summary counts instead of full data
+        if (original.messages() != null) {
+            lightweightMetadata.put("messages_count", original.messages().size());
+        }
+        if (original.participants() != null) {
+            lightweightMetadata.put("participants_count", original.participants().size());
+        }
+        if (original.topics() != null) {
+            lightweightMetadata.put("topics_count", original.topics().size());
+        }
+        
+        // Return only topics and metadata, exclude large message/participant lists
+        return new com.lucid.automation.common.dto.enrichment.ConversationEnrichment(
+            original.topics(), // Keep topics as they're usually small
+            List.of(), // Empty participants list
+            List.of(), // Empty messages list
+            lightweightMetadata
+        );
     }
 }

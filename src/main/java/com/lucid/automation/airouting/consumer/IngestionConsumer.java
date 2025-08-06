@@ -15,21 +15,21 @@ import org.springframework.stereotype.Service;
 /**
  * Consumer service for processing ingestion messages from Kafka
  * Now uses the pipeline architecture for modular processing.
- * 
+ *
  * @author AI Assistant
  */
 @Service
 public class IngestionConsumer {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(IngestionConsumer.class);
-    
+
     private final IngestionPipelineOrchestrator pipelineOrchestrator;
-    
+
     public IngestionConsumer(IngestionPipelineOrchestrator pipelineOrchestrator) {
         this.pipelineOrchestrator = pipelineOrchestrator;
         logger.info("IngestionConsumer initialized with pipeline architecture");
     }
-    
+
     @KafkaListener(
         topics = "${kafka.topics.ingestion-messages}",
         containerFactory = "kafkaListenerContainerFactory",
@@ -42,47 +42,37 @@ public class IngestionConsumer {
                                       Acknowledgment acknowledgment,
                                       @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
                                       @Header(KafkaHeaders.OFFSET) long offset) {
-        
+
         if (ingestionEventDto == null) {
             logger.error("Received null message from Kafka - deserialization failure (partition={}, offset={})", partition, offset);
             acknowledgment.acknowledge();
             return;
         }
-        
-        logger.info("Processing message: tenantId={}, messageId={}, source={}, permaLink={}", 
-            ingestionEventDto.getTenantId(), 
-            ingestionEventDto.getMessage() != null ? ingestionEventDto.getMessage().getTs() : "null",
-            ingestionEventDto.getMessage() != null ? ingestionEventDto.getMessage().getSource() : "null",
-            ingestionEventDto.getMessage() != null ? ingestionEventDto.getMessage().getPermaLink() : "null");
-        
+
         if (ingestionEventDto.getMessage() == null || ingestionEventDto.getMessage().getTs() == null) {
             logger.warn("Invalid message data - skipping (messageId=null or ts=null)");
             acknowledgment.acknowledge();
             return;
         }
-        
+
         validateTimestamp(ingestionEventDto, acknowledgment);
 
         try {
             ProcessingResult processingResult = pipelineOrchestrator.processMessage(ingestionEventDto);
-            
+
             if (processingResult.isSuccess()) {
-                logger.info("Message processed successfully: messageId={}, source={}, permaLink={}", 
-                    ingestionEventDto.getMessage().getTs(),
-                    ingestionEventDto.getMessage().getSource(),
-                    ingestionEventDto.getMessage().getPermaLink());
                 acknowledgment.acknowledge();
             } else {
-                logger.error("Message processing failed: messageId={}, error={}", 
-                    ingestionEventDto.getMessage().getTs(), 
+                logger.error("Message processing failed: messageId={}, error={}",
+                    ingestionEventDto.getMessage().getTs(),
                     processingResult.getErrorMessage());
                 throw new RuntimeException("Pipeline processing failed: " + processingResult.getErrorMessage());
             }
-            
+
         } catch (Exception e) {
-            logger.error("Exception processing message {}: {}", 
+            logger.error("Exception processing message {}: {}",
                 ingestionEventDto.getMessage().getTs(), e.getMessage(), e);
-            
+
             if (isRetryableException(e)) {
                 logger.info("Retryable exception - not acknowledging message");
                 throw e;
@@ -92,7 +82,7 @@ public class IngestionConsumer {
             }
         }
     }
-    
+
     private void validateTimestamp(IngestionEventDTO ingestionEventDto, Acknowledgment acknowledgment) {
         try {
             String tsStr = ingestionEventDto.getMessage().getTs();
@@ -106,34 +96,34 @@ public class IngestionConsumer {
             logger.warn("Invalid timestamp format: {} - continuing", ingestionEventDto.getMessage().getTs());
         }
     }
-    
+
     private boolean isRetryableException(Exception exception) {
         if (exception.getMessage() != null) {
             String msg = exception.getMessage().toLowerCase();
-            if (msg.contains("connection") || msg.contains("timeout") || 
+            if (msg.contains("connection") || msg.contains("timeout") ||
                 msg.contains("network") || msg.contains("redis") ||
                 msg.contains("unable to connect") || msg.contains("connection refused")) {
                 return true;
             }
         }
-        
+
         String className = exception.getClass().getSimpleName().toLowerCase();
         if (className.contains("connection") || className.contains("timeout") ||
             className.contains("redis") || className.contains("jedis")) {
             return true;
         }
-        
+
         if (exception instanceof IllegalArgumentException ||
             exception instanceof ClassCastException ||
             exception instanceof NullPointerException) {
             return false;
         }
-        
+
         if (className.contains("serialization") || className.contains("json") ||
             className.contains("parse") || className.contains("mapping")) {
             return false;
         }
-        
+
         return true;
     }
 }

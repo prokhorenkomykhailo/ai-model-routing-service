@@ -71,17 +71,24 @@ public class AIMessageIntegrationConfig {
                 .from(Kafka.messageDrivenChannelAdapter(aiMessageListenerContainerFactory, aiEnrichTopic)
                         .id("aiEnrichKafkaListenerAdapter"))
                 .channel(aiEnrichInputChannel())
-                .transform(this::transformAIMessage)
+                .transform(Message.class, message -> {
+                    // Transform while preserving headers including acknowledgment
+                    AIMessage transformedPayload = transformAIMessage((AIMessage) message.getPayload());
+                    return org.springframework.messaging.support.MessageBuilder
+                            .withPayload(transformedPayload)
+                            .copyHeaders(message.getHeaders())
+                            .build();
+                })
                 .channel(aiEnrichTransformChannel())
-                .handle((payload, headers) -> {
-                    AIMessage aiMessage = (AIMessage) payload;
+                .handle(Message.class, (message, headers) -> {
+                    AIMessage aiMessage = (AIMessage) message.getPayload();
                     validateAIMessage(aiMessage);
-                    return payload;
+                    return message; // Return message with preserved headers
                 })
                 .channel(aiEnrichProcessChannel())
-                .handle((payload, headers) -> {
+                .handle(Message.class, (message, headers) -> {
                     // propagate enriched message with headers
-                    return enrichAIMessage((AIMessage) payload, headers);
+                    return enrichAIMessage((AIMessage) message.getPayload(), message.getHeaders());
                 })
                 .channel(aiEnrichResponseChannel())
                 .handle(Message.class, (message, headers) -> {
@@ -90,8 +97,8 @@ public class AIMessageIntegrationConfig {
                     sendAIResponse(response, message.getHeaders());
                     return message;
                 })
-                .handle((payload, headers) -> {
-                    acknowledgeMessage(headers);
+                .handle(Message.class, (message, headers) -> {
+                    acknowledgeMessage(message.getHeaders());
                     return null;
                 })
                 .get();
