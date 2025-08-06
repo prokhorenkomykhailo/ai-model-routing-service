@@ -146,11 +146,9 @@ public class AIMessageIntegrationConfig {
 
             // Update progress for transformation completion
             jobId = aiMessage.getJobId();
-            if (jobId != null && !jobId.trim().isEmpty()) {
-                progressService.updateProgress(jobId,
-                    EnrichmentJobProgressService.PipelineStage.TRANSFORMED,
-                    "AI message transformation completed successfully");
-            }
+            progressService.updateProgress(jobId,
+                EnrichmentJobProgressService.PipelineStage.TRANSFORMED,
+                "AI message transformation completed successfully");
 
             logger.debug("AI message transformed successfully: messageId={}, taskType={}",
                        aiMessage.getMessageId(), aiMessage.getTaskType());
@@ -196,11 +194,10 @@ public class AIMessageIntegrationConfig {
 
             // Update progress for validation completion
             String jobId = aiMessage.getJobId();
-            if (jobId != null && !jobId.trim().isEmpty()) {
-                progressService.updateProgress(jobId,
-                    EnrichmentJobProgressService.PipelineStage.VALIDATED,
-                    "AI message validation completed successfully for task type: " + taskType);
-            }
+            progressService.updateProgress(jobId,
+                EnrichmentJobProgressService.PipelineStage.VALIDATED,
+                "AI message validation completed successfully for task type: " + taskType);
+
 
             logger.debug("AI message validation successful: messageId={}, taskType={}",
                        aiMessage.getMessageId(), taskType);
@@ -244,11 +241,10 @@ public class AIMessageIntegrationConfig {
 
             // Update progress for enrichment completion
             String jobId = aiMessage.getJobId();
-            if (jobId != null && !jobId.trim().isEmpty()) {
-                progressService.updateProgress(jobId,
-                    EnrichmentJobProgressService.PipelineStage.ENRICHED,
-                    "AI enrichment completed successfully using provider: " + provider.getProviderId());
-            }
+            progressService.updateProgress(jobId,
+                EnrichmentJobProgressService.PipelineStage.ENRICHED,
+                "AI enrichment completed successfully using provider: " + provider.getProviderId());
+
 
             return org.springframework.messaging.support.MessageBuilder
                 .withPayload(response)
@@ -300,11 +296,10 @@ public class AIMessageIntegrationConfig {
             kafkaTemplate.send(replyTopic, response);
 
             // Update progress for response sent
-            if (jobId != null && !jobId.trim().isEmpty()) {
-                progressService.updateProgress(jobId,
-                    EnrichmentJobProgressService.PipelineStage.RESPONSE_SENT,
-                    "Response sent successfully to topic: " + replyTopic);
-            }
+            progressService.updateProgress(jobId,
+                EnrichmentJobProgressService.PipelineStage.RESPONSE_SENT,
+                "Response sent successfully to topic: " + replyTopic);
+
 
             String status = (String) headers.get("ai.status");
             if ("error".equals(status)) {
@@ -335,19 +330,16 @@ public class AIMessageIntegrationConfig {
         String jobId = null;
         try {
             jobId = (String) headers.get("ai.job.id");
+            // Mark job as completed
+            progressService.updateProgress(jobId,
+                EnrichmentJobProgressService.PipelineStage.COMPLETED,
+                "AI enrichment pipeline completed successfully");
+
 
             Acknowledgment acknowledgment = (Acknowledgment) headers.get("kafka_acknowledgment");
             if (acknowledgment != null) {
                 acknowledgment.acknowledge();
                 logger.debug("Kafka message acknowledged successfully");
-
-                // Mark job as completed
-                if (jobId != null && !jobId.trim().isEmpty()) {
-                    progressService.updateProgress(jobId,
-                        EnrichmentJobProgressService.PipelineStage.COMPLETED,
-                        "AI enrichment pipeline completed successfully");
-                }
-
             } else {
                 logger.warn("No acknowledgment found in message headers");
             }

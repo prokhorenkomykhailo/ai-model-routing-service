@@ -137,15 +137,15 @@ lucid:
 logging:
   level:
     root: INFO
-    com.lucid.automation.airouting: DEBUG
-    com.lucid.automation.airouting.service: DEBUG
-    com.lucid.automation.airouting.scheduler: DEBUG
-    com.lucid.automation.airouting.controller: DEBUG
-    org.springframework: ERROR
-    org.springframework.web: ERROR
-    org.springframework.amqp: ERROR
-    org.springframework.data.redis: ERROR
-    AI_AUDIT: INFO
+    "[com.lucid.automation.airouting]": DEBUG
+    "[com.lucid.automation.airouting.service]": DEBUG
+    "[com.lucid.automation.airouting.scheduler]": DEBUG
+    "[com.lucid.automation.airouting.controller]": DEBUG
+    "[org.springframework]": ERROR
+    "[org.springframework.web]": ERROR
+    "[org.springframework.amqp]": ERROR
+    "[org.springframework.data.redis]": ERROR
+    "[AI_AUDIT]": INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
@@ -185,6 +185,8 @@ redis:
   conversation:
     max-messages: ${REDIS_MAX_MESSAGES:100}
     ttl-seconds: ${REDIS_TTL_SECONDS:604800} # 7 days (604800 seconds)
+  enrichment-job:
+    ttl-seconds: ${REDIS_ENRICHMENT_JOB_TTL_SECONDS:3600} # 60 minutes (3600 seconds)
 
 # Sliding Window Processing Configuration
 sliding:

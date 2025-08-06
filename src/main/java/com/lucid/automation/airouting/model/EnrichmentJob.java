@@ -8,9 +8,11 @@ import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.redis.core.RedisHash;
+import org.springframework.data.redis.core.TimeToLive;
 import org.springframework.data.redis.core.index.Indexed;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.io.Serializable;
+import java.util.concurrent.TimeUnit;
 
 @Data
 @Builder
@@ -43,4 +45,11 @@ public class EnrichmentJob implements Serializable {
     @Indexed
     private String tenantId;
     private String tenantSchema;
+
+    // TTL (Time To Live) for Redis entries - 60 minutes (3600 seconds)
+    // This ensures enrichment jobs are automatically cleaned up after 60 minutes
+    // to prevent Redis memory buildup and maintain performance
+    @TimeToLive(unit = TimeUnit.SECONDS)
+    @Builder.Default
+    private Long ttl = 3600L; // 60 minutes in seconds
 }

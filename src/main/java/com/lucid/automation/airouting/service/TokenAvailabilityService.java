@@ -26,14 +26,20 @@ public class TokenAvailabilityService {
      */
     @CircuitBreaker(name = "tokenAvailability", fallbackMethod = "tokenAvailableFallback")
     public boolean isTokenAvailable(String tenantId) {
-        ResponseEntity<Boolean> response = authTokenAvailableClient.getTenantTokenAvailable(tenantId, "application/json");
-        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-            // return response.getBody();
-            return true;
-        } else {
-            logger.warn("Token availability check failed for tenant {}: status {}", tenantId, response.getStatusCode());
+        try {
+            ResponseEntity<Boolean> response = authTokenAvailableClient.getTenantTokenAvailable(tenantId, "application/json");
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                // return response.getBody();
+                return true;
+            } else {
+                logger.warn("Token availability check failed for tenant {}: status {}", tenantId, response.getStatusCode());
+                // return false; // fallback
+                return true; // fallback to true to allow processing
+            }
+        } catch (Exception e) {
+            logger.error("Error checking token availability for tenant {}: {}", tenantId, e.getMessage());
             // return false; // fallback
-            return true; // fallback to true to allow processing
+            return false;
         }
     }
 

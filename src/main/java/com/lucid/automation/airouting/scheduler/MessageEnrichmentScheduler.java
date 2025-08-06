@@ -89,13 +89,6 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         // Check property values
         try {
             org.springframework.core.env.Environment env = applicationContext.getEnvironment();
-            String enabledProperty = env.getProperty("ai.enrichment.scheduler.enabled");
-            String cronProperty = env.getProperty("ai.enrichment.scheduler.cron");
-
-            log.info("ai.enrichment.scheduler.enabled property: {}", enabledProperty);
-            log.info("ai.enrichment.scheduler.cron property: {}", cronProperty);
-            log.info("AI_ENRICHMENT_ENABLED env var: {}", env.getProperty("AI_ENRICHMENT_ENABLED"));
-            log.info("AI_ENRICHMENT_CRON env var: {}", env.getProperty("AI_ENRICHMENT_CRON"));
         } catch (Exception e) {
             log.warn("Error checking environment properties: {}", e.getMessage());
         }

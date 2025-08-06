@@ -50,6 +50,34 @@ Supported Gemini models:
 
 - **OpenAI**: Configure with `OPENAI_API_KEY` environment variable
 
+### Redis Configuration
+
+The service uses Redis for caching enrichment jobs and conversation data.
+
+#### EnrichmentJob TTL
+
+EnrichmentJob entities are automatically expired from Redis after 60 minutes to prevent memory buildup and maintain performance. This TTL (Time To Live) can be configured via environment variables:
+
+```bash
+export REDIS_ENRICHMENT_JOB_TTL_SECONDS=3600  # 60 minutes (default)
+```
+
+Or in `application.yml`:
+
+```yaml
+redis:
+  enrichment-job:
+    ttl-seconds: 3600  # 60 minutes
+```
+
+#### Conversation TTL
+
+Conversation data has a longer TTL of 7 days:
+
+```bash
+export REDIS_TTL_SECONDS=604800  # 7 days (default)
+```
+
 ## Development
 
 ### Building
