@@ -32,4 +32,14 @@ public interface MessageRepository extends CrudRepository<Message, String> {
      */
     List<Message> findByTenantIdAndDeemergeUserId(String tenantId, String deemergeUserId);
 
+    /**
+     * Find unprocessed messages by workspace ID ordered by message timestamp
+     * Used by token-based sliding window processing
+     *
+     * @param workspaceId The workspace ID
+     * @param isProcessed Processing status flag
+     * @return List of messages ordered by messageTs ascending
+     */
+    List<Message> findByWorkspaceIdAndIsProcessedOrderByMessageTsAsc(String workspaceId, Boolean isProcessed);
+
 }

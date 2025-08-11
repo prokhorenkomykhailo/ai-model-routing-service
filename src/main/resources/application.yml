@@ -198,4 +198,19 @@ sliding:
         percentage: ${SLIDING_WINDOW_OVERLAP_PERCENTAGE:20}
     cleanup:
       enabled: true
+    # Token-based sliding window configuration
+    token:
+      enabled: ${SLIDING_WINDOW_TOKEN_ENABLED:true}  # Enable token-based processing
+      max:
+        tokens: ${SLIDING_WINDOW_TOKEN_MAX_TOKENS:50000}  # Maximum tokens per batch
+      min:
+        tokens: ${SLIDING_WINDOW_TOKEN_MIN_TOKENS:100}   # Minimum tokens to process
+      timeout:
+        seconds: ${SLIDING_WINDOW_TOKEN_TIMEOUT_SECONDS:300}  # 5 minutes timeout
+      overlap:
+        percentage: ${SLIDING_WINDOW_TOKEN_OVERLAP_PERCENTAGE:20}  # Percentage of tokens for overlap
+        tokens: ${SLIDING_WINDOW_TOKEN_OVERLAP_TOKENS:500}         # Fixed tokens for overlap
+      fallback:
+        message:
+          count: ${SLIDING_WINDOW_TOKEN_FALLBACK_MESSAGE_COUNT:50}  # Fallback message count
 
