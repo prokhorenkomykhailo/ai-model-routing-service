@@ -71,8 +71,8 @@
     </appender>
 
     <!-- Root logger configuration -->
-    <springProfile name="local,dev">
-        <!-- In dev environments, use both console and JSON formats -->
+    <springProfile name="local,dev,docker">
+        <!-- In dev and docker environments, use both console and JSON formats -->
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
             <appender-ref ref="JSON_FILE"/>
@@ -80,8 +80,8 @@
         </root>
     </springProfile>
 
-    <springProfile name="!local &amp; !dev">
-        <!-- In non-dev environments, use only JSON format -->
+    <springProfile name="!local &amp; !dev &amp; !docker">
+        <!-- In production environments, use only JSON format -->
         <root level="INFO">
             <appender-ref ref="JSON_FILE"/>
             <appender-ref ref="OTEL"/>
