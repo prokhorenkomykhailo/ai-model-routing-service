@@ -143,8 +143,10 @@ public class RelatedUsersEnrichmentProcessor implements MessageProcessor {
 
         String tenantId = ingestionEvent.getTenantId();
         String tenantSchema = ingestionEvent.getTenantSchema();
+
         String userId = ingestionEvent.getUser() != null ?
                        ingestionEvent.getUser().getSlackUserId() : "unknown";
+
         String channelId = ingestionEvent.getMessage().getChannelId();
         String channelName = ingestionEvent.getMessage().getChannelName();
 
