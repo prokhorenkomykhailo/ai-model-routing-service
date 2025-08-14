@@ -70,3 +70,18 @@ data-storage-service:
 # auth service configuration
 auth-service:
   url: ${AUTH_SERVICE_URL:http://localhost:8088}
+
+# Sliding window configuration for token-based batch sizing
+sliding:
+  window:
+    default:
+      batch:
+        size: 50
+      overlap:
+        percentage: 20
+    max:
+      tokens: 10000  # Reduced from 15000 to avoid Kafka RecordTooLargeException
+    avg:
+      tokens:
+        per:
+          message: 50

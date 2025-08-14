@@ -23,11 +23,8 @@ public class WorkspaceService {
     private static final Logger logger = LoggerFactory.getLogger(WorkspaceService.class);
 
     private final WorkspaceRepository workspaceRepository;
-    private final SlidingWindowService slidingWindowService;
-
-    public WorkspaceService(WorkspaceRepository workspaceRepository, SlidingWindowService slidingWindowService) {
+    public WorkspaceService(WorkspaceRepository workspaceRepository) {
         this.workspaceRepository = workspaceRepository;
-        this.slidingWindowService = slidingWindowService;
     }
 
     /**
@@ -213,7 +210,7 @@ public class WorkspaceService {
 
             // Clean up all messages associated with this workspace
             if (deemergeUserId != null && !deemergeUserId.trim().isEmpty()) {
-                int deletedMessages = slidingWindowService.cleanupWorkspace(workspace, 0);
+                int deletedMessages = 0;
                 logger.info("Deleted {} messages for workspace {}", deletedMessages, id);
             } else {
                 logger.warn("Workspace {} has no deemergeUserId, skipping message cleanup", id);

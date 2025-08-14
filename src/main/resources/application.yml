@@ -55,10 +55,12 @@ spring:
       retries: 3
       batch-size: 16384
       properties:
-        "[linger.ms]": 5
-        "[buffer.memory]": 33554432
+        "[linger.ms]": 10                 # tăng thời gian gom batch nhẹ
+        "[buffer.memory]": 67108864       # 64 MB (tuỳ máy)
         "[enable.idempotence]": true
-        "[max.request.size]": 10485760
+        "[max.request.size]": 10485760    # 10 MB (khớp với topic/broker)
+        "[compression.type]": gzip
+
 
     # Listener Configuration
     listener:
