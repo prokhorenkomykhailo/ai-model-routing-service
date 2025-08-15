@@ -38,12 +38,14 @@ public class UserChannelProducer {
      * @param userId The user ID who triggered the event
      * @param channelId The channel ID
      * @param channelName The channel name
+     * @param teamId The team ID (Slack workspace ID)
+     * @param teamName The team name (Slack workspace name)
      * @param slackUsers List of Slack users in the channel
      * @param eventType The event type (e.g., "MESSAGE_RELATED_USERS")
      * @return The message ID
      */
     public String publishUserChannelEvent(String tenantId, String tenantSchema, String userId,
-                                        String channelId, String channelName,
+                                        String channelId, String channelName, String teamId, String teamName,
                                         List<UserChannelEventDTO.SlackUserInfo> slackUsers,
                                         String eventType) {
 
@@ -56,6 +58,8 @@ public class UserChannelProducer {
                 .userId(userId)
                 .channelId(channelId)
                 .channelName(channelName)
+                .teamId(teamId)
+                .teamName(teamName)
                 .slackUsers(slackUsers)
                 .timestamp(LocalDateTime.now())
                 .eventType(eventType)
@@ -90,13 +94,15 @@ public class UserChannelProducer {
      * @param userId The user ID who sent the message
      * @param channelId The channel ID
      * @param channelName The channel name
+     * @param teamId The team ID (Slack workspace ID)
+     * @param teamName The team name (Slack workspace name)
      * @param relatedUsers List of related/mentioned users
      * @return The message ID
      */
     public String publishRelatedUsersEvent(String tenantId, String tenantSchema, String userId,
-                                         String channelId, String channelName,
+                                         String channelId, String channelName, String teamId, String teamName,
                                          List<UserChannelEventDTO.SlackUserInfo> relatedUsers) {
         return publishUserChannelEvent(tenantId, tenantSchema, userId, channelId, channelName,
-                                     relatedUsers, "MESSAGE_RELATED_USERS");
+                                     teamId, teamName, relatedUsers, "MESSAGE_RELATED_USERS");
     }
 }

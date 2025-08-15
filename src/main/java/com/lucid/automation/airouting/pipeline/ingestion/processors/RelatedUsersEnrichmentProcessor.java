@@ -5,7 +5,9 @@ import com.lucid.automation.airouting.pipeline.ingestion.IngestionProcessingCont
 import com.lucid.automation.airouting.pipeline.ProcessingResult;
 import com.lucid.automation.airouting.producer.UserChannelProducer;
 import com.lucid.automation.airouting.service.UserService;
+import com.lucid.automation.airouting.service.WorkspaceService;
 import com.lucid.automation.airouting.model.User;
+import com.lucid.automation.airouting.model.Workspace;
 import com.lucid.automation.common.dto.event.UserChannelEventDTO;
 import com.lucid.automation.common.dto.messaging.IngestionEventDTO;
 import org.slf4j.Logger;
@@ -14,6 +16,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Optional;
 
 /**
@@ -29,10 +32,12 @@ public class RelatedUsersEnrichmentProcessor implements MessageProcessor {
 
     private final UserChannelProducer userChannelProducer;
     private final UserService userService;
+    private final WorkspaceService workspaceService;
 
-    public RelatedUsersEnrichmentProcessor(UserChannelProducer userChannelProducer, UserService userService) {
+    public RelatedUsersEnrichmentProcessor(UserChannelProducer userChannelProducer, UserService userService, WorkspaceService workspaceService) {
         this.userChannelProducer = userChannelProducer;
         this.userService = userService;
+        this.workspaceService = workspaceService;
     }
 
     @Override
@@ -146,15 +151,15 @@ public class RelatedUsersEnrichmentProcessor implements MessageProcessor {
 
         String userId = ingestionEvent.getUser() != null ?
                        ingestionEvent.getUser().getSlackUserId() : "unknown";
-
+        String teamId = ingestionEvent.getMessage().getTeamId();
         String channelId = ingestionEvent.getMessage().getChannelId();
         String channelName = ingestionEvent.getMessage().getChannelName();
+        String teamName = ingestionEvent.getMessage().getTeamName();
 
         return userChannelProducer.publishRelatedUsersEvent(
-            tenantId, tenantSchema, userId, channelId, channelName, relatedUsers);
-    }
-
-    @Override
+            tenantId, tenantSchema, userId, channelId, channelName,
+            teamId, teamName, relatedUsers);
+    }    @Override
     public String getProcessorName() {
         return "RelatedUsersEnrichmentProcessor";
     }
