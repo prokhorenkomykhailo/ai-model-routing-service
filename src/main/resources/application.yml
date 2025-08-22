@@ -78,6 +78,7 @@ kafka:
     pre-ai-responses: ${KAFKA_TOPIC_PRE_AI_RESPONSES:pre.ai.responses.queue}
     user-channel: ${KAFKA_TOPIC_USER_CHANNEL_EVENTS:user-channel-topic}
     ai-token-consumption: ${KAFKA_TOPIC_TOKEN_CONSUMPTION:ai-token-consumption}
+    ingestion-progress: ${KAFKA_TOPIC_INGESTION_PROGRESS:ingestion-progress}
   reset-offsets-on-startup: false
 
 

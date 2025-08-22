@@ -20,6 +20,7 @@ public class EnrichmentJobProgressService {
     private static final Logger logger = LoggerFactory.getLogger(EnrichmentJobProgressService.class);
 
     private final EnrichmentJobRepository enrichmentJobRepository;
+    private final JobService jobService;
 
     /**
      * Pipeline stage progress percentages
@@ -96,6 +97,9 @@ public class EnrichmentJobProgressService {
                 // Save the updated job
                 enrichmentJobRepository.save(job);
 
+                // Publish progress to Kafka
+                publishProgressToKafka(job, stage);
+
                 logger.debug("Updated job progress: jobId={}, stage={}, progress={}%, status={}, estimatedTimeLeft={}ms",
                            jobId, stage.name(), stage.getProgressPercentage(), job.getStatus(), job.getEstimatedTimeLeft());
 
@@ -139,6 +143,11 @@ public class EnrichmentJobProgressService {
                 job.setDurationMs(job.getUpdatedAt() - job.getCreatedAt());
 
                 enrichmentJobRepository.save(job);
+
+                // Publish failure to Kafka
+                if (job.getTenantId() != null && job.getTenantSchema() != null) {
+                    jobService.publishJobFailed(job.getId(), job.getParentId(), job.getTenantId(), job.getTenantSchema(), errorMessage);
+                }
 
                 logger.warn("Marked job as failed: jobId={}, error={}", jobId, errorMessage);
 
@@ -193,5 +202,60 @@ public class EnrichmentJobProgressService {
         } catch (Exception e) {
             logger.error("Failed to initialize job: jobId={}, error={}", jobId, e.getMessage(), e);
         }
+    }
+
+    /**
+     * Publishes job progress to Kafka using the JobService
+     */
+    private void publishProgressToKafka(EnrichmentJob job, PipelineStage stage) {
+        try {
+            if (job.getTenantId() == null || job.getTenantSchema() == null) {
+                logger.warn("Cannot publish progress to Kafka: job {} missing tenantId or tenantSchema", job.getId());
+                return;
+            }
+
+            // Calculate estimated time left in seconds
+            Integer timeLeftEta = null;
+            if (job.getEstimatedTimeLeft() != null && job.getEstimatedTimeLeft() > 0) {
+                timeLeftEta = Math.max(0, (int) (job.getEstimatedTimeLeft() / 1000));
+            }
+
+            // Map pipeline stage to progress stage
+            String progressStage = mapPipelineStageToProgressStage(stage);
+
+            // Convert progress to percentage
+            int percent = (int) Math.max(0, stage.getProgressPercentage());
+
+            // Publish to Kafka
+            jobService.publishJobProgress(
+                job.getId(),
+                job.getParentId(), // parentId retrieved from job object for hierarchical tracking
+                "INGESTION", // AI enrichment jobs are INGESTION type (consistent with JobService pattern)
+                job.getTenantId(),
+                job.getTenantSchema(),
+                progressStage,
+                percent,
+                timeLeftEta,
+                null // topics will be added when implementing topic creation progress
+            );
+
+        } catch (Exception e) {
+            logger.warn("Failed to publish job progress to Kafka for jobId={}: {}", job.getId(), e.getMessage());
+        }
+    }
+
+    /**
+     * Maps pipeline stages to progress reporting stages
+     */
+    private String mapPipelineStageToProgressStage(PipelineStage stage) {
+        return switch (stage) {
+            case STARTED -> "starting";
+            case TRANSFORMED -> "processing";
+            case VALIDATED -> "processing";
+            case ENRICHED -> "enriching";
+            case RESPONSE_SENT -> "finalizing";
+            case COMPLETED -> "completed";
+            case FAILED -> "failed";
+        };
     }
 }
