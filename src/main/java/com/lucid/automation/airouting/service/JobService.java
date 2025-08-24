@@ -102,21 +102,21 @@ public class JobService {
      * Convenience method to publish job start event
      */
     public void publishJobStarted(String jobId, String parentId, String tenantId, String tenantSchema) {
-        publishJobProgress(jobId, parentId, "INGESTION", tenantId, tenantSchema, "starting", 0, null, null);
+        publishJobProgress(jobId, parentId, "CREATION", tenantId, tenantSchema, "starting", 0, null, null);
     }
 
     /**
      * Convenience method to publish job completion event
      */
     public void publishJobCompleted(String jobId, String parentId, String tenantId, String tenantSchema) {
-        publishJobProgress(jobId, parentId, "INGESTION", tenantId, tenantSchema, "completed", 100, null, null);
+        publishJobProgress(jobId, parentId, "CREATION", tenantId, tenantSchema, "completed", 100, null, null);
     }
 
     /**
      * Convenience method to publish job failed event
      */
     public void publishJobFailed(String jobId, String parentId, String tenantId, String tenantSchema, String errorMessage) {
-        publishJobProgress(jobId, parentId, "INGESTION", tenantId, tenantSchema, "failed", -1, null, null);
+        publishJobProgress(jobId, parentId, "CREATION", tenantId, tenantSchema, "failed", -1, null, null);
     }
 
     /**
@@ -124,7 +124,7 @@ public class JobService {
      */
     public void publishProcessingProgress(String jobId, String parentId, String tenantId, String tenantSchema,
                                          Integer percent, Integer timeLeftEta) {
-        publishJobProgress(jobId, parentId, "INGESTION", tenantId, tenantSchema, "processing", percent, timeLeftEta, null);
+        publishJobProgress(jobId, parentId, "CREATION", tenantId, tenantSchema, "processing", percent, timeLeftEta, null);
     }
 
     /**
@@ -140,7 +140,7 @@ public class JobService {
      */
     public void publishEnrichmentProgress(String jobId, String parentId, String tenantId, String tenantSchema,
                                          Integer percent, Integer timeLeftEta) {
-        publishJobProgress(jobId, parentId, "INGESTION", tenantId, tenantSchema, "enriching", percent, timeLeftEta, null);
+        publishJobProgress(jobId, parentId, "CREATION", tenantId, tenantSchema, "enriching", percent, timeLeftEta, null);
     }
 
     /**
@@ -148,7 +148,7 @@ public class JobService {
      */
     public void publishCategorizationProgress(String jobId, String parentId, String tenantId, String tenantSchema,
                                             Integer percent, Integer timeLeftEta) {
-        publishJobProgress(jobId, parentId, "INGESTION", tenantId, tenantSchema, "categorizing", percent, timeLeftEta, null);
+        publishJobProgress(jobId, parentId, "CREATION", tenantId, tenantSchema, "categorizing", percent, timeLeftEta, null);
     }
 
     /**
@@ -156,6 +156,6 @@ public class JobService {
      */
     public void publishSummarizationProgress(String jobId, String parentId, String tenantId, String tenantSchema,
                                            Integer percent, Integer timeLeftEta) {
-        publishJobProgress(jobId, parentId, "INGESTION", tenantId, tenantSchema, "summarizing", percent, timeLeftEta, null);
+        publishJobProgress(jobId, parentId, "CREATION", tenantId, tenantSchema, "summarizing", percent, timeLeftEta, null);
     }
 }

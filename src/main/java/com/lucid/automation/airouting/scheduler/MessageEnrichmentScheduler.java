@@ -89,6 +89,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         // Check property values
         try {
             org.springframework.core.env.Environment env = applicationContext.getEnvironment();
+            log.debug("Environment configured with {} active profiles", env.getActiveProfiles().length);
         } catch (Exception e) {
             log.warn("Error checking environment properties: {}", e.getMessage());
         }
@@ -146,8 +147,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
 
         for (final var workspace : workspaces) {
             try {
-                String parentId = IdUtil.generateId("parent_");
-                final var results = processWorkspace(workspace, parentId);
+                final var results = processWorkspace(workspace);
                 final int workspaceBatches = results[0];
                 final int workspaceMessages = results[1];
 
@@ -168,12 +168,12 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     /**
      * Processes messages for a specific workspace using SlidingWindowService.
      */
-    private int[] processWorkspace(final Workspace workspace, final String parentId) {
+    private int[] processWorkspace(final Workspace workspace) {
         log.info("Starting message processing for workspace: {} using SlidingWindowService", workspace.getName());
 
         final var batchCount = new AtomicInteger(0);
         final var totalProcessed = new AtomicInteger(0);
-        final Function<List<Message>, Void> enrichmentProcessor = createEnrichmentProcessor(workspace, batchCount, totalProcessed, parentId);
+        final Function<List<Message>, Void> enrichmentProcessor = createEnrichmentProcessor(workspace, batchCount, totalProcessed);
 
         try {
             final int messagesProcessed = slidingWindowService.processMessages(
@@ -195,14 +195,13 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
      */
     private Function<List<Message>, Void> createEnrichmentProcessor(final Workspace workspace,
                                                                    final AtomicInteger batchCount,
-                                                                   final AtomicInteger totalProcessed,
-                                                                   final String parentId) {
+                                                                   final AtomicInteger totalProcessed) {
         return messages -> {
             final int currentBatch = batchCount.incrementAndGet();
             log.info("Processing batch #{} with {} messages for workspace: {}",
                 currentBatch, messages.size(), workspace.getName());
             try {
-                processMessageBatchForEnrichment(messages, workspace, currentBatch, parentId);
+                processMessageBatchForEnrichment(messages, workspace, currentBatch);
                 totalProcessed.addAndGet(messages.size());
                 log.debug("Successfully processed batch #{} for workspace: {}",
                     currentBatch, workspace.getName());
@@ -220,8 +219,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
      */
     private void processMessageBatchForEnrichment(final List<Message> messages,
                                                  final Workspace workspace,
-                                                 final int batchNumber,
-                                                 final String parentId) {
+                                                 final int batchNumber) {
         if (messages == null || messages.isEmpty()) {
             log.debug("No messages to process in batch #{} for workspace: {}", batchNumber, workspace.getName());
             return;
@@ -234,7 +232,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
             processMessagesInBatch(messages, slackMessages, participants);
 
             if (!slackMessages.isEmpty()) {
-                publishEnrichmentRequest(slackMessages, participants, workspace, batchNumber, parentId);
+                publishEnrichmentRequest(slackMessages, participants, workspace, batchNumber);
             } else {
                 log.warn("No valid messages found in batch #{} for workspace: {}", batchNumber, workspace.getName());
             }
@@ -466,14 +464,16 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     private void publishEnrichmentRequest(final List<SlackMessage> slackMessages,
                                         final List<SlackParticipant> participants,
                                         final Workspace workspace,
-                                        final int batchNumber,
-                                        final String parentId) {
+                                        final int batchNumber) {
 
         final String conversationId = workspace.getId() + BATCH_CONVERSATION_ID_SEPARATOR + batchNumber;
         final var context = createBatchContext(workspace, batchNumber, slackMessages.size(), participants.size());
         final String tenantSchema = workspace.getTenantSchema() != null ? workspace.getTenantSchema() : defaultTenantSchema;
 
         try {
+            // For batch processing, use workspace ID as parentId to group all batches from same workspace
+            String parentJobId = "workspace-" + workspace.getId();
+
             aiMessageProducer.scheduleAiProcessing(
                 AITaskType.ENRICH_CONVERSATION,
                 "", // content - empty for conversation enrichment
@@ -485,8 +485,8 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                 participants,
                 context,
                 null, // preferredProvider
-                null,  // replyTopic
-                parentId
+                null, // replyTopic
+                parentJobId // parentId - groups batches under workspace processing
             );
 
             log.debug("Successfully published AI enrichment request for conversation: {} with {} messages and {} participants",

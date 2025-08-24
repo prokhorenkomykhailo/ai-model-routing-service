@@ -119,6 +119,7 @@ public class AIMessageIntegrationConfig {
             if (jobId != null && !jobId.trim().isEmpty()) {
                 progressService.initializeJob(
                     jobId,
+                    aiMessage.getParentId(), // Use parentId from AIMessage for hierarchical job tracking
                     aiMessage.getUserId(),
                     aiMessage.getTenantId(),
                     aiMessage.getTenantSchema(),

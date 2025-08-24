@@ -164,13 +164,30 @@ public class EnrichmentJobProgressService {
     /**
      * Initializes or creates a job for tracking if it doesn't exist.
      *
+     * @deprecated Use initializeJob(String, String, String, String, String, String) instead for proper parent tracking
      * @param jobId The job ID
      * @param userId The user ID
      * @param tenantId The tenant ID
      * @param tenantSchema The tenant schema
      * @param taskType The task type being processed
      */
+    @Deprecated
     public void initializeJob(String jobId, String userId, String tenantId, String tenantSchema, String taskType) {
+        // Call the new method with null parentId for backward compatibility
+        initializeJob(jobId, null, userId, tenantId, tenantSchema, taskType);
+    }
+
+    /**
+     * Initializes or creates a job for tracking if it doesn't exist.
+     *
+     * @param jobId The job ID
+     * @param parentId The parent job ID (for hierarchical job relationships)
+     * @param userId The user ID
+     * @param tenantId The tenant ID
+     * @param tenantSchema The tenant schema
+     * @param taskType The task type being processed
+     */
+    public void initializeJob(String jobId, String parentId, String userId, String tenantId, String tenantSchema, String taskType) {
         if (jobId == null || jobId.trim().isEmpty()) {
             logger.warn("Cannot initialize job: jobId is null or empty");
             return;
@@ -182,6 +199,7 @@ public class EnrichmentJobProgressService {
             if (existingJob.isEmpty()) {
                 EnrichmentJob newJob = EnrichmentJob.builder()
                         .id(jobId)
+                        .parentId(parentId) // Set parentId for hierarchical job tracking
                         .status("PROCESSING")
                         .type(taskType != null ? taskType : "UNKNOWN")
                         .progress(0.0)
@@ -195,12 +213,12 @@ public class EnrichmentJobProgressService {
 
                 enrichmentJobRepository.save(newJob);
 
-                logger.debug("Initialized new enrichment job: jobId={}, type={}, userId={}, tenantId={}",
-                           jobId, taskType, userId, tenantId);
+                logger.debug("Initialized new enrichment job: jobId={}, parentId={}, type={}, userId={}, tenantId={}",
+                           jobId, parentId, taskType, userId, tenantId);
             }
 
         } catch (Exception e) {
-            logger.error("Failed to initialize job: jobId={}, error={}", jobId, e.getMessage(), e);
+            logger.error("Failed to initialize job: jobId={}, parentId={}, error={}", jobId, parentId, e.getMessage(), e);
         }
     }
 
@@ -226,11 +244,14 @@ public class EnrichmentJobProgressService {
             // Convert progress to percentage
             int percent = (int) Math.max(0, stage.getProgressPercentage());
 
+            // Ensure parentId is not null - use jobId as parentId if no parent exists (makes it a parent job)
+            String parentId = job.getParentId() != null ? job.getParentId() : job.getId();
+
             // Publish to Kafka
             jobService.publishJobProgress(
                 job.getId(),
-                job.getParentId(), // parentId retrieved from job object for hierarchical tracking
-                "INGESTION", // AI enrichment jobs are INGESTION type (consistent with JobService pattern)
+                parentId, // parentId - never null, uses jobId if no parent exists
+                "CREATION", // AI enrichment jobs are CREATION type for AI-generated content
                 job.getTenantId(),
                 job.getTenantSchema(),
                 progressStage,

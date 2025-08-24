@@ -62,7 +62,7 @@ class JobServiceTest {
 
         ProgressJobStatusDTO message = messageCaptor.getValue();
         assertEquals(jobId, message.getJobId());
-        assertEquals("INGESTION", message.getType()); // Verify AI routing jobs use INGESTION type
+        assertEquals("CREATION", message.getType()); // Verify AI routing jobs use CREATION type
         assertEquals(tenantId, message.getTenantId());
         assertEquals(tenantSchema, message.getTenantSchema());
         assertEquals("starting", message.getStage());
