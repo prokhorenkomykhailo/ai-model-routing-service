@@ -1,5 +1,6 @@
 package com.lucid.automation.airouting.controller;
 
+import com.lucid.automation.airouting.audit.Audit;
 import com.lucid.automation.airouting.model.EnrichmentJob;
 import com.lucid.automation.airouting.service.EnrichmentJobService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -35,6 +36,7 @@ public class JobController {
      * Get all enrichment jobs for a specific user and tenant
      */
     @GetMapping
+    @Audit(action = "AI_JOBS_GET", description = "User retrieved enrichment jobs")
     @Operation(summary = "Get all enrichment jobs for a user", description = "Retrieves all enrichment jobs for a specific user and tenant. Requires X-User-Id, X-Tenant-Id, and X-Tenant-Schema headers.")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Jobs retrieved successfully")
@@ -54,6 +56,7 @@ public class JobController {
      * Get the latest enrichment job for a user in a tenant/schema
      */
     @GetMapping("/latest")
+    @Audit(action = "AI_JOB_LATEST_GET", description = "User retrieved latest enrichment job")
     @Operation(summary = "Get latest enrichment job by user", description = "Retrieves the latest enrichment job for a user. Requires X-User-Id, X-Tenant-Id, and X-Tenant-Schema headers.")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Latest job retrieved successfully"),

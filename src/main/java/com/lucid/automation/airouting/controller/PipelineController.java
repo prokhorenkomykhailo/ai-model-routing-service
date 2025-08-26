@@ -1,5 +1,6 @@
 package com.lucid.automation.airouting.controller;
 
+import com.lucid.automation.airouting.audit.Audit;
 import com.lucid.automation.airouting.pipeline.config.PipelineConfiguration;
 import com.lucid.automation.airouting.pipeline.ingestion.IngestionPipelineOrchestrator;
 import com.lucid.automation.airouting.pipeline.postprocessing.PostProcessingPipelineOrchestrator;
@@ -22,10 +23,10 @@ public class PipelineController {
 
     @Autowired
     private PipelineConfiguration pipelineConfiguration;
-    
+
     @Autowired
     private IngestionPipelineOrchestrator ingestionOrchestrator;
-    
+
     @Autowired
     private PostProcessingPipelineOrchestrator postProcessingOrchestrator;
 
@@ -33,6 +34,7 @@ public class PipelineController {
      * Get pipeline configuration status
      */
     @GetMapping("/status")
+    @Audit(action = "AI_PIPELINE_STATUS", description = "User checked pipeline status")
     public ResponseEntity<Map<String, Object>> getPipelineStatus() {
         Map<String, Object> status = new HashMap<>();
         status.put("enabled", pipelineConfiguration.isEnabled());
@@ -45,7 +47,7 @@ public class PipelineController {
         status.put("maxExecutionTimeMs", pipelineConfiguration.getMaxExecutionTimeMs());
         status.put("detailedLogging", pipelineConfiguration.isDetailedLogging());
         status.put("metricsEnabled", pipelineConfiguration.isMetricsEnabled());
-        
+
         return ResponseEntity.ok(status);
     }
 
@@ -53,9 +55,10 @@ public class PipelineController {
      * Get pipeline health check
      */
     @GetMapping("/health")
+    @Audit(action = "AI_PIPELINE_HEALTH", description = "User checked pipeline health")
     public ResponseEntity<Map<String, Object>> getPipelineHealth() {
         Map<String, Object> health = new HashMap<>();
-        
+
         if (pipelineConfiguration.isEnabled()) {
             health.put("status", "UP");
             health.put("message", "Pipeline is enabled and ready");
@@ -63,9 +66,9 @@ public class PipelineController {
             health.put("status", "DOWN");
             health.put("message", "Pipeline is disabled");
         }
-        
+
         health.put("timestamp", System.currentTimeMillis());
-        
+
         return ResponseEntity.ok(health);
     }
 
@@ -73,6 +76,7 @@ public class PipelineController {
      * Get detailed information about ingestion pipeline
      */
     @GetMapping("/ingestion/info")
+    @Audit(action = "AI_PIPELINE_INGESTION_INFO", description = "User retrieved ingestion pipeline info")
     public ResponseEntity<Map<String, Object>> getIngestionPipelineInfo() {
         Map<String, Object> info = new HashMap<>();
         info.put("type", "ingestion");
@@ -80,12 +84,12 @@ public class PipelineController {
         info.put("orchestrator", ingestionOrchestrator.getClass().getSimpleName());
         info.put("processors", Map.of(
             "validation", "ValidationProcessor (order: 10)",
-            "messageStorage", "MessageStorageProcessor (order: 20)", 
+            "messageStorage", "MessageStorageProcessor (order: 20)",
             "userProcessing", "UserProcessingProcessor (order: 30)",
             "workspaceProcessing", "WorkspaceProcessingProcessor (order: 40)"
         ));
         info.put("description", "Processes incoming Kafka messages through modular processors");
-        
+
         return ResponseEntity.ok(info);
     }
 
@@ -93,6 +97,7 @@ public class PipelineController {
      * Get detailed information about post-processing pipeline
      */
     @GetMapping("/postprocessing/info")
+    @Audit(action = "AI_PIPELINE_POSTPROCESSING_INFO", description = "User retrieved postprocessing pipeline info")
     public ResponseEntity<Map<String, Object>> getPostProcessingPipelineInfo() {
         Map<String, Object> info = new HashMap<>();
         info.put("type", "postprocessing");
@@ -107,7 +112,7 @@ public class PipelineController {
             "responseBuilding", "ResponseBuildingStep (order: 90)"
         ));
         info.put("description", "Processes AI responses through enrichment steps");
-        
+
         return ResponseEntity.ok(info);
     }
 
@@ -115,6 +120,7 @@ public class PipelineController {
      * Get overview of both pipelines
      */
     @GetMapping("/overview")
+    @Audit(action = "AI_PIPELINE_OVERVIEW", description = "User retrieved pipeline overview")
     public ResponseEntity<Map<String, Object>> getPipelineOverview() {
         Map<String, Object> overview = new HashMap<>();
         overview.put("architecture", "Separated Pipeline Architecture");
@@ -138,7 +144,7 @@ public class PipelineController {
             "detailedLogging", pipelineConfiguration.isDetailedLogging(),
             "metricsEnabled", pipelineConfiguration.isMetricsEnabled()
         ));
-        
+
         return ResponseEntity.ok(overview);
     }
 }

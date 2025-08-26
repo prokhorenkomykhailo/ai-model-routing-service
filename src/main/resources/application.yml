@@ -132,6 +132,9 @@ lucid:
       max-retries: "${AI_ENRICHMENT_MAX_RETRIES:3}"
       default-tenant-id: "${DEFAULT_TENANT_ID:default-tenant}"
       default-tenant-schema: "${DEFAULT_TENANT_SCHEMA:public}"
+  # Audit configuration
+  audit:
+    enabled: ${LUCID_AUDIT_ENABLED:true}
 
 # Logging Configuration - DEBUG MODE ENABLED
 logging:
@@ -161,14 +164,24 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: health,info,metrics,prometheus,env,configprops
   endpoint:
     health:
       show-details: always
+      show-components: always
   metrics:
     export:
       prometheus:
+        enabled: false  # Use the new property below
+  prometheus:
+    metrics:
+      export:
         enabled: true
+  health:
+    diskspace:
+      enabled: true
+    circuitbreakers:
+      enabled: true
 
 # Info endpoint
 info:
@@ -213,4 +226,83 @@ sliding:
       fallback:
         message:
           count: ${SLIDING_WINDOW_TOKEN_FALLBACK_MESSAGE_COUNT:50}  # Fallback message count
+
+# OpenTelemetry auto-instrumentation settings
+otel:
+  exporter:
+    otlp:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4317}
+      protocol: grpc
+  resource:
+    attributes:
+      '[service.name]': ${OTEL_SERVICE_NAME:ai-routing-service}
+      '[service.version]': ${OTEL_SERVICE_VERSION:1.0.0}
+  traces:
+    exporter: otlp
+  metrics:
+    exporter: otlp
+  logs:
+    exporter: otlp
+  instrumentation:
+    spring-webmvc:
+      enabled: true
+    jdbc:
+      enabled: false
+
+# Enhanced Resilience4j Configuration
+resilience4j:
+  circuitbreaker:
+    configs:
+      ai-provider:
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3
+        eventConsumerBufferSize: 10
+        recordExceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - java.net.ConnectException
+          - java.net.SocketTimeoutException
+          - org.springframework.web.client.ResourceAccessException
+    instances:
+      geminiProvider:
+        baseConfig: ai-provider
+        failureRateThreshold: 40
+      openaiProvider:
+        baseConfig: ai-provider
+        failureRateThreshold: 40
+      tokenAvailability:
+        baseConfig: ai-provider
+        failureRateThreshold: 30
+        waitDurationInOpenState: 15s
+  retry:
+    configs:
+      ai-provider:
+        maxAttempts: 3
+        waitDuration: 1s
+        retryExceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - java.net.ConnectException
+    instances:
+      geminiProvider:
+        baseConfig: ai-provider
+      openaiProvider:
+        baseConfig: ai-provider
+      tokenAvailability:
+        baseConfig: ai-provider
+        maxAttempts: 2
+  timelimiter:
+    configs:
+      ai-provider:
+        timeoutDuration: 30s
+    instances:
+      geminiProvider:
+        baseConfig: ai-provider
+        timeoutDuration: 60s
+      openaiProvider:
+        baseConfig: ai-provider
+        timeoutDuration: 45s
 

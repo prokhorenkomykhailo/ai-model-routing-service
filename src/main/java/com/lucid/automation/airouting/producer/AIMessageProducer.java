@@ -140,7 +140,7 @@ public class AIMessageProducer {
     }
 
 
-        /**
+    /**
      * Determine message priority based on task type
      */
     private AIMessage.MessagePriority determinePriority(AITaskType taskType) {
@@ -153,6 +153,7 @@ public class AIMessageProducer {
             case ANALYZE_PARTICIPANT -> AIMessage.MessagePriority.LOW;
             case GENERATE_TOPIC -> AIMessage.MessagePriority.LOW;
             case EXTRACT_ENTITIES -> AIMessage.MessagePriority.NORMAL;
+            case TEXT_QUERY -> AIMessage.MessagePriority.HIGH;
         };
     }
 
@@ -164,7 +165,7 @@ public class AIMessageProducer {
             case CATEGORIZE -> categorizeTopic;
             case SUMMARIZE -> summarizeTopic;
             case ENRICH_CONVERSATION, ENRICH_MESSAGE, ANALYZE_PARTICIPANT,
-                 ASSESS_URGENCY, GENERATE_TOPIC, EXTRACT_ENTITIES, SENTIMENT_ANALYSIS -> enrichTopic;
+                 ASSESS_URGENCY, GENERATE_TOPIC, EXTRACT_ENTITIES, SENTIMENT_ANALYSIS, TEXT_QUERY -> enrichTopic;
         };
     }
 }

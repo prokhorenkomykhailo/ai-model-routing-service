@@ -70,6 +70,25 @@
         <captureMdcAttributes>true</captureMdcAttributes>
     </appender>
 
+    <!-- Dedicated AUDIT appender for structured audit logs -->
+    <appender name="AUDIT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="ch.qos.logback.contrib.json.classic.JsonLayout">
+                <jsonFormatter class="ch.qos.logback.contrib.jackson.JacksonJsonFormatter">
+                    <prettyPrint>false</prettyPrint>
+                </jsonFormatter>
+                <timestampFormat>yyyy-MM-dd'T'HH:mm:ss.SSSX</timestampFormat>
+                <appendLineSeparator>true</appendLineSeparator>
+                <includeThreadName>true</includeThreadName>
+                <includeMDC>true</includeMDC>
+                <includeLoggerName>true</includeLoggerName>
+                <includeFormattedMessage>true</includeFormattedMessage>
+                <includeExceptionInMessage>true</includeExceptionInMessage>
+                <includeContextName>true</includeContextName>
+            </layout>
+        </encoder>
+    </appender>
+
     <!-- Root logger configuration -->
     <springProfile name="local,dev,docker">
         <!-- In dev and docker environments, use both console and JSON formats -->
@@ -91,6 +110,30 @@
     <!-- Application specific loggers -->
     <logger name="com.lucid.automation.airouting" level="DEBUG"/>
     <logger name="AI_AUDIT" level="INFO"/>
+
+    <!-- Dedicated logger for audit events - Profile specific -->
+    <springProfile name="local,dev">
+        <logger name="AUDIT" level="DEBUG" additivity="false">
+            <!-- Only send to OpenTelemetry in dev -->
+            <appender-ref ref="OTEL" />
+        </logger>
+    </springProfile>
+
+    <springProfile name="docker">
+        <logger name="AUDIT" level="INFO" additivity="false">
+            <!-- Full audit logging in docker profile -->
+            <appender-ref ref="AUDIT" />
+            <appender-ref ref="OTEL" />
+        </logger>
+    </springProfile>
+
+    <springProfile name="!local &amp; !dev &amp; !docker">
+        <logger name="AUDIT" level="INFO" additivity="false">
+            <!-- Full audit logging in production -->
+            <appender-ref ref="AUDIT" />
+            <appender-ref ref="OTEL" />
+        </logger>
+    </springProfile>
 
     <!-- Third-party loggers -->
     <logger name="org.springframework" level="ERROR"/>

@@ -111,6 +111,12 @@
             <version>1.0.0-SNAPSHOT</version>
         </dependency>
 
+        <!-- Spring Boot AOP Starter for audit annotations -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
         <!-- Lombok -->
         <dependency>
             <groupId>org.projectlombok</groupId>

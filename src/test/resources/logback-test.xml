@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration scan="true">
+
+    <!-- Simple console appender for tests -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Test AUDIT appender - outputs to console for verification -->
+    <appender name="AUDIT_TEST" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>AUDIT_TEST: %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Root logger for tests -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+    <!-- Dedicated AUDIT logger for tests -->
+    <logger name="AUDIT" level="DEBUG" additivity="false">
+        <appender-ref ref="AUDIT_TEST" />
+    </logger>
+
+    <!-- Application specific loggers -->
+    <logger name="com.lucid.automation.airouting" level="DEBUG"/>
+
+    <!-- Quiet down third-party loggers in tests -->
+    <logger name="org.springframework" level="WARN"/>
+    <logger name="org.hibernate" level="WARN"/>
+    <logger name="io.opentelemetry" level="WARN"/>
+    <logger name="org.mockito" level="WARN"/>
+</configuration>
