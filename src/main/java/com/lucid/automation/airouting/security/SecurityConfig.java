@@ -35,14 +35,13 @@ public class SecurityConfig {
 
                 // Message API endpoints are public
                 .requestMatchers("/api/messages/**").permitAll()
-                .requestMatchers("/api/**").permitAll()
-
-                // All AI API endpoints are public
-                .requestMatchers("/ai/**").permitAll()
-                .requestMatchers("/**").permitAll()
+                .requestMatchers("/ai/health/**").permitAll()
+                .requestMatchers("/ai/public/**").permitAll()
 
                 // Tenant API endpoints require authentication
                 .requestMatchers("/api/tenants/**").authenticated()
+                .requestMatchers("/api/**").authenticated()
+                // Note: No global permitAll; deny-by-default semantics via HttpSecurity configuration
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 

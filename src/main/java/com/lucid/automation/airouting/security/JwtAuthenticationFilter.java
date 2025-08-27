@@ -56,11 +56,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             @NonNull HttpServletResponse response,
             @NonNull FilterChain filterChain) throws ServletException, IOException {
 
+        // Enhanced logging for request metadata
+        if (logger.isDebugEnabled()) {
+            logger.debug("Processing request: {} {} from IP: {}",
+                request.getMethod(),
+                request.getRequestURI(),
+                request.getRemoteAddr());
+        }
+
         try {
             String path = request.getRequestURI();
 
             // Skip filter for public paths
             if (isPublicPath(path)) {
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Allowing public path: {}", path);
+                }
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -69,18 +80,31 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             // Check for missing or invalid Authorization header
             if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                logger.warn("Authentication failed for path: {} - Missing or invalid Authorization header. IP: {}",
+                    path, request.getRemoteAddr());
                 handleUnauthorized(response, "Missing or invalid Authorization header");
                 return;
             }
 
             final String jwt = authHeader.substring(7);
 
+            if (logger.isDebugEnabled()) {
+                logger.debug("Extracted JWT token for path: {}, token length: {}",
+                    path, jwt.length());
+            }
+
             try {
                 String username = jwtService.extractUsername(jwt);
 
                 if (username == null) {
+                    logger.warn("JWT token validation failed for path: {} - username not found in token. IP: {}",
+                        path, request.getRemoteAddr());
                     handleUnauthorized(response, "Invalid token: username not found");
                     return;
+                }
+
+                if (logger.isDebugEnabled()) {
+                    logger.debug("JWT username extracted: {} for path: {}", username, path);
                 }
 
                 if (SecurityContextHolder.getContext().getAuthentication() == null) {
@@ -100,25 +124,48 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                         // Add tenant information to request headers for downstream processing
                         addTenantInfoToRequest(request, jwt);
+
+                        if (logger.isDebugEnabled()) {
+                            logger.debug("JWT authentication successful for user: {} on path: {}",
+                                username, path);
+                        }
                     } else {
+                        logger.warn("JWT token validation failed for path: {} - invalid or expired token for user: {}. IP: {}",
+                            path, username, request.getRemoteAddr());
                         handleUnauthorized(response, "Invalid or expired token");
                         return;
                     }
                 }
             } catch (ExpiredJwtException e) {
-                logger.warn("JWT token expired: {}", e.getMessage());
+                logger.warn("JWT token expired for path: {} - {}. IP: {}",
+                    path, e.getMessage(), request.getRemoteAddr());
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Expired JWT stack trace:", e);
+                }
                 handleUnauthorized(response, "Token expired");
                 return;
             } catch (SignatureException e) {
-                logger.warn("Invalid JWT signature: {}", e.getMessage());
+                logger.warn("Invalid JWT signature for path: {} - {}. IP: {}",
+                    path, e.getMessage(), request.getRemoteAddr());
+                if (logger.isDebugEnabled()) {
+                    logger.debug("JWT signature exception stack trace:", e);
+                }
                 handleUnauthorized(response, "Invalid token signature");
                 return;
             } catch (MalformedJwtException e) {
-                logger.warn("Malformed JWT token: {}", e.getMessage());
+                logger.warn("Malformed JWT token for path: {} - {}. IP: {}",
+                    path, e.getMessage(), request.getRemoteAddr());
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Malformed JWT stack trace:", e);
+                }
                 handleUnauthorized(response, "Malformed token");
                 return;
             } catch (Exception e) {
-                logger.error("JWT processing error: {}", e.getMessage(), e);
+                logger.error("JWT processing error for path: {} - {}. IP: {}",
+                    path, e.getMessage(), request.getRemoteAddr());
+                if (logger.isDebugEnabled()) {
+                    logger.debug("JWT processing exception stack trace:", e);
+                }
                 handleUnauthorized(response, "Token processing error");
                 return;
             }
@@ -126,7 +173,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
 
         } catch (Exception e) {
-            logger.error("Authentication filter error: {}", e.getMessage(), e);
+            logger.error("Authentication filter error for path: {} - {}. IP: {}",
+                request.getRequestURI(), e.getMessage(), request.getRemoteAddr());
+            if (logger.isDebugEnabled()) {
+                logger.debug("Authentication filter exception stack trace:", e);
+            }
             handleUnauthorized(response, "Authentication failed");
         }
     }
@@ -180,8 +231,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     /**
      * Handles unauthorized requests by sending a 401 response.
+     * Enhanced with detailed logging for security monitoring.
      */
     private void handleUnauthorized(HttpServletResponse response, String message) throws IOException {
+        logger.info("Sending 401 Unauthorized response: {}", message);
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.getWriter().write(String.format("{\"error\":\"Unauthorized\",\"message\":\"%s\"}", message));
