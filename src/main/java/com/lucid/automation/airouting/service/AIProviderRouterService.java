@@ -4,6 +4,7 @@ import com.lucid.automation.airouting.config.RoutingConfig;
 import com.lucid.automation.airouting.model.AITaskType;
 import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.provider.AIProviderFactory;
+import com.lucid.automation.common.dto.TokenQuotaResponseDTO;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -26,7 +27,7 @@ public class AIProviderRouterService {
 
     private final AIProviderFactory providerFactory;
     private final AIProviderHealthChecker healthChecker;
-    private final TokenAvailabilityService tokenAvailabilityService;
+    private final EnhancedTokenAvailabilityService enhancedTokenAvailabilityService;
     private final RoutingConfig routingConfig;
     private final Tracer tracer;
 
@@ -40,13 +41,13 @@ public class AIProviderRouterService {
 
     public AIProviderRouterService(AIProviderFactory providerFactory,
                                  AIProviderHealthChecker healthChecker,
-                                 TokenAvailabilityService tokenAvailabilityService,
+                                 EnhancedTokenAvailabilityService enhancedTokenAvailabilityService,
                                  RoutingConfig routingConfig,
                                  MeterRegistry meterRegistry,
                                  Tracer tracer) {
         this.providerFactory = providerFactory;
         this.healthChecker = healthChecker;
-        this.tokenAvailabilityService = tokenAvailabilityService;
+        this.enhancedTokenAvailabilityService = enhancedTokenAvailabilityService;
         this.routingConfig = routingConfig;
         this.tracer = tracer;
 
@@ -187,15 +188,24 @@ public class AIProviderRouterService {
             return false;
         }
 
-        // Check tenant token availability
+        // Check tenant token availability with detailed quota information
         try {
-            if (!tokenAvailabilityService.isTokenAvailable(tenantId)) {
-                logger.debug("No tokens available for tenant {} on provider {}",
-                           tenantId, provider.getProviderId());
+            TokenQuotaResponseDTO tokenQuota = enhancedTokenAvailabilityService.getTokenQuota(tenantId);
+            if (!tokenQuota.isAvailable()) {
+                logger.debug("No tokens available for tenant {} on provider {}: {}",
+                           tenantId, provider.getProviderId(), tokenQuota.getMessage());
                 return false;
             }
+
+            // Log quota information for monitoring
+            if (tokenQuota.getUsagePercentage() > 80.0) {
+                logger.warn("High token usage for tenant {}: {}% used ({}/{} tokens)",
+                          tenantId, String.format("%.1f", tokenQuota.getUsagePercentage()),
+                          tokenQuota.getUsedTokens(), tokenQuota.getTotalTokens());
+            }
+
         } catch (Exception e) {
-            logger.warn("Error checking token availability for tenant {} on provider {}: {}",
+            logger.error("Error checking token availability for tenant {} on provider {}: {}",
                        tenantId, provider.getProviderId(), e.getMessage());
             return false;
         }
@@ -233,10 +243,77 @@ public class AIProviderRouterService {
     }
 
     /**
+     * Select provider with estimated token usage validation
+     * This method performs pre-validation to ensure the tenant has sufficient tokens
+     * for the estimated operation before selecting a provider.
+     *
+     * @param taskType The AI task type
+     * @param tenantId The tenant ID
+     * @param estimatedTokens Estimated token usage for the operation
+     * @param preferredProvider Optional preferred provider ID
+     * @return Selected AI provider
+     * @throws NoAvailableProviderException if no provider has sufficient tokens
+     */
+    public AIProvider selectProviderWithTokenValidation(AITaskType taskType,
+                                                      String tenantId,
+                                                      long estimatedTokens,
+                                                      String preferredProvider) {
+        Timer.Sample sample = Timer.start();
+        Span span = tracer.spanBuilder("ai.provider.selection.with.validation")
+                    .setAttribute("task_type", taskType.toString())
+                    .setAttribute("tenant_id", tenantId)
+                    .setAttribute("estimated_tokens", estimatedTokens)
+                    .setAttribute("preferred_provider", preferredProvider != null ? preferredProvider : "none")
+                    .startSpan();
+
+        try {
+            providerSelectionCounter.increment();
+
+            logger.debug("Selecting provider for task {} and tenant {} with estimated tokens: {}",
+                        taskType, tenantId, estimatedTokens);
+
+            // First check if tenant has sufficient tokens overall
+            try {
+                if (!enhancedTokenAvailabilityService.hasSufficientTokens(tenantId, estimatedTokens)) {
+                    TokenQuotaResponseDTO quota = enhancedTokenAvailabilityService.getTokenQuota(tenantId);
+                    logger.warn("Insufficient tokens for tenant {} (required: {}, available: {}): {}",
+                              tenantId, estimatedTokens, quota.getRemainingTokens(), quota.getMessage());
+                    span.setAttribute("error", true);
+                    span.setAttribute("error_reason", "insufficient_tokens");
+                    throw new InsufficientTokensException(
+                        String.format("Insufficient tokens for tenant %s: required %d, available %d",
+                                     tenantId, estimatedTokens, quota.getRemainingTokens()));
+                }
+            } catch (InsufficientTokensException e) {
+                throw e; // Re-throw our custom exception
+            } catch (Exception e) {
+                logger.warn("Error checking token sufficiency for tenant {}: {}", tenantId, e.getMessage());
+                // Continue with regular provider selection if token estimation fails
+            }
+
+            // Use regular provider selection logic
+            return selectProvider(taskType, tenantId, preferredProvider);
+
+        } finally {
+            sample.stop(routingLatencyTimer);
+            span.end();
+        }
+    }
+
+    /**
      * Custom exception for no available providers
      */
     public static class NoAvailableProviderException extends RuntimeException {
         public NoAvailableProviderException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * Custom exception for insufficient token quota
+     */
+    public static class InsufficientTokensException extends RuntimeException {
+        public InsufficientTokensException(String message) {
             super(message);
         }
     }

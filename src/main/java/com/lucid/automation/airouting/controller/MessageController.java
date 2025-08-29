@@ -23,7 +23,6 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/messages")
-@CrossOrigin(origins = "*")
 @Tag(name = "Message Management", description = "CRUD operations for message management")
 public class MessageController {
 

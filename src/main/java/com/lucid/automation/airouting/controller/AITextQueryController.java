@@ -96,6 +96,100 @@ public class AITextQueryController {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(APIResponse.error("AI service is currently unavailable: " + e.getMessage()));
 
+        } catch (AIProviderRouterService.InsufficientTokensException e) {
+            logger.error("AI-CONTROLLER [{}]: Insufficient tokens: {}", debugId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
+                .body(APIResponse.error("Insufficient tokens: " + e.getMessage()));
+
+        } catch (IllegalArgumentException e) {
+            logger.error("AI-CONTROLLER [{}]: Invalid request: {}", debugId, e.getMessage());
+            return ResponseEntity.badRequest()
+                .body(APIResponse.error("Invalid request: " + e.getMessage()));
+
+        } catch (RuntimeException e) {
+            logger.error("AI-CONTROLLER [{}]: Service error: {}", debugId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(APIResponse.error("Service error: " + e.getMessage()));
+
+        } catch (Exception e) {
+            logger.error("AI-CONTROLLER [{}]: Unexpected error: {}", debugId, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(APIResponse.error("Unexpected error occurred"));
+        }
+    }
+
+    /**
+     * Enhanced endpoint with token estimation and validation
+     */
+    @PostMapping(value = "/text-query-validated")
+    @Audit(action = "AI_TEXT_QUERY_VALIDATED", description = "AI processed text query with token validation")
+    @Operation(
+        summary = "Process text query with token validation",
+        description = "Submit a text query with pre-validation of token availability for estimated usage"
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Query processed successfully"),
+        @ApiResponse(responseCode = "400", description = "Invalid request payload"),
+        @ApiResponse(responseCode = "402", description = "Insufficient tokens for operation"),
+        @ApiResponse(responseCode = "503", description = "AI service unavailable"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    public ResponseEntity<APIResponse<TextQueryResponseDTO>> processTextQueryWithValidation(
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-Tenant-Id") String tenantId,
+            @RequestHeader(value = "X-Tenant-Schema", required = false) String tenantSchema,
+            @RequestHeader(value = "X-Preferred-Provider", required = false) String preferredProvider,
+            @RequestHeader(value = "X-Estimated-Tokens", defaultValue = "1000") String estimatedTokensHeader,
+            @Parameter(description = "Text query request payload", required = true)
+            @Valid @RequestBody TextQueryRequestDTO request) {
+
+        String debugId = "AI-CONTROLLER-VALIDATED-" + System.currentTimeMillis();
+        long estimatedTokens = Long.parseLong(estimatedTokensHeader);
+
+        logger.info("AI-CONTROLLER [{}]: Received validated text query request from UserId: [{}], TenantId: [{}], EstimatedTokens: [{}]",
+                   debugId, userId, tenantId, estimatedTokens);
+
+        try {
+            // Use the enhanced provider selection with token validation
+            AIProvider selectedProvider = providerRouter.selectProviderWithTokenValidation(
+                AITaskType.TEXT_QUERY, tenantId, estimatedTokens, preferredProvider);
+
+            logger.info("AI-CONTROLLER [{}]: Selected provider: {} for tenant: {} with token validation",
+                       debugId, selectedProvider.getProviderId(), tenantId);
+
+            // Process the query using the selected provider
+            String aiResponse = selectedProvider.processTextQuery(request.getQuery(), userId, tenantId);
+
+            // Build response DTO
+            TextQueryResponseDTO response = TextQueryResponseDTO.builder()
+                    .response(aiResponse)
+                    .originalQuery(request.getQuery())
+                    .providerId(selectedProvider.getProviderId())
+                    .timestamp(LocalDateTime.now())
+                    .build();
+
+            logger.info("AI-CONTROLLER [{}]: Successfully processed validated text query with provider: {}",
+                       debugId, selectedProvider.getProviderId());
+
+            return ResponseEntity.ok(
+                APIResponse.success("Query processed successfully with token validation", response)
+            );
+
+        } catch (AIProviderRouterService.InsufficientTokensException e) {
+            logger.error("AI-CONTROLLER [{}]: Insufficient tokens for operation: {}", debugId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
+                .body(APIResponse.error("Insufficient tokens for operation: " + e.getMessage()));
+
+        } catch (AIProviderRouterService.NoAvailableProviderException e) {
+            logger.error("AI-CONTROLLER [{}]: No available providers: {}", debugId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(APIResponse.error("AI service is currently unavailable: " + e.getMessage()));
+
+        } catch (NumberFormatException e) {
+            logger.error("AI-CONTROLLER [{}]: Invalid estimated tokens header: {}", debugId, estimatedTokensHeader);
+            return ResponseEntity.badRequest()
+                .body(APIResponse.error("Invalid estimated tokens value: " + estimatedTokensHeader));
+
         } catch (IllegalArgumentException e) {
             logger.error("AI-CONTROLLER [{}]: Invalid request: {}", debugId, e.getMessage());
             return ResponseEntity.badRequest()

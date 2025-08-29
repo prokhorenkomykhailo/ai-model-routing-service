@@ -50,18 +50,19 @@ public class PostProcessingConsumer {
         this.pipelineFactory = pipelineFactory;
         this.pipelineConfiguration = pipelineConfiguration;
 
-        logger.info("=== POST-PROCESSING CONSUMER INITIALIZED ===");
-        logger.info("PostProcessingConsumer initialized with pipeline architecture");
-        logger.info("Final output topic: {}", aiResponsesTopic);
-        logger.info("Pipeline orchestrator: {}", pipelineOrchestrator.getClass().getSimpleName());
-        logger.info("Pipeline enabled: {}", pipelineConfiguration.isEnabled());
-        logger.info("Continue on failure: {}", pipelineConfiguration.isContinueOnFailure());
-        logger.info("Max execution time: {}ms", pipelineConfiguration.getMaxExecutionTimeMs());
-        logger.info("============================================");
+        logger.info("🚀 === POST-PROCESSING CONSUMER INITIALIZED ===");
+        logger.info("🎯 PostProcessingConsumer initialized with pipeline architecture");
+        logger.info("📤 Final output topic: {}", aiResponsesTopic);
+        logger.info("⚙️ Pipeline orchestrator: {}", pipelineOrchestrator.getClass().getSimpleName());
+        logger.info("✅ Pipeline enabled: {}", pipelineConfiguration.isEnabled());
+        logger.info("🔄 Continue on failure: {}", pipelineConfiguration.isContinueOnFailure());
+        logger.info("⏱️ Max execution time: {}ms", pipelineConfiguration.getMaxExecutionTimeMs());
+        logger.info("🚀 ============================================");
     }
 
     /**
      * Consume pre-AI responses for further processing using pipeline architecture
+     * Handles both direct payload and ConsumerRecord objects
      */
     @KafkaListener(topics = "${kafka.topics.pre-ai-responses:pre.ai.responses.queue}",
                    containerFactory = "genericObjectListenerContainerFactory")
@@ -70,24 +71,45 @@ public class PostProcessingConsumer {
         Object messageResponse = record.value();
         String topic = record.topic();
 
-        if (messageResponse == null) {
-            logger.error("=== POST-PROCESSING-ERROR === Received NULL message from topic: {}", topic);
+        logger.info("🎯 POST-PROCESSING-CONSUMER: Received message from topic: {}, partition: {}, offset: {}, key: {}",
+                topic, record.partition(), record.offset(), record.key());
+
+        // Extract the actual payload from ConsumerRecord if needed
+        Object payload = messageResponse;
+        if (messageResponse instanceof ConsumerRecord) {
+            ConsumerRecord<?, ?> consumerRecord = (ConsumerRecord<?, ?>) messageResponse;
+            payload = consumerRecord.value();
+            logger.info("🔍 CONSUMER_RECORD_DEBUG: Extracted payload from ConsumerRecord - Type: {}, Topic: {}, Partition: {}, Offset: {}, Key: {}",
+                    payload != null ? payload.getClass().getName() : "null",
+                    consumerRecord.topic(),
+                    consumerRecord.partition(),
+                    consumerRecord.offset(),
+                    consumerRecord.key());
+
+            if (payload != null) {
+                logger.info("🔍 PAYLOAD_DEBUG: Payload content: {}",
+                        payload.toString().length() > 300 ? payload.toString().substring(0, 300) + "... (truncated)" : payload.toString());
+            }
+        }
+
+        if (payload == null) {
+            logger.error("❌ POST-PROCESSING-ERROR: Received NULL payload from topic: {}", topic);
             acknowledgment.acknowledge();
             return;
         }
 
         PostProcessingContext context = null;
         try {
-            // Validate that the message is a Map
-            if (!(messageResponse instanceof Map<?, ?>)) {
-                logger.error("Invalid pre-AI response format: expected Map, got {}",
-                           messageResponse.getClass().getSimpleName());
+            // Validate that the payload is a Map
+            if (!(payload instanceof Map<?, ?>)) {
+                logger.error("❌ Invalid pre-AI response format: expected Map, got {}",
+                           payload.getClass().getSimpleName());
                 acknowledgment.acknowledge();
                 return;
             }
 
             @SuppressWarnings("unchecked")
-            Map<String, Object> responseMap = (Map<String, Object>) messageResponse;
+            Map<String, Object> responseMap = (Map<String, Object>) payload;
 
             // Create processing context
             context = new PostProcessingContext(responseMap);
@@ -102,12 +124,12 @@ public class PostProcessingConsumer {
                     // Create lightweight version to avoid Kafka message size issues
                     EnrichmentResponse lightweightResponse = createLightweightResponse(enrichmentResponse);
                     sendToFinalAiResponsesTopic(lightweightResponse);
-                    logger.info("Successfully processed pre-AI response using pipeline and forwarded to final topic");
+                    logger.info("🎯 Successfully processed pre-AI response using pipeline and forwarded to final topic");
                 } else {
-                    logger.error("Pipeline succeeded but enrichment response is null");
+                    logger.error("❌ Pipeline succeeded but enrichment response is null");
                 }
             } else {
-                logger.error("Pipeline execution failed: {}", pipelineResult.getErrorMessage());
+                logger.error("❌ Pipeline execution failed: {}", pipelineResult.getErrorMessage());
                 // Send error response if needed
                 sendErrorResponse(context, pipelineResult.getErrorMessage());
             }
@@ -115,7 +137,7 @@ public class PostProcessingConsumer {
             acknowledgment.acknowledge();
 
         } catch (Exception e) {
-            logger.error("Failed to process pre-AI response from topic: {}, error: {}", topic, e.getMessage(), e);
+            logger.error("❌ Failed to process pre-AI response from topic: {}, error: {}", topic, e.getMessage(), e);
 
             // Send error response if context is available
             if (context != null) {
@@ -133,7 +155,7 @@ public class PostProcessingConsumer {
         try {
             // Check if pipeline is enabled
             if (!pipelineConfiguration.isEnabled()) {
-                logger.warn("Pipeline is disabled, skipping processing");
+                logger.warn("⚠️ Pipeline is disabled, skipping processing");
                 return PostProcessingPipelineResult.failure("Pipeline is disabled");
             }
 
@@ -144,7 +166,7 @@ public class PostProcessingConsumer {
             return pipelineOrchestrator.execute(context, pipelineSteps);
 
         } catch (Exception e) {
-            logger.error("Error creating or executing pipeline: {}", e.getMessage(), e);
+            logger.error("❌ Error creating or executing pipeline: {}", e.getMessage(), e);
             return PostProcessingPipelineResult.failure("Pipeline execution error: " + e.getMessage());
         }
     }
@@ -163,9 +185,9 @@ public class PostProcessingConsumer {
     private void sendToFinalAiResponsesTopic(Object parsedAiResponse) {
         try {
             kafkaTemplate.send(aiResponsesTopic, parsedAiResponse);
-            logger.info("Successfully forwarded message to final ai-responses topic: {}", aiResponsesTopic);
+            logger.info("✅ Successfully forwarded message to final ai-responses topic: {}", aiResponsesTopic);
         } catch (Exception e) {
-            logger.error("Failed to send message to final ai-responses topic: {}, error: {}",
+            logger.error("❌ Failed to send message to final ai-responses topic: {}, error: {}",
                         aiResponsesTopic, e.getMessage(), e);
         }
     }
@@ -177,9 +199,9 @@ public class PostProcessingConsumer {
         try {
             EnrichmentResponse errorResponse = createErrorResponse(context, errorMessage);
             sendToFinalAiResponsesTopic(errorResponse);
-            logger.info("Sent error response to final topic due to processing failure");
+            logger.info("⚠️ Sent error response to final topic due to processing failure");
         } catch (Exception e) {
-            logger.error("Failed to send error response: {}", e.getMessage(), e);
+            logger.error("❌ Failed to send error response: {}", e.getMessage(), e);
         }
     }
 
@@ -271,7 +293,7 @@ public class PostProcessingConsumer {
             lightweightResponse.setResult(createLightweightConversationEnrichment(originalResponse.getResult()));
         }
 
-        logger.debug("Created lightweight response for messageId={}, removing large data collections",
+        logger.debug("💡 Created lightweight response for messageId={}, removing large data collections",
                     originalResponse.getMessageId());
 
         return lightweightResponse;
