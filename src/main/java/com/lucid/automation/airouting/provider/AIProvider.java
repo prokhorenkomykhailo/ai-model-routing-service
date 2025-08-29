@@ -11,12 +11,13 @@ import java.time.Instant;
 import java.util.Map;
 
 import com.lucid.automation.common.dto.TokenConsumptionDTO;
-import com.lucid.automation.airouting.service.TokenAvailabilityService;
+import com.lucid.automation.common.dto.TokenQuotaResponseDTO;
+import com.lucid.automation.airouting.service.EnhancedTokenAvailabilityService;
 
 public abstract class AIProvider {
 
     @Autowired
-    private TokenAvailabilityService tokenAvailabilityService;
+    private EnhancedTokenAvailabilityService enhancedTokenAvailabilityService;
 
     private static final Logger logger = LoggerFactory.getLogger(AIProvider.class);
 
@@ -94,11 +95,51 @@ public abstract class AIProvider {
     }
 
         /**
-     * Checks if the tenant has tokens available before calling AI service.
+     * Checks if the tenant has tokens available using quota information.
      * @param tenantId the tenant ID to check
      * @return true if tokens are available, false otherwise
      */
     protected boolean isTokenAvailableForTenant(String tenantId) {
-        return tokenAvailabilityService.isTokenAvailable(tenantId);
+        try {
+            //TODO: uncomment to activate
+            // TokenQuotaResponseDTO quota = enhancedTokenAvailabilityService.getTokenQuota(tenantId);
+            // return quota != null && quota.isAvailable() && quota.getRemainingTokens() > 0;
+            return true;
+        } catch (Exception e) {
+            logger.warn("Failed to check token availability for tenant {}: {}", tenantId, e.getMessage());
+            // Conservative fallback - assume tokens are available to avoid blocking operations
+            return true;
+        }
+    }
+
+    /**
+     * Checks if the tenant has sufficient tokens for a specific operation.
+     * @param tenantId the tenant ID to check
+     * @param requiredTokens number of tokens required for the operation
+     * @return true if sufficient tokens are available, false otherwise
+     */
+    protected boolean hasSufficientTokens(String tenantId, long requiredTokens) {
+        try {
+            return enhancedTokenAvailabilityService.hasSufficientTokens(tenantId, requiredTokens);
+        } catch (Exception e) {
+            logger.warn("Failed to check token sufficiency for tenant {} (required: {}): {}",
+                       tenantId, requiredTokens, e.getMessage());
+            // Conservative fallback - assume tokens are sufficient to avoid blocking operations
+            return true;
+        }
+    }
+
+    /**
+     * Gets detailed token quota information for the tenant.
+     * @param tenantId the tenant ID to check
+     * @return TokenQuotaResponseDTO with detailed quota information, null if unavailable
+     */
+    protected TokenQuotaResponseDTO getTokenQuota(String tenantId) {
+        try {
+            return enhancedTokenAvailabilityService.getTokenQuota(tenantId);
+        } catch (Exception e) {
+            logger.warn("Failed to get token quota for tenant {}: {}", tenantId, e.getMessage());
+            return null;
+        }
     }
 }

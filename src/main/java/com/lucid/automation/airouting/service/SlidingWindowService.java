@@ -14,7 +14,10 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -113,10 +116,7 @@ public class SlidingWindowService {
         int tokenCount = 0;
 
         // Count tokens from message text (main content)
-        if (message.getText() != null && !message.getText().trim().isEmpty()) {
-            // Simple estimation: roughly 4 characters per token for English text
-            tokenCount += message.getText().length() / 4;
-        }
+        tokenCount += estimateTextTokens(message.getText());
 
         // Add estimated tokens for user information
         tokenCount += estimateUserDataTokens(message);
@@ -129,29 +129,82 @@ public class SlidingWindowService {
     }
 
     /**
+     * Utility method to estimate tokens from text.
+     *
+     * @param text The text to estimate tokens for
+     * @return Estimated number of tokens
+     */
+    private int estimateTextTokens(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return 0;
+        }
+        // Simple estimation: roughly 4 characters per token for English text
+        return text.length() / 4;
+    }
+
+    /**
      * Estimate token count for user data in a message.
      *
      * @param message The message with user data
      * @return Estimated tokens for user information
      */
     private int estimateUserDataTokens(Message message) {
+        // Use utility method to reduce repetitive pattern
         int userTokens = 0;
-
-        // User names
-        if (message.getName() != null) userTokens += message.getName().length() / 4;
-        if (message.getDisplayName() != null) userTokens += message.getDisplayName().length() / 4;
-        if (message.getFirstName() != null) userTokens += message.getFirstName().length() / 4;
-        if (message.getLastName() != null) userTokens += message.getLastName().length() / 4;
-
-        // User details
-        if (message.getEmail() != null) userTokens += message.getEmail().length() / 4;
-        if (message.getTitle() != null) userTokens += message.getTitle().length() / 4;
-        if (message.getStatusText() != null) userTokens += message.getStatusText().length() / 4;
+        userTokens += estimateTextTokens(message.getName());
+        userTokens += estimateTextTokens(message.getDisplayName());
+        userTokens += estimateTextTokens(message.getFirstName());
+        userTokens += estimateTextTokens(message.getLastName());
+        userTokens += estimateTextTokens(message.getEmail());
+        userTokens += estimateTextTokens(message.getTitle());
+        userTokens += estimateTextTokens(message.getStatusText());
 
         // Base user metadata
         userTokens += 15;
 
         return userTokens;
+    }
+
+    /**
+     * Validate and fix processing parameters.
+     *
+     * @param maxMessage The requested batch size
+     * @param overlaping The requested overlap percentage
+     * @param callback The callback function
+     * @return ValidatedParams object with corrected values, or null if callback is null
+     */
+    private ValidatedParams validateProcessingParameters(int maxMessage, int overlaping, Function<List<Message>, Void> callback) {
+        if (callback == null) {
+            logger.error("💥 Fatal Error: Cannot process messages - callbackFunction is null!");
+            return null;
+        }
+
+        int validBatchSize = maxMessage;
+        if (maxMessage <= 0) {
+            logger.warn("⚠️ Invalid Batch Size: maxNumberMessage is {}. Using default batch size: {}", maxMessage, defaultBatchSize);
+            validBatchSize = defaultBatchSize;
+        }
+
+        int validOverlap = overlaping;
+        if (overlaping < 0 || overlaping > 100) {
+            logger.warn("⚠️ Invalid Overlap: keepOverlaping percentage is {}%. Using default: {}%", overlaping, defaultOverlapPercentage);
+            validOverlap = defaultOverlapPercentage;
+        }
+
+        return new ValidatedParams(validBatchSize, validOverlap);
+    }
+
+    /**
+     * Simple data class to hold validated parameters.
+     */
+    private static class ValidatedParams {
+        final int batchSize;
+        final int overlapPercentage;
+
+        ValidatedParams(int batchSize, int overlapPercentage) {
+            this.batchSize = batchSize;
+            this.overlapPercentage = overlapPercentage;
+        }
     }
 
     /**
@@ -169,20 +222,10 @@ public class SlidingWindowService {
      */
     public int processMessages(Workspace workspace, int maxMessage, int overlaping, Function<List<Message>, Void> callback) {
 
-        if (maxMessage <= 0) {
-            logger.warn("⚠️ Invalid Batch Size: maxNumberMessage is {}. Using default batch size: {}", maxMessage, defaultBatchSize);
-            maxMessage = defaultBatchSize;
-        }
-
-        if (overlaping < 0 || overlaping > 100) {
-            logger.warn("⚠️ Invalid Overlap: keepOverlaping percentage is {}%. Using default: {}%",
-                       overlaping, defaultOverlapPercentage);
-            overlaping = defaultOverlapPercentage;
-        }
-
-        if (callback == null) {
-            logger.error("💥 Fatal Error: Cannot process messages - callbackFunction is null!");
-            return 0;
+        // Validate and fix parameters
+        ValidatedParams params = validateProcessingParameters(maxMessage, overlaping, callback);
+        if (params == null) {
+            return 0; // callback was null
         }
 
         try {
@@ -211,15 +254,15 @@ public class SlidingWindowService {
             // Calculate token-based batch size to prevent Kafka RecordTooLargeException
             int tokenBasedBatchSize = calculateTokenBasedBatchSize(allMessages, maxTokensPerBatch);
 
-            // Use the smaller of the provided maxMessage or token-based batch size for safety
-            int effectiveBatchSize = Math.min(maxMessage, tokenBasedBatchSize);
+            // Use the smaller of the validated maxMessage or token-based batch size for safety
+            int effectiveBatchSize = Math.min(params.batchSize, tokenBasedBatchSize);
 
             logger.info("🧮 Batch Size Calculation: requested={}, token-based={}, effective={} (maxTokens={}) 🎯",
-                       maxMessage, tokenBasedBatchSize, effectiveBatchSize, maxTokensPerBatch);
+                       params.batchSize, tokenBasedBatchSize, effectiveBatchSize, maxTokensPerBatch);
 
             // Messages are already sorted chronologically by loadMessagesForWorkspace method
             // Calculate overlap size, minimum of 20 messages or 20% of effective batch size
-            int overlapSize = (effectiveBatchSize * overlaping) / 100;
+            int overlapSize = (effectiveBatchSize * params.overlapPercentage) / 100;
             overlapSize = Math.max(overlapSize, 20); // Ensure at least 20 messages overlap
 
             logger.info("🔧 Processing Config: batchSize={}, overlapSize={}, unprocessedMessages={} 📊",
@@ -254,24 +297,7 @@ public class SlidingWindowService {
             logger.info("🎉 Messages Loaded: Found {} messages for deemergeUserId: {} (jackpot! 💰)", messages.size(), deemergeUserId);
 
             // add user information to messages
-            messages.forEach(message -> {
-                if (message.getUserId() != null && !message.getUserId().trim().isEmpty()) {
-                    // Assuming UserData is a class that contains user information
-                    String slackUserId = message.getUserId();
-                    if (slackUserId != null && !slackUserId.trim().isEmpty()) {
-                        List<User> userList = userRepository.findBySlackUserId(slackUserId);
-                        if (userList.isEmpty()) {
-                            logger.warn("😴 Missing User Data: No user data found for slackUserId: {} (user might be a ghost 👻)", slackUserId);
-                            return;
-                        }
-                        User userData = userList.get(0);
-                        message = upateMessageWithUserData(message, userData);
-                        // logger.debug("Loaded user data for message: {}", slackUserId);
-                    } else {
-                        logger.warn("🆔 Empty User ID: Message with ID {} has empty userId (anonymous message? 🕵️)", message.getId());
-                    }
-                }
-            });
+            enrichMessagesWithUserData(messages);
 
             // Sort messages chronologically by messageTs (oldest first, newest last)
             messages.sort(Comparator.comparing(Message::getMessageTs));
@@ -286,54 +312,95 @@ public class SlidingWindowService {
         }
     }
 
-    private Message upateMessageWithUserData(Message message, User userData) {
+    /**
+     * Enrich messages with user data in a batch operation.
+     * This method simplifies user data handling by processing all messages at once.
+     *
+     * @param messages List of messages to enrich with user data
+     */
+    private void enrichMessagesWithUserData(List<Message> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return;
+        }
+
+        // Get unique user IDs that need enrichment
+        Set<String> userIdsToLookup = messages.stream()
+            .map(Message::getUserId)
+            .filter(userId -> userId != null && !userId.trim().isEmpty())
+            .collect(Collectors.toSet());
+
+        if (userIdsToLookup.isEmpty()) {
+            logger.debug("🆔 No Valid User IDs: No user IDs found for enrichment (all anonymous? 🕵️)");
+            return;
+        }
+
+        logger.debug("👥 User Lookup: Fetching data for {} unique users", userIdsToLookup.size());
+
+        // Create a map of userId -> User for quick lookup
+        Map<String, User> userDataMap = new HashMap<>();
+        for (String slackUserId : userIdsToLookup) {
+            List<User> userList = userRepository.findBySlackUserId(slackUserId);
+            if (!userList.isEmpty()) {
+                userDataMap.put(slackUserId, userList.get(0));
+            } else {
+                logger.warn("😴 Missing User Data: No user data found for slackUserId: {} (user might be a ghost 👻)", slackUserId);
+            }
+        }
+
+        // Enrich messages with user data
+        int enrichedCount = 0;
+        for (Message message : messages) {
+            String userId = message.getUserId();
+            if (userId != null && !userId.trim().isEmpty()) {
+                User userData = userDataMap.get(userId);
+                if (userData != null) {
+                    copyUserDataToMessage(message, userData);
+                    enrichedCount++;
+                }
+            }
+        }
+
+        logger.debug("✨ User Enrichment: Enhanced {} messages with user data (teamwork! 🤝)", enrichedCount);
+    }
+
+    /**
+     * Copy user data fields to message. Simplified version that focuses on essential fields.
+     *
+     * @param message The message to enrich
+     * @param userData The user data to copy from
+     */
+    private void copyUserDataToMessage(Message message, User userData) {
         if (userData == null) {
-            logger.warn("👤 Null User Data: User data is null for message ID: {} (mysterious user 🤔)", message.getId());
-            return message;
+            return;
         }
 
         try {
-            // Basic user identification
+            // Essential user identification
             message.setSlackUserId(userData.getSlackUserId());
             message.setTeamId(userData.getTeamId());
             message.setTeamName(userData.getTeamName());
 
-            // User names and display information
+            // Primary names (simplified - only the most commonly used ones)
             message.setName(userData.getName());
             message.setDisplayName(userData.getDisplayName());
-            message.setDisplayNameNormalized(userData.getDisplayNameNormalized());
-            message.setRealNameNormalized(userData.getRealNameNormalized());
             message.setFirstName(userData.getFirstName());
             message.setLastName(userData.getLastName());
 
-            // Contact information
+            // Essential contact info
             message.setEmail(userData.getEmail());
-            message.setEmailConfirmed(userData.getEmailConfirmed());
-            message.setPhone(userData.getPhone());
             message.setTitle(userData.getTitle());
-            message.setPronouns(userData.getPronouns());
 
-            // Status and avatar information
+            // Status
             message.setStatusText(userData.getStatusText());
-            message.setAvatarHash(userData.getAvatarHash());
 
-            // Profile images (all sizes)
+            // Primary avatar (simplified - only keep the most commonly used sizes)
             message.setImageOriginal(userData.getImageOriginal());
-            message.setImage24(userData.getImage24());
-            message.setImage32(userData.getImage32());
-            message.setImage48(userData.getImage48());
-            message.setImage72(userData.getImage72());
-            message.setImage192(userData.getImage192());
-            message.setImage512(userData.getImage512());
-            message.setImage1024(userData.getImage1024());
+            message.setImage48(userData.getImage48()); // Most common size for UI
+            message.setImage192(userData.getImage192()); // Good for larger displays
 
-            // Slack metadata
-            message.setSlackUpdatedAt(userData.getSlackUpdatedAt());
-            return message;
         } catch (Exception e) {
-            logger.error("💥 User Data Update Failed: Error updating message {} with user data for slackUserId: {} 😢",
-                        message.getId(), userData.getSlackUserId(), e);
-            return message;
+            logger.warn("💥 User Data Copy Failed: Error copying user data for slackUserId: {} 😢",
+                       userData.getSlackUserId(), e);
         }
     }
 
