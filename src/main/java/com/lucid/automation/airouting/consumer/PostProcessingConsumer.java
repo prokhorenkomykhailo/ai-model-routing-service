@@ -71,29 +71,19 @@ public class PostProcessingConsumer {
         Object messageResponse = record.value();
         String topic = record.topic();
 
-        logger.info("🎯 POST-PROCESSING-CONSUMER: Received message from topic: {}, partition: {}, offset: {}, key: {}",
-                topic, record.partition(), record.offset(), record.key());
+        logger.info("🎯 Processing message from topic: {}", topic);
 
         // Extract the actual payload from ConsumerRecord if needed
         Object payload = messageResponse;
         if (messageResponse instanceof ConsumerRecord) {
             ConsumerRecord<?, ?> consumerRecord = (ConsumerRecord<?, ?>) messageResponse;
             payload = consumerRecord.value();
-            logger.info("🔍 CONSUMER_RECORD_DEBUG: Extracted payload from ConsumerRecord - Type: {}, Topic: {}, Partition: {}, Offset: {}, Key: {}",
-                    payload != null ? payload.getClass().getName() : "null",
-                    consumerRecord.topic(),
-                    consumerRecord.partition(),
-                    consumerRecord.offset(),
-                    consumerRecord.key());
-
-            if (payload != null) {
-                logger.info("🔍 PAYLOAD_DEBUG: Payload content: {}",
-                        payload.toString().length() > 300 ? payload.toString().substring(0, 300) + "... (truncated)" : payload.toString());
-            }
+            logger.debug("🔍 Extracted payload from nested ConsumerRecord - Type: {}",
+                    payload != null ? payload.getClass().getSimpleName() : "null");
         }
 
         if (payload == null) {
-            logger.error("❌ POST-PROCESSING-ERROR: Received NULL payload from topic: {}", topic);
+            logger.error("❌ Received NULL payload from topic: {}", topic);
             acknowledgment.acknowledge();
             return;
         }
@@ -124,7 +114,7 @@ public class PostProcessingConsumer {
                     // Create lightweight version to avoid Kafka message size issues
                     EnrichmentResponse lightweightResponse = createLightweightResponse(enrichmentResponse);
                     sendToFinalAiResponsesTopic(lightweightResponse);
-                    logger.info("🎯 Successfully processed pre-AI response using pipeline and forwarded to final topic");
+                    logger.info("✅ Successfully processed and forwarded pre-AI response");
                 } else {
                     logger.error("❌ Pipeline succeeded but enrichment response is null");
                 }
@@ -293,7 +283,7 @@ public class PostProcessingConsumer {
             lightweightResponse.setResult(createLightweightConversationEnrichment(originalResponse.getResult()));
         }
 
-        logger.debug("💡 Created lightweight response for messageId={}, removing large data collections",
+        logger.debug("💡 Created lightweight response for messageId={}, optimized for Kafka",
                     originalResponse.getMessageId());
 
         return lightweightResponse;

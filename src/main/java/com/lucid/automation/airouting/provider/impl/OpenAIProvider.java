@@ -159,28 +159,30 @@ public class OpenAIProvider extends AIProvider {
     @Override
     public String processTextQuery(String query, String userId, String tenantId) {
         String debugId = "TEXT-QUERY-" + System.currentTimeMillis();
-        logger.info("OPENAI-TEXT [{}]: Processing text query: {}", debugId, query != null ? query.substring(0, Math.min(query.length(), 100)) + "..." : "null");
+        logger.info("🔍 OPENAI-TEXT [{}]: Processing text query | 📏 {} chars | 👤 User: {} | 🏢 Tenant: {}",
+                   debugId, query != null ? query.length() : 0, userId != null ? userId : "unknown", tenantId != null ? tenantId : "unknown");
 
         try {
             // Input validation
             if (query == null || query.trim().isEmpty()) {
-                logger.warn("OPENAI-TEXT [{}]: Empty query provided", debugId);
+                logger.warn("⚠️ OPENAI-TEXT [{}]: Empty query provided", debugId);
                 return "Empty query provided";
             }
 
             if (!isClientAvailable) {
-                logger.warn("OPENAI-TEXT [{}]: OpenAI client not available", debugId);
+                logger.warn("⚠️ OPENAI-TEXT [{}]: OpenAI client not available", debugId);
                 return "OpenAI client not available";
             }
 
             // Call OpenAI API with default user/tenant for simple text queries
             String response = callOpenAIAPI(query, "text-query", debugId, userId, tenantId);
 
-            logger.info("OPENAI-TEXT [{}]: Successfully processed text query", debugId);
+            logger.info("✅ OPENAI-TEXT [{}]: Successfully processed text query | 📏 Response: {} chars",
+                       debugId, response != null ? response.length() : 0);
             return response;
 
         } catch (Exception e) {
-            logger.error("OPENAI-TEXT [{}]: Error processing text query: {}", debugId, e.getMessage(), e);
+            logger.error("🚨 OPENAI-TEXT [{}]: Error processing text query: {}", debugId, e.getMessage(), e);
             return "Error processing query: " + e.getMessage();
         }
     }
@@ -204,7 +206,7 @@ public class OpenAIProvider extends AIProvider {
     private String callOpenAIAPI(String prompt, String operation, String debugId, String deemergeUserId, String tenantId) {
         try {
             if (!isClientAvailable) {
-                logger.error("OPENAI-API [{}]: Client is not available - API key not configured", debugId);
+                logger.error("🚨 OPENAI-API [{}]: Client is not available - API key not configured", debugId);
                 throw new RuntimeException("OpenAI client is not available - API key not configured");
             }
 
@@ -212,7 +214,7 @@ public class OpenAIProvider extends AIProvider {
 
             // check if tokens are available for the tenant
             if (!isTokenAvailableForTenant(tenantId)) {
-                logger.warn("OPENAI-API [{}]: No tokens available for tenant {}, cannot process operation : {}", debugId, tenantId, operation);
+                logger.warn("⚠️ OPENAI-API [{}]: No tokens available for tenant {}, cannot process operation : {}", debugId, tenantId, operation);
                 throw new RuntimeException("No tokens available for tenant " + tenantId);
             }
 
@@ -243,16 +245,16 @@ public class OpenAIProvider extends AIProvider {
             // Track token consumption
             trackTokenUsage(operation, inputTokens, outputTokens, deemergeUserId, tenantId);
 
-            logger.info("OPENAI-API [{}]: {} operation completed in {}ms, Input tokens: {}, Output tokens: {}, response: \n\n: {}",
-                       debugId, operation, duration, inputTokens, outputTokens, outputText);
+            logger.info("✅ OPENAI-API [{}]: {} operation completed | ⏱️ {}ms | 📊 Input: {} tokens, Output: {} tokens | 📏 Response: {} chars",
+                       debugId, operation, duration, inputTokens, outputTokens, outputText != null ? outputText.length() : 0);
 
             if (outputText == null || outputText.trim().isEmpty()) {
-                logger.warn("OPENAI-API [{}]: Received empty or null response from OpenAI API", debugId);
+                logger.warn("⚠️ OPENAI-API [{}]: Received empty or null response from OpenAI API", debugId);
                 throw new RuntimeException("Received empty response from OpenAI API");
             }
             return outputText;
         } catch (Exception e) {
-            logger.error("OPENAI-API [{}]: Error calling OpenAI API for {} operation: {}", debugId, operation, e.getMessage(), e);
+            logger.error("🚨 OPENAI-API [{}]: Error calling OpenAI API for {} operation: {}", debugId, operation, e.getMessage(), e);
             throw new RuntimeException("Failed to call OpenAI API: " + e.getMessage(), e);
         }
     }
@@ -320,7 +322,7 @@ public class OpenAIProvider extends AIProvider {
             }
             return objectMapper.writeValueAsString(messageMap);
         } catch (Exception e) {
-            logger.warn("Failed to format message as JSON: {}", e.getMessage());
+            logger.warn("⚠️ Failed to format message as JSON: {}", e.getMessage());
             return "{}";
         }
     }

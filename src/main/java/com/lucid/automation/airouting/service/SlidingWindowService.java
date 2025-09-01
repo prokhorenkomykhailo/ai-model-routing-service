@@ -169,7 +169,7 @@ public class SlidingWindowService {
      * Validate and fix processing parameters.
      *
      * @param maxMessage The requested batch size
-     * @param overlaping The requested overlap percentage
+     * @param overlaping The requested overlap percentage (ignored, using 80/20 strategy)
      * @param callback The callback function
      * @return ValidatedParams object with corrected values, or null if callback is null
      */
@@ -185,13 +185,12 @@ public class SlidingWindowService {
             validBatchSize = defaultBatchSize;
         }
 
-        int validOverlap = overlaping;
-        if (overlaping < 0 || overlaping > 100) {
-            logger.warn("⚠️ Invalid Overlap: keepOverlaping percentage is {}%. Using default: {}%", overlaping, defaultOverlapPercentage);
-            validOverlap = defaultOverlapPercentage;
+        // Note: overlaping parameter is ignored - we now use 80/20 strategy
+        if (overlaping != defaultOverlapPercentage) {
+            logger.info("ℹ️  Overlap Strategy: Using 80/20 strategy instead of {}% (new messages: 80%, old messages: 20%)", overlaping);
         }
 
-        return new ValidatedParams(validBatchSize, validOverlap);
+        return new ValidatedParams(validBatchSize);
     }
 
     /**
@@ -199,11 +198,9 @@ public class SlidingWindowService {
      */
     private static class ValidatedParams {
         final int batchSize;
-        final int overlapPercentage;
 
-        ValidatedParams(int batchSize, int overlapPercentage) {
+        ValidatedParams(int batchSize) {
             this.batchSize = batchSize;
-            this.overlapPercentage = overlapPercentage;
         }
     }
 
@@ -261,11 +258,10 @@ public class SlidingWindowService {
                        params.batchSize, tokenBasedBatchSize, effectiveBatchSize, maxTokensPerBatch);
 
             // Messages are already sorted chronologically by loadMessagesForWorkspace method
-            // Calculate overlap size, minimum of 20 messages or 20% of effective batch size
-            int overlapSize = (effectiveBatchSize * params.overlapPercentage) / 100;
-            overlapSize = Math.max(overlapSize, 20); // Ensure at least 20 messages overlap
+            // Calculate overlap size using 80/20 strategy: 80% new messages + 20% old messages
+            int overlapSize = calculateOptimalOverlapSize(effectiveBatchSize, unprocessedCount);
 
-            logger.info("🔧 Processing Config: batchSize={}, overlapSize={}, unprocessedMessages={} 📊",
+            logger.info("🔧 Processing Config: batchSize={}, overlapSize={} (80/20 strategy), unprocessedMessages={} 📊",
                        effectiveBatchSize, overlapSize, unprocessedCount);
 
             return processBatchesWithOverlap(allMessages, effectiveBatchSize, overlapSize, callback);
@@ -402,6 +398,61 @@ public class SlidingWindowService {
             logger.warn("💥 User Data Copy Failed: Error copying user data for slackUserId: {} 😢",
                        userData.getSlackUserId(), e);
         }
+    }
+
+    /**
+     * Calculate optimal overlap size using 80/20 strategy.
+     * Each batch should contain 80% new messages + 20% old (processed) messages.
+     *
+     * Rules:
+     * - If new messages >= 20: add 25% of new message count for processed messages
+     * - If new messages < 5: add only 1 old message
+     * - For other cases: calculate proportionally to maintain 80/20 balance
+     *
+     * @param effectiveBatchSize The effective batch size
+     * @param unprocessedCount Number of unprocessed (new) messages available
+     * @return Calculated overlap size
+     */
+    private int calculateOptimalOverlapSize(int effectiveBatchSize, long unprocessedCount) {
+        // If no unprocessed messages, no overlap needed
+        if (unprocessedCount == 0) {
+            logger.debug("🔍 Overlap Calculation: No unprocessed messages - overlap size = 0");
+            return 0;
+        }
+
+        // Apply 80/20 strategy rules
+        int overlapSize;
+
+        if (unprocessedCount >= 20) {
+            // Rule: If new messages >= 20, add 25% of new message count for processed messages
+            overlapSize = (int) (unprocessedCount * 0.25);
+            logger.debug("📊 Overlap Strategy: {} new messages >= 20 → {} old messages (25% of new messages)",
+                        unprocessedCount, overlapSize);
+        } else if (unprocessedCount < 5) {
+            // Rule: If new messages < 5, add only 1 old message
+            overlapSize = 1;
+            logger.debug("📊 Overlap Strategy: {} new messages < 5 → 1 old message (minimum overlap)", unprocessedCount);
+        } else {
+            // For 5-19 new messages, calculate proportionally
+            // Target: maintain 80% new / 20% old ratio
+            // old_messages = (new_messages * 20) / 80 = new_messages / 4
+            overlapSize = Math.max(1, (int) (unprocessedCount / 4));
+            logger.debug("📊 Overlap Strategy: {} new messages (5-19 range) → {} old messages (proportional 80/20)",
+                        unprocessedCount, overlapSize);
+        }
+
+        // Safety check: don't exceed half of batch size
+        int maxOverlap = effectiveBatchSize / 2;
+        if (overlapSize > maxOverlap) {
+            logger.warn("⚠️ Overlap Limit: Calculated overlap {} exceeds half batch size {}. Using {} instead.",
+                       overlapSize, effectiveBatchSize, maxOverlap);
+            overlapSize = maxOverlap;
+        }
+
+        logger.info("✅ Overlap Decision: {} new messages → {} old messages (80% new / 20% old strategy) 🎯",
+                   unprocessedCount, overlapSize);
+
+        return overlapSize;
     }
 
     /**

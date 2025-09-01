@@ -10,14 +10,14 @@ import org.slf4j.LoggerFactory;
 import com.lucid.automation.common.dto.enrichment.EnrichmentUserDTO;
 
 public class TextUtils {
-    
+
     // Private constructor to prevent instantiation
     private TextUtils() {
         throw new AssertionError("Utility class should not be instantiated");
     }
 
     private static final Logger logger = LoggerFactory.getLogger(TextUtils.class);
-    
+
     /**
      * Replaces Slack mentions (e.g., <@U12345>) in the input text with the display name or username from userInfos.
      * @param text The input text containing Slack mentions.
@@ -53,7 +53,7 @@ public class TextUtils {
                 text = matcher.replaceAll(" " + name + " ");
 
             } catch (Exception e) {
-                logger.warn("Failed to process mention for key: {}, error: {}", key, e.getMessage());
+                logger.warn("👤 Failed to process mention for key: {}, error: {}", key, e.getMessage());
             }
         }
 

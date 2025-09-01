@@ -107,7 +107,7 @@ ai:
       sentiment_analysis: geminiProvider
   enrichment:
     scheduler:
-      cron: "${AI_ENRICHMENT_CRON:0 */5 * * * ?}"  # Every 5 minutes by default
+      cron: "${AI_ENRICHMENT_CRON:0 */15 * * * ?}"  # Every 15 minutes by default
       enabled: "${AI_ENRICHMENT_ENABLED:true}"
 
 # Lucid Post-Processing Pipeline Configuration

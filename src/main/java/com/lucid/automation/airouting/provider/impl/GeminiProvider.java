@@ -95,13 +95,19 @@ public class GeminiProvider extends AIProvider {
             deemergeUserName = "Unknown";
         }
 
-        logger.info("[X] GEMINI-ENRICH [{}]: Using userId: {}, tenantId: {}, deemergeUserName: {}",
-                   debugId, deemergeUserId, tenantId, deemergeUserName);
+        logger.info("📊 GEMINI-ENRICH [{}]: 🏢 Tenant: {}, 👤 User: {}, 📨 Processing {} messages",
+                   debugId, tenantId, deemergeUserName, messages != null ? messages.size() : 0);
 
-        try {
+        // Calculate message statistics
+        if (messages != null && !messages.isEmpty()) {
+            long uniqueUsers = messages.stream().map(SlackMessage::getUserId).distinct().count();
+            long uniqueChannels = messages.stream().map(SlackMessage::getChannelId).distinct().count();
+            logger.info("📈 GEMINI-ENRICH [{}]: Stats | 🏷️ {} unique users, 📺 {} channels",
+                       debugId, uniqueUsers, uniqueChannels);
+        }        try {
             // Input validation
             if (messages == null || messages.isEmpty()) {
-                logger.warn("GEMINI-ENRICH [{}]: No messages provided, returning default enrichment", debugId);
+                logger.warn("⚠️ GEMINI-ENRICH [{}]: No messages provided, returning default enrichment", debugId);
 
                 // return getDefaultConversationEnrichment();
                 return Map.of(
@@ -111,36 +117,43 @@ public class GeminiProvider extends AIProvider {
             }
 
             if (!isClientAvailable) {
-                logger.warn("GEMINI-ENRICH [{}]: Gemini client not available, returning default enrichment", debugId);
+                logger.warn("⚠️ GEMINI-ENRICH [{}]: Gemini client not available, returning default enrichment", debugId);
                 return Map.of(
                     "response", "Gemini client not available",
                     "request", messages
                 );
             }
 
-            logger.info("GEMINI-ENRICH [{}]: Formatting conversation for analysis", debugId);
+            logger.info("🔄 GEMINI-ENRICH [{}]: Formatting conversation for analysis", debugId);
             String conversationText = formatConversationForAnalysis(messages);
             String prompt = buildConversationEnrichmentPrompt(conversationText, deemergeUserName);
-            System.out.println("GEMINI-ENRICH [" + debugId + "]: Built conversation enrichment prompt: \n" + prompt);
+
+            // Log prompt statistics instead of full prompt content
+            logger.info("📝 GEMINI-ENRICH [{}]: Built enrichment prompt | 📏 {} characters",
+                       debugId, prompt != null ? prompt.length() : 0);
+
             String response = callGeminiAPI(prompt, "conversation-enrichment", debugId, deemergeUserId, tenantId);
+
+            logger.info("✅ GEMINI-ENRICH [{}]: Successfully enriched conversation | 📏 Response: {} chars",
+                       debugId, response != null ? response.length() : 0);
             return Map.of(
                 "response", response,
                 "request", messages
             );
         } catch (IllegalArgumentException e) {
-            logger.error("GEMINI-ENRICH [{}]: Invalid input for conversation enrichment: {}", debugId, e.getMessage(), e);
+            logger.error("❌ GEMINI-ENRICH [{}]: Invalid input for conversation enrichment: {}", debugId, e.getMessage(), e);
             return Map.of(
                 "response", "Invalid input for conversation enrichment: " + e.getMessage(),
                 "request", messages
             );
         } catch (RuntimeException e) {
-            logger.error("GEMINI-ENRICH [{}]: API error during conversation enrichment: {}", debugId, e.getMessage(), e);
+            logger.error("🚨 GEMINI-ENRICH [{}]: API error during conversation enrichment: {}", debugId, e.getMessage(), e);
             return Map.of(
                 "response", "API error during conversation enrichment: " + e.getMessage(),
                 "request", messages
             );
         } catch (Exception e) {
-            logger.error("GEMINI-ENRICH [{}]: Unexpected error during conversation enrichment: {}", debugId, e.getMessage(), e);
+            logger.error("🚨 GEMINI-ENRICH [{}]: Unexpected error during conversation enrichment: {}", debugId, e.getMessage(), e);
             return Map.of(
                 "response", "Unexpected error during conversation enrichment: " + e.getMessage(),
                 "request", messages
@@ -166,28 +179,30 @@ public class GeminiProvider extends AIProvider {
     @Override
     public String processTextQuery(String query, String userId, String tenantId) {
         String debugId = "TEXT-QUERY-" + System.currentTimeMillis();
-        logger.info("GEMINI-TEXT [{}]: Processing text query: {}", debugId, query != null ? query.substring(0, Math.min(query.length(), 100)) + "..." : "null");
+        logger.info("🔍 GEMINI-TEXT [{}]: Processing text query | 📏 {} chars | 👤 User: {} | 🏢 Tenant: {}",
+                   debugId, query != null ? query.length() : 0, userId != null ? userId : "unknown", tenantId != null ? tenantId : "unknown");
 
         try {
             // Input validation
             if (query == null || query.trim().isEmpty()) {
-                logger.warn("GEMINI-TEXT [{}]: Empty query provided", debugId);
+                logger.warn("⚠️ GEMINI-TEXT [{}]: Empty query provided", debugId);
                 return "Empty query provided";
             }
 
             if (!isClientAvailable) {
-                logger.warn("GEMINI-TEXT [{}]: Gemini client not available", debugId);
+                logger.warn("⚠️ GEMINI-TEXT [{}]: Gemini client not available", debugId);
                 return "Gemini client not available";
             }
 
             // Call Gemini API with default user/tenant for simple text queries
             String response = callGeminiAPI(query, "text-query", debugId, userId, tenantId);
 
-            logger.info("GEMINI-TEXT [{}]: Successfully processed text query", debugId);
+            logger.info("✅ GEMINI-TEXT [{}]: Successfully processed text query | 📏 Response: {} chars",
+                       debugId, response != null ? response.length() : 0);
             return response;
 
         } catch (Exception e) {
-            logger.error("GEMINI-TEXT [{}]: Error processing text query: {}", debugId, e.getMessage(), e);
+            logger.error("🚨 GEMINI-TEXT [{}]: Error processing text query: {}", debugId, e.getMessage(), e);
             return "Error processing query: " + e.getMessage();
         }
     }
@@ -196,7 +211,7 @@ public class GeminiProvider extends AIProvider {
     private String callGeminiAPI(String prompt, String operation, String debugId, String deemergeUserId, String tenantId) {
         try {
             if (geminiClient == null) {
-                logger.error("GEMINI-API [{}]: Client is not available - API key not configured", debugId);
+                logger.error("🚨 GEMINI-API [{}]: Client is not available - API key not configured", debugId);
                 throw new RuntimeException("Gemini client is not available - API key not configured");
             }
 
@@ -204,7 +219,7 @@ public class GeminiProvider extends AIProvider {
 
             // check if tokens are available for the tenant
             if (!isTokenAvailableForTenant(tenantId)) {
-                logger.warn("GEMINI-API [{}]: No tokens available for tenant {}, cannot process operation: {}", debugId, tenantId, operation);
+                logger.warn("⚠️ GEMINI-API [{}]: No tokens available for tenant {}, cannot process operation: {}", debugId, tenantId, operation);
                 throw new RuntimeException("No tokens available for tenant " + tenantId);
             }
 
@@ -225,16 +240,16 @@ public class GeminiProvider extends AIProvider {
             // Track token consumption with actual token counts
             trackTokenUsage(operation, inputTokens, outputTokens, deemergeUserId, tenantId);
 
-            logger.info("GEMINI-API [{}]: {} operation completed in {}ms, Input tokens: {}, Output tokens: {}, response: \n\n: {}",
-                       debugId, operation, duration, inputTokens, outputTokens, outputText);
+            logger.info("✅ GEMINI-API [{}]: {} operation completed | ⏱️ {}ms | 📊 Input: {} tokens, Output: {} tokens | 📏 Response: {} chars",
+                       debugId, operation, duration, inputTokens, outputTokens, outputText != null ? outputText.length() : 0);
 
             if (outputText == null || outputText.trim().isEmpty()) {
-                logger.warn("GEMINI-API [{}]: Received empty or null response from Gemini API", debugId);
+                logger.warn("⚠️ GEMINI-API [{}]: Received empty or null response from Gemini API", debugId);
                 throw new RuntimeException("Received empty response from Gemini API");
             }
             return outputText;
         } catch (Exception e) {
-            logger.error("GEMINI-API [{}]: Error calling Gemini API for {} operation: {}", debugId, operation, e.getMessage(), e);
+            logger.error("🚨 GEMINI-API [{}]: Error calling Gemini API for {} operation: {}", debugId, operation, e.getMessage(), e);
             throw new RuntimeException("Failed to call Gemini API: " + e.getMessage(), e);
         }
     }
@@ -252,11 +267,11 @@ public class GeminiProvider extends AIProvider {
             // Send token consumption data with deemergeUserId and tenantId
             sendTokenConsumption(operation, deemergeUserId, tenantId, inputTokens, outputTokens, totalTokens, null, metadata);
 
-            logger.info("Token usage tracked: operation={}, deemergeUserId={}, tenantId={}, inputTokens={}, outputTokens={}, totalTokens={}",
+            logger.info("📊 Token usage tracked: 🔧 Operation: {}, 👤 User: {}, 🏢 Tenant: {}, 📊 Tokens: {}+{}={}",
                        operation, deemergeUserId, tenantId, inputTokens, outputTokens, totalTokens);
 
         } catch (Exception e) {
-            logger.warn("Failed to track token usage for operation {}: {}", operation, e.getMessage());
+            logger.warn("⚠️ Failed to track token usage for operation {}: {}", operation, e.getMessage());
         }
     }
 
@@ -311,7 +326,7 @@ public class GeminiProvider extends AIProvider {
             }
             return objectMapper.writeValueAsString(messageMap);
         } catch (Exception e) {
-            logger.warn("Failed to format message as JSON: {}", e.getMessage());
+            logger.warn("⚠️ Failed to format message as JSON: {}", e.getMessage());
             return "{}";
         }
     }

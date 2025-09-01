@@ -75,8 +75,6 @@ public class ConversationEnrichmentStep implements PipelineStep {
     private ConversationEnrichment parseConversationEnrichmentResponse(String response, List<SlackMessage> messages) {
         try {
             String cleanedResponse = JsonCleaner.cleanJsonResponse(response);
-            logger.info("[==>>> GEMINI-PARSE]: Cleaned response:\n{}", cleanedResponse);
-
             if (cleanedResponse.trim().startsWith("[")) {
                 return parseTopicsFromText(cleanedResponse, messages);
             }

@@ -76,66 +76,66 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
 
     @PostConstruct
     public void postConstruct() {
-        log.info("=== MessageEnrichmentScheduler @PostConstruct Called ===");
+        log.info("📅 === MessageEnrichmentScheduler @PostConstruct Called ===");
 
         // Check if scheduling is enabled globally
         try {
             String[] schedulingBeans = applicationContext.getBeanNamesForAnnotation(org.springframework.scheduling.annotation.EnableScheduling.class);
-            log.info("@EnableScheduling beans found: {}", java.util.Arrays.toString(schedulingBeans));
+            log.info("📋 @EnableScheduling beans found: {}", java.util.Arrays.toString(schedulingBeans));
         } catch (Exception e) {
-            log.warn("Error checking @EnableScheduling beans: {}", e.getMessage());
+            log.warn("⚠️ Error checking @EnableScheduling beans: {}", e.getMessage());
         }
 
         // Check property values
         try {
             org.springframework.core.env.Environment env = applicationContext.getEnvironment();
-            log.debug("Environment configured with {} active profiles", env.getActiveProfiles().length);
+            log.debug("🌍 Environment configured with {} active profiles", env.getActiveProfiles().length);
         } catch (Exception e) {
-            log.warn("Error checking environment properties: {}", e.getMessage());
+            log.warn("⚠️ Error checking environment properties: {}", e.getMessage());
         }
 
         // Check if this bean is being created
-        log.info("MessageEnrichmentScheduler bean successfully created and initialized");
-        log.info("=== MessageEnrichmentScheduler @PostConstruct Completed ===");
+        log.info("✅ MessageEnrichmentScheduler bean successfully created and initialized");
+        log.info("📅 === MessageEnrichmentScheduler @PostConstruct Completed ===");
     }
 
     @Override
     public void afterPropertiesSet() throws Exception {
-        log.info("=== MessageEnrichmentScheduler afterPropertiesSet Called ===");
-        log.info("All dependencies have been injected successfully");
+        log.info("📅 === MessageEnrichmentScheduler afterPropertiesSet Called ===");
+        log.info("✅ All dependencies have been injected successfully");
 
         // Schedule a test run in 10 seconds to verify scheduling works
-        log.info("Scheduler will attempt to run every 5 minutes according to cron expression");
-        log.info("Next scheduled execution should occur at the next 5-minute interval");
-        log.info("=== MessageEnrichmentScheduler afterPropertiesSet Completed ===");
+        log.info("⏰ Scheduler will attempt to run every 15 minutes according to cron expression");
+        log.info("📍 Next scheduled execution should occur at the next 15-minute interval");
+        log.info("📅 === MessageEnrichmentScheduler afterPropertiesSet Completed ===");
     }
 
     /**
      * Scheduled method to process message enrichment for all workspaces.
      */
-    @Scheduled(cron = "${ai.enrichment.scheduler.cron:0 */5 * * * ?}")
+    @Scheduled(cron = "${ai.enrichment.scheduler.cron:0 */15 * * * ?}")
     public void processMessageEnrichment() {
-        log.info("=== SCHEDULER EXECUTED ===");
-        log.info("Current time: {}", LocalDateTime.now());
-        log.info("Thread: {}", Thread.currentThread().getName());
-        log.info("Starting scheduled message enrichment process");
+        log.info("🚀 === SCHEDULER EXECUTED ===");
+        log.info("⏰ Current time: {}", LocalDateTime.now());
+        log.info("🧵 Thread: {}", Thread.currentThread().getName());
+        log.info("📊 Starting scheduled message enrichment process");
 
         try {
             final var workspaces = workspaceService.getAllWorkspaces();
 
             if (workspaces.isEmpty()) {
-                log.info("No workspaces found, skipping enrichment cycle");
+                log.info("📭 No workspaces found, skipping enrichment cycle");
                 return;
             }
 
             processAllWorkspaces(workspaces);
-            log.info("Completed scheduled message enrichment process for {} workspaces", workspaces.size());
+            log.info("✅ Completed scheduled message enrichment process for {} workspaces", workspaces.size());
 
         } catch (Exception e) {
-            log.error("Critical error during scheduled message enrichment process: {}", e.getMessage(), e);
+            log.error("🚨 Critical error during scheduled message enrichment process: {}", e.getMessage(), e);
         }
 
-        log.info("=== SCHEDULER EXECUTION COMPLETED ===");
+        log.info("🏁 === SCHEDULER EXECUTION COMPLETED ===");
     }
 
     /**
@@ -151,17 +151,17 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                 final int workspaceBatches = results[0];
                 final int workspaceMessages = results[1];
 
-                log.info("Successfully processed workspace: {} - batches: {}, messages: {}",
-                    workspace.getName(), workspaceBatches, workspaceMessages);
+                log.info("✅ Successfully processed workspace: {} | 📦 Batches: {}, 📨 Messages: {}, 🏢 Tenant: {}, 👤 User: {}",
+                    workspace.getName(), workspaceBatches, workspaceMessages, workspace.getTenantId(), workspace.getDeemergeUserName());
                 successCount++;
 
             } catch (Exception e) {
-                log.error("Error processing workspace {}: {}", workspace.getName(), e.getMessage(), e);
+                log.error("❌ Error processing workspace {}: {}", workspace.getName(), e.getMessage(), e);
                 failureCount++;
             }
         }
 
-        log.info("Workspace processing summary: {} successful, {} failed out of {} total",
+        log.info("📊 Workspace processing summary: ✅ {} successful, ❌ {} failed out of 📊 {} total",
             successCount, failureCount, workspaces.size());
     }
 
@@ -169,7 +169,8 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
      * Processes messages for a specific workspace using SlidingWindowService.
      */
     private int[] processWorkspace(final Workspace workspace) {
-        log.info("Starting message processing for workspace: {} using SlidingWindowService", workspace.getName());
+        log.info("🔄 Starting message processing for workspace: {} | 🏢 Tenant: {} | 👤 User: {} using SlidingWindowService",
+            workspace.getName(), workspace.getTenantId(), workspace.getDeemergeUserName());
 
         final var batchCount = new AtomicInteger(0);
         final var totalProcessed = new AtomicInteger(0);
@@ -179,13 +180,13 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
             final int messagesProcessed = slidingWindowService.processMessages(
                 workspace, batchSize, DEFAULT_SLIDING_WINDOW_SIZE, enrichmentProcessor);
 
-            log.info("Completed processing workspace: {} - {} batches, {} messages processed",
-                workspace.getName(), batchCount.get(), messagesProcessed);
+            log.info("✅ Completed processing workspace: {} | 📦 {} batches, 📨 {} messages processed, 🏢 Tenant: {}, 👤 User: {}",
+                workspace.getName(), batchCount.get(), messagesProcessed, workspace.getTenantId(), workspace.getDeemergeUserName());
 
             return new int[]{batchCount.get(), messagesProcessed};
 
         } catch (Exception e) {
-            log.error("Critical error processing workspace: {}. Error: {}", workspace.getName(), e.getMessage(), e);
+            log.error("🚨 Critical error processing workspace: {}. Error: {}", workspace.getName(), e.getMessage(), e);
             throw new RuntimeException("Failed to process workspace: " + workspace.getName(), e);
         }
     }
@@ -198,15 +199,14 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                                                                    final AtomicInteger totalProcessed) {
         return messages -> {
             final int currentBatch = batchCount.incrementAndGet();
-            log.info("Processing batch #{} with {} messages for workspace: {}",
-                currentBatch, messages.size(), workspace.getName());
+            log.info("📦 Processing batch #{} with 📨 {} messages for workspace: {} | 🏢 Tenant: {}",
+                currentBatch, messages.size(), workspace.getName(), workspace.getTenantId());
             try {
                 processMessageBatchForEnrichment(messages, workspace, currentBatch);
                 totalProcessed.addAndGet(messages.size());
-                log.debug("Successfully processed batch #{} for workspace: {}",
-                    currentBatch, workspace.getName());
+                log.debug("✅ Successfully processed batch #{} for workspace: {}", currentBatch, workspace.getName());
             } catch (Exception e) {
-                log.error("Error processing batch #{} for workspace {}: {}",
+                log.error("❌ Error processing batch #{} for workspace {}: {}",
                     currentBatch, workspace.getName(), e.getMessage(), e);
             }
             return null;
@@ -221,7 +221,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                                                  final Workspace workspace,
                                                  final int batchNumber) {
         if (messages == null || messages.isEmpty()) {
-            log.debug("No messages to process in batch #{} for workspace: {}", batchNumber, workspace.getName());
+            log.debug("📭 No messages to process in batch #{} for workspace: {}", batchNumber, workspace.getName());
             return;
         }
 
@@ -232,12 +232,19 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
             processMessagesInBatch(messages, slackMessages, participants);
 
             if (!slackMessages.isEmpty()) {
+                // Calculate unique users and channels for statistics
+                long uniqueUsers = slackMessages.stream().map(SlackMessage::getUserId).distinct().count();
+                long uniqueChannels = slackMessages.stream().map(SlackMessage::getChannelId).distinct().count();
+
+                log.info("📊 Batch #{} statistics for workspace {} | 📨 {} messages, 👥 {} participants, 🏷️ {} unique users, 📺 {} unique channels, 🏢 Tenant: {}",
+                    batchNumber, workspace.getName(), slackMessages.size(), participants.size(), uniqueUsers, uniqueChannels, workspace.getTenantId());
+
                 publishEnrichmentRequest(slackMessages, participants, workspace, batchNumber);
             } else {
-                log.warn("No valid messages found in batch #{} for workspace: {}", batchNumber, workspace.getName());
+                log.warn("⚠️ No valid messages found in batch #{} for workspace: {}", batchNumber, workspace.getName());
             }
         } catch (Exception e) {
-            log.error("Critical error processing message batch #{} for workspace {}: {}",
+            log.error("🚨 Critical error processing message batch #{} for workspace {}: {}",
                      batchNumber, workspace.getName(), e.getMessage(), e);
             throw new RuntimeException("Failed to process message batch: " + batchNumber, e);
         }
@@ -256,12 +263,12 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                 slackMessages.add(slackMessage);
                 addParticipantIfNew(message, participants);
             } catch (Exception e) {
-                log.warn("Failed to process individual message {}: {}",
+                log.warn("⚠️ Failed to process individual message {}: {}",
                     message.getId(), e.getMessage());
             }
         }
 
-        log.debug("Processed {} messages resulting in {} slack messages and {} unique participants",
+        log.debug("🔄 Processed {} messages resulting in {} slack messages and {} unique participants",
             messages.size(), slackMessages.size(), participants.size());
     }
 
@@ -309,7 +316,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         slackMessage.setSource(message.getSource() != null ? message.getSource() : "slack");
 
         // Debug: Log permalink setting
-        log.debug("Setting permalink for message {}: {} -> {}",
+        log.debug("🔗 Setting permalink for message {}: {} -> {}",
                   message.getId(), message.getPermaLink(), slackMessage.getPermaLink());
 
         slackMessage.setTenantId(message.getTenantId());
@@ -400,7 +407,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         final String messageTs = message.getMessageTs();
 
         if (messageTs == null || messageTs.trim().isEmpty()) {
-            log.debug("No timestamp available for message {}", message.getId());
+            log.debug("⏰ No timestamp available for message {}", message.getId());
             return;
         }
 
@@ -411,13 +418,13 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
             final var timestamp = LocalDateTime.ofEpochSecond(epochSeconds, 0, ZoneOffset.UTC);
             slackMessage.setTimestamp(timestamp);
         } catch (NumberFormatException e) {
-            log.warn("Invalid timestamp format for message {}: '{}' - {}",
+            log.warn("⚠️ Invalid timestamp format for message {}: '{}' - {}",
                 message.getId(), messageTs, e.getMessage());
         } catch (ArrayIndexOutOfBoundsException e) {
-            log.warn("Malformed timestamp structure for message {}: '{}' - {}",
+            log.warn("⚠️ Malformed timestamp structure for message {}: '{}' - {}",
                 message.getId(), messageTs, e.getMessage());
         } catch (Exception e) {
-            log.warn("Unexpected error parsing timestamp for message {}: '{}' - {}",
+            log.warn("⚠️ Unexpected error parsing timestamp for message {}: '{}' - {}",
                 message.getId(), messageTs, e.getMessage());
         }
     }
@@ -430,7 +437,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         final String userId = message.getUserId();
 
         if (userId == null || userId.trim().isEmpty()) {
-            log.debug("Skipping participant addition for message {} - no valid user ID", message.getId());
+            log.debug("👤 Skipping participant addition for message {} - no valid user ID", message.getId());
             return;
         }
 
@@ -489,11 +496,11 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                 parentJobId // parentId - groups batches under workspace processing
             );
 
-            log.debug("Successfully published AI enrichment request for conversation: {} with {} messages and {} participants",
+            log.debug("🚀 Successfully published AI enrichment request for conversation: {} with {} messages and {} participants",
                 conversationId, slackMessages.size(), participants.size());
 
         } catch (Exception e) {
-            log.error("Failed to publish AI enrichment request for batch #{} in workspace {}: {}",
+            log.error("🚨 Failed to publish AI enrichment request for batch #{} in workspace {}: {}",
                 batchNumber, workspace.getName(), e.getMessage(), e);
             throw new RuntimeException("Failed to publish enrichment request", e);
         }
@@ -520,7 +527,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         context.put("deemergeUserId", workspace.getDeemergeUserId());
         context.put("deemergeUserName", workspace.getDeemergeUserName());
 
-        log.debug("Created batch context for workspace {} batch #{}: {} messages, {} participants",
+        log.debug("📋 Created batch context for workspace {} batch #{}: {} messages, {} participants",
             workspace.getName(), batchNumber, messageCount, participantCount);
 
         return context;
