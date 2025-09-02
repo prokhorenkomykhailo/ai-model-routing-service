@@ -94,12 +94,12 @@ public class OpenAIProvider extends AIProvider {
         String deemergeUserId = (String) context.get("deemergeUserId");
         String tenantId = (String) context.get("tenantId");
 
+        // Validate tenant ID using centralized method
+        validateTenantId(tenantId, "conversation-enrichment");
+
         // Use default values if not provided
         if (deemergeUserId == null || deemergeUserId.trim().isEmpty()) {
             deemergeUserId = "unknown";
-        }
-        if (tenantId == null || tenantId.trim().isEmpty()) {
-            tenantId = "unknown";
         }
         if (deemergeUserName == null || deemergeUserName.trim().isEmpty()) {
             deemergeUserName = "Unknown";
@@ -163,6 +163,9 @@ public class OpenAIProvider extends AIProvider {
                    debugId, query != null ? query.length() : 0, userId != null ? userId : "unknown", tenantId != null ? tenantId : "unknown");
 
         try {
+            // Validate tenant ID using centralized method
+            validateTenantId(tenantId, "text-query");
+
             // Input validation
             if (query == null || query.trim().isEmpty()) {
                 logger.warn("⚠️ OPENAI-TEXT [{}]: Empty query provided", debugId);

@@ -1,6 +1,8 @@
 package com.lucid.automation.airouting.provider;
 
+import com.lucid.automation.airouting.exception.InvalidTenantException;
 import com.lucid.automation.airouting.model.message.AIMessage;
+import com.lucid.automation.airouting.util.TenantValidationUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,6 +61,26 @@ public abstract class AIProvider {
      * Get last confidence score
      */
     public abstract double getLastConfidence();
+
+    /**
+     * Validates tenant ID before processing AI requests.
+     * This method provides centralized tenant validation across all AI providers.
+     * 
+     * @param tenantId The tenant ID to validate
+     * @param operation The operation being performed (for logging purposes)
+     * @throws InvalidTenantException if the tenant ID is invalid
+     */
+    protected void validateTenantId(String tenantId, String operation) {
+        if (TenantValidationUtil.isInvalidTenantId(tenantId)) {
+            String reason = TenantValidationUtil.getInvalidTenantIdReason(tenantId);
+            logger.warn("⚠️ {}: Rejecting {} operation due to invalid tenant ID [{}]: {}", 
+                       getProviderId(), operation, tenantId, reason);
+            throw new InvalidTenantException(tenantId, reason);
+        }
+        
+        logger.debug("{}: Tenant ID validation passed for operation: {}, tenant: {}", 
+                    getProviderId(), operation, tenantId);
+    }
 
     /**
      * Send token consumption data to Kafka topic

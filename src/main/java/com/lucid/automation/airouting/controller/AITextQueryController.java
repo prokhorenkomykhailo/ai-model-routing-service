@@ -1,8 +1,10 @@
 package com.lucid.automation.airouting.controller;
 
 import com.lucid.automation.airouting.audit.Audit;
+import com.lucid.automation.airouting.exception.InvalidTenantException;
 import com.lucid.automation.airouting.model.AITaskType;
 import com.lucid.automation.airouting.service.AIProviderRouterService;
+import com.lucid.automation.airouting.util.TenantValidationUtil;
 import com.lucid.automation.common.dto.response.APIResponse;
 import com.lucid.automation.common.dto.ai.TextQueryRequestDTO;
 import com.lucid.automation.common.dto.ai.TextQueryResponseDTO;
@@ -66,6 +68,15 @@ public class AITextQueryController {
         logger.info("AI-CONTROLLER [{}]: Received text query request from UserId: [{}], TenantId: [{}], TenantSchema: [{}], PreferredProvider: [{}]",
                    debugId, userId, tenantId, tenantSchema, preferredProvider);
 
+        // Validate tenant ID before processing
+        if (TenantValidationUtil.isInvalidTenantId(tenantId)) {
+            String reason = TenantValidationUtil.getInvalidTenantIdReason(tenantId);
+            logger.warn("AI-CONTROLLER [{}]: Ignoring AI request due to invalid tenant ID: [{}] - {}",
+                       debugId, tenantId, reason);
+            return ResponseEntity.badRequest()
+                .body(APIResponse.error("Invalid tenant ID: " + reason));
+        }
+
         try {
             // Select the best available provider using the router
             AIProvider selectedProvider = providerRouter.selectProvider(AITaskType.TEXT_QUERY, tenantId, preferredProvider);
@@ -90,6 +101,11 @@ public class AITextQueryController {
             return ResponseEntity.ok(
                 APIResponse.success("Query processed successfully", response)
             );
+
+        } catch (InvalidTenantException e) {
+            logger.warn("AI-CONTROLLER [{}]: Invalid tenant ID: {}", debugId, e.getMessage());
+            return ResponseEntity.badRequest()
+                .body(APIResponse.error("Invalid tenant ID: " + e.getReason()));
 
         } catch (AIProviderRouterService.NoAvailableProviderException e) {
             logger.error("AI-CONTROLLER [{}]: No available providers: {}", debugId, e.getMessage());
@@ -149,6 +165,15 @@ public class AITextQueryController {
         logger.info("AI-CONTROLLER [{}]: Received validated text query request from UserId: [{}], TenantId: [{}], EstimatedTokens: [{}]",
                    debugId, userId, tenantId, estimatedTokens);
 
+        // Validate tenant ID before processing
+        if (TenantValidationUtil.isInvalidTenantId(tenantId)) {
+            String reason = TenantValidationUtil.getInvalidTenantIdReason(tenantId);
+            logger.warn("AI-CONTROLLER [{}]: Ignoring AI request due to invalid tenant ID: [{}] - {}",
+                       debugId, tenantId, reason);
+            return ResponseEntity.badRequest()
+                .body(APIResponse.error("Invalid tenant ID: " + reason));
+        }
+
         try {
             // Use the enhanced provider selection with token validation
             AIProvider selectedProvider = providerRouter.selectProviderWithTokenValidation(
@@ -174,6 +199,11 @@ public class AITextQueryController {
             return ResponseEntity.ok(
                 APIResponse.success("Query processed successfully with token validation", response)
             );
+
+        } catch (InvalidTenantException e) {
+            logger.warn("AI-CONTROLLER [{}]: Invalid tenant ID: {}", debugId, e.getMessage());
+            return ResponseEntity.badRequest()
+                .body(APIResponse.error("Invalid tenant ID: " + e.getReason()));
 
         } catch (AIProviderRouterService.InsufficientTokensException e) {
             logger.error("AI-CONTROLLER [{}]: Insufficient tokens for operation: {}", debugId, e.getMessage());

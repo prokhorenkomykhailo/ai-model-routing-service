@@ -1,9 +1,11 @@
 package com.lucid.automation.airouting.service;
 
 import com.lucid.automation.airouting.config.RoutingConfig;
+import com.lucid.automation.airouting.exception.InvalidTenantException;
 import com.lucid.automation.airouting.model.AITaskType;
 import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.provider.AIProviderFactory;
+import com.lucid.automation.airouting.util.TenantValidationUtil;
 import com.lucid.automation.common.dto.TokenQuotaResponseDTO;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -81,6 +83,14 @@ public class AIProviderRouterService {
      * Select the best available provider with preferred provider hint
      */
     public AIProvider selectProvider(AITaskType taskType, String tenantId, String preferredProviderId) {
+        // Validate tenant ID before any processing
+        if (TenantValidationUtil.isInvalidTenantId(tenantId)) {
+            String reason = TenantValidationUtil.getInvalidTenantIdReason(tenantId);
+            logger.warn("PROVIDER-ROUTER: Refusing to select provider for invalid tenant ID [{}]: {}", 
+                       tenantId, reason);
+            throw new InvalidTenantException(tenantId, reason);
+        }
+
         Span span = tracer.spanBuilder("ai.provider.selection")
             .setAttribute("task_type", taskType.toString())
             .setAttribute("tenant_id", tenantId)
@@ -258,6 +268,14 @@ public class AIProviderRouterService {
                                                       String tenantId,
                                                       long estimatedTokens,
                                                       String preferredProvider) {
+        // Validate tenant ID before any processing
+        if (TenantValidationUtil.isInvalidTenantId(tenantId)) {
+            String reason = TenantValidationUtil.getInvalidTenantIdReason(tenantId);
+            logger.warn("PROVIDER-ROUTER: Refusing to select provider for invalid tenant ID [{}]: {}", 
+                       tenantId, reason);
+            throw new InvalidTenantException(tenantId, reason);
+        }
+
         Timer.Sample sample = Timer.start();
         Span span = tracer.spanBuilder("ai.provider.selection.with.validation")
                     .setAttribute("task_type", taskType.toString())
