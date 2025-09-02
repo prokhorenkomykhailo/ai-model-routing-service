@@ -86,7 +86,7 @@ public class AIProviderRouterService {
         // Validate tenant ID before any processing
         if (TenantValidationUtil.isInvalidTenantId(tenantId)) {
             String reason = TenantValidationUtil.getInvalidTenantIdReason(tenantId);
-            logger.warn("PROVIDER-ROUTER: Refusing to select provider for invalid tenant ID [{}]: {}", 
+            logger.warn("PROVIDER-ROUTER: Refusing to select provider for invalid tenant ID [{}]: {}",
                        tenantId, reason);
             throw new InvalidTenantException(tenantId, reason);
         }
@@ -271,7 +271,7 @@ public class AIProviderRouterService {
         // Validate tenant ID before any processing
         if (TenantValidationUtil.isInvalidTenantId(tenantId)) {
             String reason = TenantValidationUtil.getInvalidTenantIdReason(tenantId);
-            logger.warn("PROVIDER-ROUTER: Refusing to select provider for invalid tenant ID [{}]: {}", 
+            logger.warn("PROVIDER-ROUTER: Refusing to select provider for invalid tenant ID [{}]: {}",
                        tenantId, reason);
             throw new InvalidTenantException(tenantId, reason);
         }

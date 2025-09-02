@@ -28,7 +28,7 @@ class AIProviderTenantValidationTest {
     void testValidateTenantId_ValidTenant_ShouldPass() {
         // Valid UUID should not throw exception
         String validTenantId = "550e8400-e29b-41d4-a716-446655440000";
-        
+
         assertDoesNotThrow(() -> {
             testProvider.validateTenantId(validTenantId, "test-operation");
         });
@@ -41,11 +41,11 @@ class AIProviderTenantValidationTest {
         InvalidTenantException exception = assertThrows(InvalidTenantException.class, () -> {
             testProvider.validateTenantId(tenantId, "test-operation");
         });
-        
+
         // Note: tenantId in exception may be null for null input, but reason should always be present
         assertNotNull(exception.getReason());
         assertTrue(exception.getMessage().contains("Invalid tenant ID"));
-        
+
         // Check the actual tenantId field - it should match what was passed in
         assertEquals(tenantId, exception.getTenantId());
     }
@@ -53,11 +53,11 @@ class AIProviderTenantValidationTest {
     @Test
     void testValidateTenantId_InvalidUuidPattern_ShouldThrowException() {
         String invalidTenantId = "00000000-0000-0000-0000-000000000000";
-        
+
         InvalidTenantException exception = assertThrows(InvalidTenantException.class, () -> {
             testProvider.validateTenantId(invalidTenantId, "test-operation");
         });
-        
+
         assertEquals(invalidTenantId, exception.getTenantId());
         assertTrue(exception.getReason().contains("invalid UUID pattern"));
     }
@@ -74,7 +74,7 @@ class AIProviderTenantValidationTest {
         InvalidTenantException exception = assertThrows(InvalidTenantException.class, () -> {
             testProvider.validateTenantId(tenantId, "test-operation");
         });
-        
+
         assertEquals(tenantId, exception.getTenantId());
         assertTrue(exception.getReason().contains("not a valid UUID format"));
     }
@@ -83,7 +83,7 @@ class AIProviderTenantValidationTest {
     void testValidateTenantId_ValidTenantWithWhitespace_ShouldPass() {
         // Valid UUID with whitespace should pass (gets trimmed internally)
         String tenantIdWithWhitespace = "  550e8400-e29b-41d4-a716-446655440000  ";
-        
+
         assertDoesNotThrow(() -> {
             testProvider.validateTenantId(tenantIdWithWhitespace, "test-operation");
         });
@@ -93,11 +93,11 @@ class AIProviderTenantValidationTest {
     void testValidateTenantId_DifferentOperations_ShouldIncludeOperationInException() {
         String invalidTenantId = "invalid-tenant";
         String operation = "conversation-enrichment";
-        
+
         InvalidTenantException exception = assertThrows(InvalidTenantException.class, () -> {
             testProvider.validateTenantId(invalidTenantId, operation);
         });
-        
+
         // The exception message should contain the operation name
         assertNotNull(exception.getMessage());
         assertTrue(exception.getMessage().contains(invalidTenantId));

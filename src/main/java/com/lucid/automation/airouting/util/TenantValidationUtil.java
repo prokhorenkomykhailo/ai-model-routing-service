@@ -20,12 +20,12 @@ public final class TenantValidationUtil {
 
     /**
      * Validates if a tenant ID is valid and should allow AI processing.
-     * 
+     *
      * A tenant ID is considered invalid if:
      * - It is null
      * - It is empty or blank
      * - It matches the invalid UUID pattern (00000000-0000-0000-0000-000000000000)
-     * 
+     *
      * @param tenantId The tenant ID to validate
      * @return true if the tenant ID is valid and AI requests should be processed, false otherwise
      */
@@ -33,14 +33,14 @@ public final class TenantValidationUtil {
         if (!StringUtils.hasText(tenantId)) {
             return false;
         }
-        
+
         String cleanedTenantId = tenantId.trim();
-        
+
         // Check if it matches the invalid UUID pattern
         if (INVALID_TENANT_UUID.equals(cleanedTenantId)) {
             return false;
         }
-        
+
         // Additional validation: ensure it's a valid UUID format
         try {
             UUID.fromString(cleanedTenantId);
@@ -53,7 +53,7 @@ public final class TenantValidationUtil {
     /**
      * Checks if a tenant ID is invalid and should prevent AI processing.
      * This is the inverse of isValidTenantId() for better readability in conditional logic.
-     * 
+     *
      * @param tenantId The tenant ID to validate
      * @return true if the tenant ID is invalid and AI requests should be rejected, false otherwise
      */
@@ -64,7 +64,7 @@ public final class TenantValidationUtil {
     /**
      * Gets a descriptive message explaining why a tenant ID is invalid.
      * Useful for logging and error messages.
-     * 
+     *
      * @param tenantId The tenant ID to analyze
      * @return A descriptive error message
      */
@@ -72,15 +72,15 @@ public final class TenantValidationUtil {
         if (tenantId == null) {
             return "Tenant ID is null";
         }
-        
+
         if (tenantId.trim().isEmpty()) {
             return "Tenant ID is empty or blank";
         }
-        
+
         if (INVALID_TENANT_UUID.equals(tenantId.trim())) {
             return "Tenant ID matches invalid UUID pattern (00000000-0000-0000-0000-000000000000)";
         }
-        
+
         try {
             UUID.fromString(tenantId.trim());
             return "Tenant ID is valid"; // Should not reach here if called correctly
@@ -91,7 +91,7 @@ public final class TenantValidationUtil {
 
     /**
      * Sanitizes and validates a tenant ID, returning a clean version or null if invalid.
-     * 
+     *
      * @param tenantId The tenant ID to sanitize
      * @return The sanitized tenant ID if valid, null if invalid
      */
@@ -99,13 +99,13 @@ public final class TenantValidationUtil {
         if (!StringUtils.hasText(tenantId)) {
             return null;
         }
-        
+
         String cleanedTenantId = tenantId.trim();
-        
+
         if (isValidTenantId(cleanedTenantId)) {
             return cleanedTenantId;
         }
-        
+
         return null;
     }
 }
