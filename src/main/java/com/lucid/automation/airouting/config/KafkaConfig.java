@@ -96,17 +96,30 @@ public class KafkaConfig {
         configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
         configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
 
-        // CONFIGURATION: Start from latest offset - Skip historical messages
-        // This ensures the consumer doesn't get kicked out of the group during processing
-        configProps.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 300000); // 5 minutes
-        configProps.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 10000); // 10 seconds
-        configProps.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 3000); // 3 seconds
+        // BEST PRACTICES: Optimized for AI processing workloads
+        // Max Poll Interval: Time consumer can spend processing before being kicked out
+        configProps.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 900000);  // 15 minutes (AI calls can be slow)
 
-        logger.info("=== AI-ENRICH CONSUMER CONFIG ===");
+        // Session Timeout: How long consumer can be silent before being considered dead
+        configProps.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 300000);    // 5 minutes (reasonable for stability)
+
+        // Heartbeat Interval: Must be < session_timeout/3 (Kafka requirement)
+        configProps.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 90000);  // 1.5 minutes (300s/3 = 100s max)
+
+        // OPTIMIZATION: Reduce batch size for faster processing cycles
+        configProps.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 10);          // Process 10 records at a time
+        configProps.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, 1);            // Don't wait for data accumulation
+        configProps.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 500);        // Max 500ms wait for data
+
+        logger.info("=== AI-ENRICH CONSUMER CONFIG (BEST PRACTICES) ===");
         logger.info("Using group ID: {}", groupId + "-ai-enrich");
         logger.info("AUTO_OFFSET_RESET: latest");
-        logger.info("This ensures ai-enrich topic is processed from the latest offset when no committed offsets exist");
-        logger.info("================================");
+        logger.info("SESSION_TIMEOUT: 5m (balanced stability vs responsiveness)");
+        logger.info("MAX_POLL_INTERVAL: 15m (sufficient for AI processing)");
+        logger.info("HEARTBEAT_INTERVAL: 1.5m (< session_timeout/3)");
+        logger.info("MAX_POLL_RECORDS: 10 (small batches for consistent processing)");
+        logger.info("Configuration optimized for AI workload characteristics");
+        logger.info("====================================================");
 
         // Add security configuration if needed
         if (!"PLAINTEXT".equals(securityProtocol)) {

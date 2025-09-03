@@ -46,8 +46,13 @@ spring:
         "[spring.kafka.listener.ack-mode]": manual_immediate
         "[max.partition.fetch.bytes]": 10485760
         "[fetch.message.max.bytes]": 10485760
-
-    # Producer Configuration (for publishing responses/results if needed)
+        # BEST PRACTICES: Optimized for AI processing workloads
+        "[session.timeout.ms]": 300000       # 5 minutes (balanced stability)
+        "[heartbeat.interval.ms]": 90000     # 1.5 minutes (< session_timeout/3)
+        "[max.poll.interval.ms]": 900000     # 15 minutes (sufficient for AI processing)
+        "[max.poll.records]": 10             # Small batches for consistent processing
+        "[fetch.min.bytes]": 1               # Don't wait for data accumulation
+        "[fetch.max.wait.ms]": 500           # Max 500ms wait for data    # Producer Configuration (for publishing responses/results if needed)
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
@@ -108,7 +113,7 @@ ai:
   enrichment:
     scheduler:
       cron: "${AI_ENRICHMENT_CRON:0 */15 * * * ?}"  # Every 15 minutes by default
-      enabled: "${AI_ENRICHMENT_ENABLED:true}"
+      enabled: "${AI_ENRICHMENT_ENABLED:false}"     # DISABLED to prevent excessive requests and rebalances
 
 # Lucid Post-Processing Pipeline Configuration
 lucid:
