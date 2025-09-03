@@ -5,12 +5,16 @@ import com.lucid.automation.airouting.model.User;
 import com.lucid.automation.airouting.model.Workspace;
 import com.lucid.automation.airouting.repository.MessageRepository;
 import com.lucid.automation.airouting.repository.UserRepository;
+import com.lucid.automation.airouting.repository.WorkspaceRepository;
+import com.lucid.automation.airouting.util.TenantValidationUtil;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -32,6 +36,7 @@ public class SlidingWindowService {
 
     private final MessageRepository messageRepository;
     private final UserRepository userRepository;
+    private final WorkspaceRepository workspaceRepository;
 
     @Value("${sliding.window.default.batch.size:50}")
     private int defaultBatchSize;
@@ -45,9 +50,124 @@ public class SlidingWindowService {
     @Value("${sliding.window.avg.tokens.per.message:50}")
     private int avgTokensPerMessage;
 
-    public SlidingWindowService(MessageRepository messageRepository, UserRepository userRepository) {
+    @Value("${sliding.window.min.new.messages:5}")
+    private int minNewMessages;
+
+    @Value("${sliding.window.max.wait.hours:4}")
+    private int maxWaitHours;
+
+    public SlidingWindowService(MessageRepository messageRepository, UserRepository userRepository, WorkspaceRepository workspaceRepository) {
         this.messageRepository = messageRepository;
         this.userRepository = userRepository;
+        this.workspaceRepository = workspaceRepository;
+    }
+
+    /**
+     * Determines if a workspace should be processed based on:
+     * 1. Invalid tenant ID check (skip processing if invalid)
+     * 2. Number of new messages (≥5 messages)
+     * 3. Time since last processing (≥4 hours)
+     *
+     * @param workspace The workspace to evaluate
+     * @return ProcessingDecision with decision and reason
+     */
+    public ProcessingDecision shouldProcessWorkspace(Workspace workspace) {
+        String workspaceId = workspace.getId();
+        String tenantId = workspace.getTenantId();
+
+        // First, validate tenant ID - reject invalid tenants consistently across the project
+        if (TenantValidationUtil.isInvalidTenantId(tenantId)) {
+            String reason = TenantValidationUtil.getInvalidTenantIdReason(tenantId);
+            logger.warn("🚫 SLIDING-WINDOW: Skipping workspace [{}] due to invalid tenant ID [{}]: {}",
+                       workspaceId, tenantId, reason);
+            return new ProcessingDecision(false, ProcessingDecision.Reason.INVALID_TENANT,
+                "Invalid tenant ID: " + reason);
+        }
+
+        try {
+            // Count unprocessed messages for this workspace
+            String deemergeUserId = workspace.getDeemergeUserId();
+            List<Message> allMessages = loadMessagesForWorkspace(tenantId, deemergeUserId);
+
+            long unprocessedCount = allMessages.stream()
+                .filter(msg -> msg.getIsProcessed() == null || !msg.getIsProcessed())
+                .count();
+
+            // Update workspace unprocessed message count
+            workspace.setUnprocessedMessageCount(unprocessedCount);
+
+            // Check if we have enough new messages
+            if (unprocessedCount >= minNewMessages) {
+                logger.info("✅ SLIDING-WINDOW: Workspace [{}] has {} unprocessed messages (≥{}) - processing immediately",
+                           workspaceId, unprocessedCount, minNewMessages);
+                return new ProcessingDecision(true, ProcessingDecision.Reason.SUFFICIENT_MESSAGES,
+                    String.format("%d unprocessed messages (≥%d required)", unprocessedCount, minNewMessages));
+            }
+
+            // Check time-based processing
+            Instant lastProcessed = workspace.getLastProcessedAt();
+            if (lastProcessed == null) {
+                logger.info("✅ SLIDING-WINDOW: Workspace [{}] has never been processed - processing now", workspaceId);
+                return new ProcessingDecision(true, ProcessingDecision.Reason.NEVER_PROCESSED,
+                    "Workspace has never been processed");
+            }
+
+            Duration timeSinceLastProcessed = Duration.between(lastProcessed, Instant.now());
+            long hoursSinceLastProcessed = timeSinceLastProcessed.toHours();
+
+            if (hoursSinceLastProcessed >= maxWaitHours) {
+                logger.info("✅ SLIDING-WINDOW: Workspace [{}] last processed {} hours ago (≥{} hours) - processing due to time threshold",
+                           workspaceId, hoursSinceLastProcessed, maxWaitHours);
+                return new ProcessingDecision(true, ProcessingDecision.Reason.TIME_THRESHOLD,
+                    String.format("Last processed %d hours ago (≥%d hours required)", hoursSinceLastProcessed, maxWaitHours));
+            }
+
+            // Not enough messages and not enough time passed
+            logger.info("⏸️  SLIDING-WINDOW: Workspace [{}] skipped - only {} unprocessed messages (<{}) and {} hours since last processing (<{})",
+                       workspaceId, unprocessedCount, minNewMessages, hoursSinceLastProcessed, maxWaitHours);
+            return new ProcessingDecision(false, ProcessingDecision.Reason.INSUFFICIENT_CRITERIA,
+                String.format("Only %d unprocessed messages (<%d required) and %d hours since last processing (<%d hours required)",
+                             unprocessedCount, minNewMessages, hoursSinceLastProcessed, maxWaitHours));
+
+        } catch (Exception e) {
+            logger.error("🚨 SLIDING-WINDOW: Error evaluating workspace [{}]: {}", workspaceId, e.getMessage(), e);
+            return new ProcessingDecision(false, ProcessingDecision.Reason.ERROR,
+                "Error evaluating workspace: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Data class representing a processing decision for a workspace
+     */
+    public static class ProcessingDecision {
+        private final boolean shouldProcess;
+        private final Reason reason;
+        private final String description;
+
+        public ProcessingDecision(boolean shouldProcess, Reason reason, String description) {
+            this.shouldProcess = shouldProcess;
+            this.reason = reason;
+            this.description = description;
+        }
+
+        public boolean shouldProcess() { return shouldProcess; }
+        public Reason getReason() { return reason; }
+        public String getDescription() { return description; }
+
+        public enum Reason {
+            SUFFICIENT_MESSAGES,
+            TIME_THRESHOLD,
+            NEVER_PROCESSED,
+            INSUFFICIENT_CRITERIA,
+            INVALID_TENANT,
+            ERROR
+        }
+
+        @Override
+        public String toString() {
+            return String.format("ProcessingDecision{shouldProcess=%s, reason=%s, description='%s'}",
+                               shouldProcess, reason, description);
+        }
     }
 
     /**
@@ -206,6 +326,11 @@ public class SlidingWindowService {
 
     /**
      * Process messages for a workspace using sliding window approach.
+     * Enhanced version that only processes if:
+     * 1. Tenant ID is valid (consistent with project-wide tenant validation)
+     * 2. There are at least 5 new (unprocessed) messages OR
+     * 3. 4 hours have passed since last processing
+     *
      * Messages are loaded from Redis (all messages), sorted chronologically, and processed in batches with overlap.
      * Only processes if there's at least one unprocessed message. After processing, marks all processed messages with isProcessed=true
      * and deletes all processed messages keeping only the latest N messages (where N = overlap size).
@@ -218,6 +343,17 @@ public class SlidingWindowService {
      * @return Total number of messages processed
      */
     public int processMessages(Workspace workspace, int maxMessage, int overlaping, Function<List<Message>, Void> callback) {
+
+        // Check if workspace should be processed based on new criteria
+        ProcessingDecision decision = shouldProcessWorkspace(workspace);
+        if (!decision.shouldProcess()) {
+            logger.info("🚫 SLIDING-WINDOW: Skipping workspace [{}] - {}",
+                       workspace.getId(), decision.getDescription());
+            return 0;
+        }
+
+        logger.info("🚀 SLIDING-WINDOW: Processing workspace [{}] - {}",
+                   workspace.getId(), decision.getDescription());
 
         // Validate and fix parameters
         ValidatedParams params = validateProcessingParameters(maxMessage, overlaping, callback);
@@ -237,7 +373,7 @@ public class SlidingWindowService {
                 return 0;
             }
 
-            // Check if there are any unprocessed messages
+            // Check if there are any unprocessed messages (double-check after shouldProcessWorkspace)
             long unprocessedCount = allMessages.stream()
                 .filter(msg -> msg.getIsProcessed() == null || !msg.getIsProcessed())
                 .count();
@@ -245,6 +381,7 @@ public class SlidingWindowService {
                 logger.info("✨ All Caught Up: All {} messages processed for workspace '{}' - we're ahead of the game!",
                            allMessages.size(), workspace.getDeemergeUserId());
                 logger.info("🚫 Sliding Window: Skipping processing - no unprocessed messages (we're so efficient! 🚀)");
+                updateWorkspaceProcessingStatus(workspace, allMessages.size(), 0);
                 return 0;
             }
 
@@ -264,7 +401,12 @@ public class SlidingWindowService {
             logger.info("🔧 Processing Config: batchSize={}, overlapSize={} (80/20 strategy), unprocessedMessages={} 📊",
                        effectiveBatchSize, overlapSize, unprocessedCount);
 
-            return processBatchesWithOverlap(allMessages, effectiveBatchSize, overlapSize, callback);
+            int totalProcessed = processBatchesWithOverlap(allMessages, effectiveBatchSize, overlapSize, callback);
+
+            // Update workspace processing status after successful processing
+            updateWorkspaceProcessingStatus(workspace, allMessages.size(), totalProcessed);
+
+            return totalProcessed;
 
         } catch (Exception e) {
             logger.error("💥 Processing Failed: Error during sliding window processing for workspaceId: {} 😢", workspace, e);
@@ -711,6 +853,36 @@ public class SlidingWindowService {
         public String toString() {
             return String.format("WorkspaceMessageStats{workspaceId='%s', totalMessages=%d, uniqueChannels=%d, uniqueUsers=%d}",
                                workspaceId, totalMessages, uniqueChannels, uniqueUsers);
+        }
+    }
+
+    /**
+     * Updates workspace processing status after successful processing.
+     * This method persists the processing state to enable intelligent decisions
+     * about when to process workspaces again.
+     *
+     * @param workspace The workspace that was processed
+     * @param totalMessages Total number of messages in the workspace
+     * @param processedMessages Number of messages processed in this run
+     */
+    private void updateWorkspaceProcessingStatus(Workspace workspace, int totalMessages, int processedMessages) {
+        try {
+            // Update processing timestamps and counts
+            workspace.setLastProcessedAt(Instant.now());
+            workspace.setLastProcessedMessageCount((long) totalMessages);
+            workspace.setUnprocessedMessageCount((long) Math.max(0, totalMessages - processedMessages));
+
+            // Save the updated workspace
+            workspaceRepository.save(workspace);
+
+            logger.info("📊 WORKSPACE-UPDATE: Updated processing status for workspace [{}] - " +
+                       "totalMessages: {}, processedThisRun: {}, unprocessedRemaining: {}, lastProcessedAt: {} 🎯",
+                       workspace.getId(), totalMessages, processedMessages, workspace.getUnprocessedMessageCount(),
+                       workspace.getLastProcessedAt());
+
+        } catch (Exception e) {
+            logger.error("💥 WORKSPACE-UPDATE: Failed to update processing status for workspace [{}] - {} 😢",
+                        workspace.getId(), e.getMessage(), e);
         }
     }
 }
