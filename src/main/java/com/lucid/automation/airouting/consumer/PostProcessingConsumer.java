@@ -250,7 +250,7 @@ public class PostProcessingConsumer {
                     originalMessageIdsObj = contextMap.get("originalMessageIds");
                 }
             }
-            
+
             if (originalMessageIdsObj == null) {
                 logger.warn("⚠️ [MESSAGE-PROCESSING] Cannot mark messages as processed: no original message IDs found in context or response");
                 return;
@@ -258,7 +258,7 @@ public class PostProcessingConsumer {
 
             @SuppressWarnings("unchecked")
             List<String> originalMessageIds = (List<String>) originalMessageIdsObj;
-            
+
             if (originalMessageIds.isEmpty()) {
                 logger.warn("⚠️ [MESSAGE-PROCESSING] Cannot mark messages as processed: empty original message IDs list");
                 return;
@@ -272,7 +272,7 @@ public class PostProcessingConsumer {
                 return;
             }
 
-            logger.info("✅ [MESSAGE-PROCESSING] Marking {} original messages as processed after successful AI response | Tenant: {} | User: {}", 
+            logger.info("✅ [MESSAGE-PROCESSING] Marking {} original messages as processed after successful AI response | Tenant: {} | User: {}",
                        originalMessageIds.size(), tenantId, deemergeUserId);
 
             // Use SlidingWindowService to mark the original messages as processed

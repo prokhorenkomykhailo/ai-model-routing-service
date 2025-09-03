@@ -844,20 +844,20 @@ public class SlidingWindowService {
             return;
         }
 
-        logger.info("📝 Processing Status Update: Marking {} messages as processed by IDs... | Tenant: {} | User: {}", 
+        logger.info("📝 Processing Status Update: Marking {} messages as processed by IDs... | Tenant: {} | User: {}",
                    messageIds.size(), tenantId, deemergeUserId);
 
         try {
             // Load messages by their IDs from the specific tenant and user
             List<Message> allFoundMessages = new ArrayList<>();
             messageRepository.findAllById(messageIds).forEach(allFoundMessages::add);
-            
+
             List<Message> messages = allFoundMessages.stream()
                 .filter(message -> tenantId.equals(message.getTenantId()) && deemergeUserId.equals(message.getDeemergeUserId()))
                 .collect(Collectors.toList());
 
             if (messages.isEmpty()) {
-                logger.warn("⚠️ No Messages Found: Could not find any messages with provided IDs for tenant {} user {}", 
+                logger.warn("⚠️ No Messages Found: Could not find any messages with provided IDs for tenant {} user {}",
                            tenantId, deemergeUserId);
                 return;
             }
