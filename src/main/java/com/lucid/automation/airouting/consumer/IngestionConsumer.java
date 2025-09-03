@@ -11,6 +11,7 @@ import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Service;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Consumer service for processing ingestion messages from Kafka
@@ -22,6 +23,13 @@ import org.springframework.stereotype.Service;
 public class IngestionConsumer {
 
     private static final Logger logger = LoggerFactory.getLogger(IngestionConsumer.class);
+
+    // Add counters for statistics
+    private final AtomicLong totalMessagesProcessed = new AtomicLong(0);
+    private final AtomicLong successfulMessages = new AtomicLong(0);
+    private final AtomicLong failedMessages = new AtomicLong(0);
+    private final AtomicLong newMessages = new AtomicLong(0);
+    private final AtomicLong duplicateMessages = new AtomicLong(0);
 
     private final IngestionPipelineOrchestrator pipelineOrchestrator;
 
@@ -43,35 +51,76 @@ public class IngestionConsumer {
                                       @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
                                       @Header(KafkaHeaders.OFFSET) long offset) {
 
+        long startTime = System.currentTimeMillis();
+        totalMessagesProcessed.incrementAndGet();
+
         if (ingestionEventDto == null) {
-            logger.error("Received null message from Kafka - deserialization failure (partition={}, offset={})", partition, offset);
+            failedMessages.incrementAndGet();
+            logger.error("📊 [INGESTION-NULL] Received null message | Partition: {} | Offset: {} | STATS - Processed: {} | ✅ Success: {} | ❌ Failed: {} | 🆕 New: {} | 🔄 Duplicates: {}",
+                partition, offset, totalMessagesProcessed.get(), successfulMessages.get(), failedMessages.get(),
+                newMessages.get(), duplicateMessages.get());
             acknowledgment.acknowledge();
             return;
         }
 
         if (ingestionEventDto.getMessage() == null || ingestionEventDto.getMessage().getTs() == null) {
-            logger.warn("Invalid message data - skipping (messageId=null or ts=null)");
+            failedMessages.incrementAndGet();
+            logger.warn("⚠️ [INGESTION-INVALID] Invalid message data - skipping (messageId=null or ts=null) | STATS - Processed: {} | ✅ Success: {} | ❌ Failed: {} | 🆕 New: {} | 🔄 Duplicates: {}",
+                totalMessagesProcessed.get(), successfulMessages.get(), failedMessages.get(),
+                newMessages.get(), duplicateMessages.get());
             acknowledgment.acknowledge();
             return;
         }
+
+        logger.info("📨 [INGESTION] Processing message: tenantId={}, messageId={}, ts={}",
+            ingestionEventDto.getTenantId(),
+            ingestionEventDto.getMessage().getTs(),
+            ingestionEventDto.getMessage().getTs());
 
         validateTimestamp(ingestionEventDto, acknowledgment);
 
         try {
             ProcessingResult processingResult = pipelineOrchestrator.processMessage(ingestionEventDto);
+            long processingTime = System.currentTimeMillis() - startTime;
 
             if (processingResult.isSuccess()) {
+                successfulMessages.incrementAndGet();
+                newMessages.incrementAndGet(); // Assume new if processed successfully
+                logger.info("✅ [INGESTION-SUCCESS] Message processed in {}ms: {} | 📊 RUNNING TOTALS - Processed: {} | Success: {} | Failed: {} | New: {} | Duplicates: {}",
+                    processingTime,
+                    ingestionEventDto.getMessage().getTs(),
+                    totalMessagesProcessed.get(),
+                    successfulMessages.get(),
+                    failedMessages.get(),
+                    newMessages.get(),
+                    duplicateMessages.get());
                 acknowledgment.acknowledge();
             } else {
-                logger.error("Message processing failed: messageId={}, error={}",
+                failedMessages.incrementAndGet();
+                logger.error("❌ [INGESTION-FAILED] Message processing failed after {}ms: {} | Error: {} | 📊 RUNNING TOTALS - Processed: {} | Success: {} | Failed: {} | New: {} | Duplicates: {}",
+                    processingTime,
                     ingestionEventDto.getMessage().getTs(),
-                    processingResult.getErrorMessage());
+                    processingResult.getErrorMessage(),
+                    totalMessagesProcessed.get(),
+                    successfulMessages.get(),
+                    failedMessages.get(),
+                    newMessages.get(),
+                    duplicateMessages.get());
                 throw new RuntimeException("Pipeline processing failed: " + processingResult.getErrorMessage());
             }
 
         } catch (Exception e) {
-            logger.error("Exception processing message {}: {}",
-                ingestionEventDto.getMessage().getTs(), e.getMessage(), e);
+            failedMessages.incrementAndGet();
+            long processingTime = System.currentTimeMillis() - startTime;
+            logger.error("🚨 [INGESTION-EXCEPTION] Exception processing message after {}ms: {} | Error: {} | 📊 TOTALS - Processed: {} | Success: {} | Failed: {} | New: {} | Duplicates: {}",
+                processingTime,
+                ingestionEventDto.getMessage().getTs(),
+                e.getMessage(),
+                totalMessagesProcessed.get(),
+                successfulMessages.get(),
+                failedMessages.get(),
+                newMessages.get(),
+                duplicateMessages.get());
 
             if (isRetryableException(e)) {
                 logger.info("Retryable exception - not acknowledging message");

@@ -8,7 +8,6 @@ import com.lucid.automation.airouting.model.Workspace;
 import com.lucid.automation.airouting.producer.AIMessageProducer;
 import com.lucid.automation.airouting.service.SlidingWindowService;
 import com.lucid.automation.airouting.service.WorkspaceService;
-import com.lucid.automation.airouting.util.IdUtil;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -28,11 +27,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Scheduler for enriching messages from data storage service.
  * Fetches workspace information, loads messages for each workspace,
  * and publishes them to the AI enrichment queue using a sliding window approach.
+ *
+ * Enhanced with protection against processing old/stale messages:
+ * - Filters messages older than configurable threshold (default: 30 days)
+ * - Skips workspaces with insufficient recent messages (default: minimum 1)
+ * - Comprehensive logging for debugging message processing flow
+ * - Integration with SlidingWindowService for intelligent processing decisions
  */
 @Slf4j
 @Component
@@ -47,6 +53,17 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     private static final String TIMESTAMP_SEPARATOR = "\\.";
     private static final int TIMESTAMP_EPOCH_INDEX = 0;
 
+    // Message processing thresholds to prevent processing old messages
+    private static final int DEFAULT_MAX_MESSAGE_AGE_DAYS = 30; // Don't process messages older than 30 days
+    private static final int DEFAULT_MIN_RECENT_MESSAGES = 1;   // Skip processing if no recent messages
+
+    // Add scheduler-level counters
+    private final AtomicInteger totalSchedulerRuns = new AtomicInteger(0);
+    private final AtomicInteger totalBatchesProcessed = new AtomicInteger(0);
+    private final AtomicInteger totalMessagesEnriched = new AtomicInteger(0);
+    private final AtomicInteger successfulWorkspaces = new AtomicInteger(0);
+    private final AtomicInteger failedWorkspaces = new AtomicInteger(0);
+
     // Dependencies
     private final AIMessageProducer aiMessageProducer;
     private final WorkspaceService workspaceService;
@@ -54,6 +71,8 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     private final ApplicationContext applicationContext;
     private final int batchSize;
     private final String defaultTenantSchema;
+    private final int maxMessageAgeDays;
+    private final int minRecentMessages;
 
     /**
      * Constructor with dependency and configuration injection.
@@ -64,7 +83,9 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
             final SlidingWindowService slidingWindowService,
             final ApplicationContext applicationContext,
             @Value("${ai.enrichment.scheduler.batch-size:" + DEFAULT_BATCH_SIZE + "}") final int batchSize,
-            @Value("${ai.enrichment.scheduler.default-tenant-schema:" + DEFAULT_TENANT_SCHEMA + "}") final String defaultTenantSchema) {
+            @Value("${ai.enrichment.scheduler.default-tenant-schema:" + DEFAULT_TENANT_SCHEMA + "}") final String defaultTenantSchema,
+            @Value("${ai.enrichment.scheduler.max-message-age-days:" + DEFAULT_MAX_MESSAGE_AGE_DAYS + "}") final int maxMessageAgeDays,
+            @Value("${ai.enrichment.scheduler.min-recent-messages:" + DEFAULT_MIN_RECENT_MESSAGES + "}") final int minRecentMessages) {
 
         this.aiMessageProducer = aiMessageProducer;
         this.workspaceService = workspaceService;
@@ -72,11 +93,18 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         this.applicationContext = applicationContext;
         this.batchSize = batchSize;
         this.defaultTenantSchema = defaultTenantSchema;
+        this.maxMessageAgeDays = maxMessageAgeDays;
+        this.minRecentMessages = minRecentMessages;
     }
 
     @PostConstruct
     public void postConstruct() {
         log.info("📅 === MessageEnrichmentScheduler @PostConstruct Called ===");
+        log.info("⚙️ [CONFIG] Message Processing Configuration:");
+        log.info("⚙️ [CONFIG]   - Batch Size: {}", batchSize);
+        log.info("⚙️ [CONFIG]   - Max Message Age: {} days", maxMessageAgeDays);
+        log.info("⚙️ [CONFIG]   - Min Recent Messages: {}", minRecentMessages);
+        log.info("⚙️ [CONFIG]   - Default Tenant Schema: {}", defaultTenantSchema);
 
         // Check if scheduling is enabled globally
         try {
@@ -96,6 +124,8 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
 
         // Check if this bean is being created
         log.info("✅ MessageEnrichmentScheduler bean successfully created and initialized");
+        log.info("⚠️ [OLD-MESSAGE-PROTECTION] Scheduler will skip messages older than {} days and workspaces with fewer than {} recent messages",
+            maxMessageAgeDays, minRecentMessages);
         log.info("📅 === MessageEnrichmentScheduler @PostConstruct Completed ===");
     }
 
@@ -115,10 +145,14 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
      */
     @Scheduled(cron = "${ai.enrichment.scheduler.cron:0 */15 * * * ?}")
     public void processMessageEnrichment() {
-        log.info("🚀 === SCHEDULER EXECUTED ===");
-        log.info("⏰ Current time: {}", LocalDateTime.now());
-        log.info("🧵 Thread: {}", Thread.currentThread().getName());
-        log.info("📊 Starting scheduled message enrichment process");
+        long schedulerStartTime = System.currentTimeMillis();
+        totalSchedulerRuns.incrementAndGet();
+
+        log.info("🚀 === SCHEDULER EXECUTION #{} STARTED === ⏰ {}",
+            totalSchedulerRuns.get(), LocalDateTime.now());
+        log.info("📊 [SCHEDULER-STATS] Historical totals - Runs: {} | Batches: {} | Messages: {} | ✅ Workspaces: {} | ❌ Failed: {}",
+            totalSchedulerRuns.get(), totalBatchesProcessed.get(), totalMessagesEnriched.get(),
+            successfulWorkspaces.get(), failedWorkspaces.get());
 
         try {
             final var workspaces = workspaceService.getAllWorkspaces();
@@ -128,41 +162,68 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                 return;
             }
 
+            log.info("🏢 Processing {} workspaces for message enrichment", workspaces.size());
             processAllWorkspaces(workspaces);
-            log.info("✅ Completed scheduled message enrichment process for {} workspaces", workspaces.size());
+
+            long totalTime = System.currentTimeMillis() - schedulerStartTime;
+            log.info("✅ [SCHEDULER-COMPLETE] Execution #{} completed in {}ms for {} workspaces",
+                totalSchedulerRuns.get(), totalTime, workspaces.size());
 
         } catch (Exception e) {
-            log.error("🚨 Critical error during scheduled message enrichment process: {}", e.getMessage(), e);
+            long totalTime = System.currentTimeMillis() - schedulerStartTime;
+            log.error("🚨 [SCHEDULER-ERROR] Critical error during execution #{} after {}ms: {}",
+                totalSchedulerRuns.get(), totalTime, e.getMessage(), e);
         }
 
-        log.info("🏁 === SCHEDULER EXECUTION COMPLETED ===");
+        log.info("🏁 === SCHEDULER EXECUTION #{} COMPLETED ===", totalSchedulerRuns.get());
     }
 
     /**
      * Processes all workspaces for message enrichment with individual error handling.
      */
     private void processAllWorkspaces(final List<Workspace> workspaces) {
-        var successCount = 0;
-        var failureCount = 0;
+        int processedWorkspaces = 0;
+        int skippedWorkspaces = 0;
 
         for (final var workspace : workspaces) {
+            long workspaceStartTime = System.currentTimeMillis();
             try {
+                // Let SlidingWindowService decide if workspace should be processed
+                // This already checks for unprocessed messages, time thresholds, etc.
                 final var results = processWorkspace(workspace);
                 final int workspaceBatches = results[0];
                 final int workspaceMessages = results[1];
 
-                log.info("✅ Successfully processed workspace: {} | 📦 Batches: {}, 📨 Messages: {}, 🏢 Tenant: {}, 👤 User: {}",
-                    workspace.getName(), workspaceBatches, workspaceMessages, workspace.getTenantId(), workspace.getDeemergeUserName());
-                successCount++;
+                if (workspaceBatches > 0 || workspaceMessages > 0) {
+                    totalBatchesProcessed.addAndGet(workspaceBatches);
+                    totalMessagesEnriched.addAndGet(workspaceMessages);
+                    successfulWorkspaces.incrementAndGet();
+                    processedWorkspaces++;
+
+                    long workspaceTime = System.currentTimeMillis() - workspaceStartTime;
+
+                    log.info("✅ [WORKSPACE-SUCCESS] {} processed in {}ms | 📦 {} batches, 📨 {} messages | 🏢 Tenant: {} | 👤 User: {} | 📊 GLOBAL TOTALS - Batches: {} | Messages: {}",
+                        workspace.getName(), workspaceTime, workspaceBatches, workspaceMessages,
+                        workspace.getTenantId(), workspace.getDeemergeUserName(),
+                        totalBatchesProcessed.get(), totalMessagesEnriched.get());
+                } else {
+                    skippedWorkspaces++;
+                    long workspaceTime = System.currentTimeMillis() - workspaceStartTime;
+                    log.info("⏭️ [WORKSPACE-SKIPPED] {} skipped in {}ms | No new messages or doesn't meet processing criteria | 🏢 Tenant: {} | 👤 User: {}",
+                        workspace.getName(), workspaceTime, workspace.getTenantId(), workspace.getDeemergeUserName());
+                }
 
             } catch (Exception e) {
-                log.error("❌ Error processing workspace {}: {}", workspace.getName(), e.getMessage(), e);
-                failureCount++;
+                failedWorkspaces.incrementAndGet();
+                long workspaceTime = System.currentTimeMillis() - workspaceStartTime;
+                log.error("❌ [WORKSPACE-FAILED] {} failed after {}ms: {} | 📊 GLOBAL TOTALS - Success: {} | Failed: {}",
+                    workspace.getName(), workspaceTime, e.getMessage(),
+                    successfulWorkspaces.get(), failedWorkspaces.get(), e);
             }
         }
 
-        log.info("📊 Workspace processing summary: ✅ {} successful, ❌ {} failed out of 📊 {} total",
-            successCount, failureCount, workspaces.size());
+        log.info("📊 [SCHEDULER-SUMMARY] Session completed: ✅ {} processed, ⏭️ {} skipped, ❌ {} failed out of 📊 {} total workspaces",
+            processedWorkspaces, skippedWorkspaces, failedWorkspaces.get() % workspaces.size(), workspaces.size());
     }
 
     /**
@@ -216,6 +277,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     /**
      * Process a batch of messages from Redis for AI enrichment.
      * Converts Redis Message objects to SlackMessage format and processes them as a batch.
+     * Includes filtering to prevent processing of old/stale messages.
      */
     private void processMessageBatchForEnrichment(final List<Message> messages,
                                                  final Workspace workspace,
@@ -225,28 +287,129 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
             return;
         }
 
+        long batchStartTime = System.currentTimeMillis();
+        log.info("📦 [BATCH-START] Processing batch #{} with {} Redis messages for workspace: {} | 🏢 Tenant: {}",
+            batchNumber, messages.size(), workspace.getName(), workspace.getTenantId());
+
         try {
+            // Filter out old messages before processing
+            final List<Message> recentMessages = filterRecentMessages(messages, workspace.getName(), batchNumber);
+
+            if (recentMessages.isEmpty()) {
+                log.warn("⚠️ [BATCH-FILTERED] Batch #{} for workspace {} has no recent messages after filtering - skipping",
+                    batchNumber, workspace.getName());
+                return;
+            }
+
             final var slackMessages = new ArrayList<SlackMessage>();
             final var participants = new ArrayList<SlackParticipant>();
 
-            processMessagesInBatch(messages, slackMessages, participants);
+            processMessagesInBatch(recentMessages, slackMessages, participants);
 
             if (!slackMessages.isEmpty()) {
                 // Calculate unique users and channels for statistics
                 long uniqueUsers = slackMessages.stream().map(SlackMessage::getUserId).distinct().count();
                 long uniqueChannels = slackMessages.stream().map(SlackMessage::getChannelId).distinct().count();
 
-                log.info("📊 Batch #{} statistics for workspace {} | 📨 {} messages, 👥 {} participants, 🏷️ {} unique users, 📺 {} unique channels, 🏢 Tenant: {}",
-                    batchNumber, workspace.getName(), slackMessages.size(), participants.size(), uniqueUsers, uniqueChannels, workspace.getTenantId());
+                long batchProcessingTime = System.currentTimeMillis() - batchStartTime;
+                int filteredCount = messages.size() - recentMessages.size();
+
+                log.info("📊 [BATCH-STATS] Batch #{} for workspace {} | ⏱️ {}ms processing | 📨 {} total → {} filtered → {} processed | 👥 {} participants | 🏷️ {} unique users | 📺 {} unique channels | 🏢 Tenant: {}",
+                    batchNumber, workspace.getName(), batchProcessingTime, messages.size(), filteredCount,
+                    slackMessages.size(), participants.size(), uniqueUsers, uniqueChannels, workspace.getTenantId());
 
                 publishEnrichmentRequest(slackMessages, participants, workspace, batchNumber);
+
+                log.info("🚀 [BATCH-PUBLISHED] Batch #{} published to ai-enrich topic | {} messages sent for AI processing",
+                    batchNumber, slackMessages.size());
+
             } else {
-                log.warn("⚠️ No valid messages found in batch #{} for workspace: {}", batchNumber, workspace.getName());
+                log.warn("⚠️ [BATCH-EMPTY] No valid messages found in batch #{} for workspace: {} after filtering",
+                    batchNumber, workspace.getName());
             }
         } catch (Exception e) {
-            log.error("🚨 Critical error processing message batch #{} for workspace {}: {}",
-                     batchNumber, workspace.getName(), e.getMessage(), e);
+            long batchProcessingTime = System.currentTimeMillis() - batchStartTime;
+            log.error("🚨 [BATCH-ERROR] Critical error processing batch #{} after {}ms for workspace {}: {}",
+                     batchNumber, batchProcessingTime, workspace.getName(), e.getMessage(), e);
             throw new RuntimeException("Failed to process message batch: " + batchNumber, e);
+        }
+    }
+
+    /**
+     * Filters messages to only include recent ones based on configured age threshold.
+     * This prevents processing very old messages that may no longer be relevant.
+     */
+    private List<Message> filterRecentMessages(final List<Message> messages,
+                                               final String workspaceName,
+                                               final int batchNumber) {
+        if (messages == null || messages.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        try {
+            // Calculate cutoff timestamp (current time - maxMessageAgeDays)
+            final long cutoffEpochSeconds = LocalDateTime.now(ZoneOffset.UTC)
+                .minusDays(maxMessageAgeDays)
+                .toEpochSecond(ZoneOffset.UTC);
+
+            log.debug("🔍 [MESSAGE-FILTER] Batch #{} filtering messages older than {} days (cutoff: {})",
+                batchNumber, maxMessageAgeDays,
+                LocalDateTime.ofEpochSecond(cutoffEpochSeconds, 0, ZoneOffset.UTC));
+
+            final List<Message> recentMessages = new ArrayList<>();
+            int oldMessageCount = 0;
+            int invalidTimestampCount = 0;
+
+            for (final Message message : messages) {
+                try {
+                    final String messageTs = message.getMessageTs();
+
+                    if (messageTs == null || messageTs.trim().isEmpty()) {
+                        invalidTimestampCount++;
+                        log.debug("⚠️ [MESSAGE-FILTER] Message {} has no timestamp - including by default",
+                            message.getId());
+                        recentMessages.add(message);
+                        continue;
+                    }
+
+                    // Parse timestamp (format: "epoch_seconds.microseconds")
+                    final String[] timestampParts = messageTs.split(TIMESTAMP_SEPARATOR);
+                    final long messageEpochSeconds = Long.parseLong(timestampParts[TIMESTAMP_EPOCH_INDEX]);
+
+                    if (messageEpochSeconds >= cutoffEpochSeconds) {
+                        recentMessages.add(message);
+                    } else {
+                        oldMessageCount++;
+                        log.debug("⏰ [MESSAGE-FILTER] Excluding old message {} (timestamp: {}, {} days old)",
+                            message.getId(), messageTs,
+                            (cutoffEpochSeconds - messageEpochSeconds) / 86400);
+                    }
+
+                } catch (Exception e) {
+                    invalidTimestampCount++;
+                    log.warn("⚠️ [MESSAGE-FILTER] Error parsing timestamp for message {}: {} - including by default",
+                        message.getId(), e.getMessage());
+                    recentMessages.add(message); // Include messages with invalid timestamps
+                }
+            }
+
+            // Check if we have sufficient recent messages
+            if (recentMessages.size() < minRecentMessages) {
+                log.warn("⚠️ [MESSAGE-FILTER] Batch #{} for workspace {} has only {} recent messages (minimum: {}) - {} old, {} invalid timestamps",
+                    batchNumber, workspaceName, recentMessages.size(), minRecentMessages,
+                    oldMessageCount, invalidTimestampCount);
+            } else {
+                log.info("✅ [MESSAGE-FILTER] Batch #{} for workspace {} filtered: {} recent, {} old (>{}d), {} invalid timestamps",
+                    batchNumber, workspaceName, recentMessages.size(), oldMessageCount,
+                    maxMessageAgeDays, invalidTimestampCount);
+            }
+
+            return recentMessages;
+
+        } catch (Exception e) {
+            log.error("🚨 [MESSAGE-FILTER] Error filtering messages for batch #{} in workspace {}: {} - processing all messages",
+                batchNumber, workspaceName, e.getMessage(), e);
+            return new ArrayList<>(messages); // Return all messages on error
         }
     }
 
@@ -474,7 +637,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                                         final int batchNumber) {
 
         final String conversationId = workspace.getId() + BATCH_CONVERSATION_ID_SEPARATOR + batchNumber;
-        final var context = createBatchContext(workspace, batchNumber, slackMessages.size(), participants.size());
+        final var context = createBatchContext(workspace, batchNumber, slackMessages.size(), participants.size(), slackMessages);
         final String tenantSchema = workspace.getTenantSchema() != null ? workspace.getTenantSchema() : defaultTenantSchema;
 
         try {
@@ -512,7 +675,8 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     private Map<String, Object> createBatchContext(final Workspace workspace,
                                                   final int batchNumber,
                                                   final int messageCount,
-                                                  final int participantCount) {
+                                                  final int participantCount,
+                                                  final List<SlackMessage> messages) {
         final var context = new HashMap<String, Object>();
 
         context.put("workspaceId", workspace.getId());
@@ -527,8 +691,16 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         context.put("deemergeUserId", workspace.getDeemergeUserId());
         context.put("deemergeUserName", workspace.getDeemergeUserName());
 
-        log.debug("📋 Created batch context for workspace {} batch #{}: {} messages, {} participants",
-            workspace.getName(), batchNumber, messageCount, participantCount);
+        // Add original message IDs for tracking processed messages
+        // This allows PostProcessingConsumer to mark specific messages as processed
+        // when AI processing is successful
+        List<String> messageIds = messages.stream()
+            .map(SlackMessage::getId)
+            .collect(Collectors.toList());
+        context.put("originalMessageIds", messageIds);
+
+        log.debug("📋 Created batch context for workspace {} batch #{}: {} messages, {} participants, tracking {} message IDs",
+            workspace.getName(), batchNumber, messageCount, participantCount, messageIds.size());
 
         return context;
     }

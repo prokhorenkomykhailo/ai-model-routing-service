@@ -646,15 +646,17 @@ public class SlidingWindowService {
                     // Process the batch using the callback function
                     callbackFunction.apply(currentBatch);
 
-                    // Mark all messages in this batch as processed
-                    markMessagesAsProcessed(currentBatch);
+                    // NOTE: Messages are no longer marked as processed immediately here.
+                    // They will be marked as processed only after successful AI response
+                    // in PostProcessingConsumer when AI returns successful results.
 
                     totalProcessed += currentBatch.size();
 
-                    logger.info("✅ Batch {} Success: Processed {} messages ({} were new, {} were already processed) 🎉",
+                    logger.info("✅ Batch {} Success: Sent {} messages for AI processing ({} were new, {} were already processed) 🤖",
                                batchNumber, currentBatch.size(), unprocessedInBatch, processedInBatch);
 
-                    // Immediately clean up this batch after successful processing
+                    // Clean up this batch after successful sending for AI processing
+                    // Keep overlap messages for next batch but don't mark as processed yet
                     cleanupBatchMessages(currentBatch, overlapSize, batchNumber);
 
                 } catch (Exception e) {
@@ -791,10 +793,11 @@ public class SlidingWindowService {
     /**
      * Mark a list of messages as processed by setting isProcessed to true.
      * Only updates messages that are currently unprocessed (null or false).
+     * This method is called after successful AI processing to ensure message lifecycle integrity.
      *
      * @param messages The list of messages to mark as processed
      */
-    private void markMessagesAsProcessed(List<Message> messages) {
+    public void markMessagesAsProcessed(List<Message> messages) {
         if (messages == null || messages.isEmpty()) {
             logger.debug("✅ Nothing to Mark: No messages to mark as processed (already done! 🎯)");
             return;
@@ -824,6 +827,49 @@ public class SlidingWindowService {
         } catch (Exception e) {
             logger.error("💥 Status Update Failed: Error marking messages as processed: {} 😰", e.getMessage(), e);
             // Don't throw exception - let processing continue even if marking fails
+        }
+    }
+
+    /**
+     * Mark messages as processed by their IDs after successful AI processing.
+     * This method is called from PostProcessingConsumer when AI returns successful results.
+     *
+     * @param messageIds List of message IDs to mark as processed
+     * @param tenantId Tenant ID for message lookup
+     * @param deemergeUserId DeemergeUserId for message lookup
+     */
+    public void markMessagesAsProcessedByIds(List<String> messageIds, String tenantId, String deemergeUserId) {
+        if (messageIds == null || messageIds.isEmpty()) {
+            logger.debug("✅ No Message IDs to Mark: Empty message ID list provided (nothing to do here! 🎯)");
+            return;
+        }
+
+        logger.info("📝 Processing Status Update: Marking {} messages as processed by IDs... | Tenant: {} | User: {}", 
+                   messageIds.size(), tenantId, deemergeUserId);
+
+        try {
+            // Load messages by their IDs from the specific tenant and user
+            List<Message> allFoundMessages = new ArrayList<>();
+            messageRepository.findAllById(messageIds).forEach(allFoundMessages::add);
+            
+            List<Message> messages = allFoundMessages.stream()
+                .filter(message -> tenantId.equals(message.getTenantId()) && deemergeUserId.equals(message.getDeemergeUserId()))
+                .collect(Collectors.toList());
+
+            if (messages.isEmpty()) {
+                logger.warn("⚠️ No Messages Found: Could not find any messages with provided IDs for tenant {} user {}", 
+                           tenantId, deemergeUserId);
+                return;
+            }
+
+            logger.info("🔍 Found {} out of {} messages to mark as processed", messages.size(), messageIds.size());
+
+            // Mark these messages as processed
+            markMessagesAsProcessed(messages);
+
+        } catch (Exception e) {
+            logger.error("💥 Processing Update Failed: Error marking messages as processed by IDs: {} 😰", e.getMessage(), e);
+            throw new RuntimeException("Failed to mark messages as processed by IDs", e);
         }
     }
 

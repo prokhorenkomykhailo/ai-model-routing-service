@@ -7,6 +7,7 @@ import com.lucid.automation.airouting.pipeline.postprocessing.PostProcessingPipe
 import com.lucid.automation.airouting.pipeline.config.PipelineConfiguration;
 import com.lucid.automation.airouting.pipeline.postprocessing.PostProcessingContext;
 import com.lucid.automation.airouting.pipeline.postprocessing.step.PipelineStep;
+import com.lucid.automation.airouting.service.SlidingWindowService;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Consumer service for post-processing AI responses from Kafka using pipeline architecture.
@@ -32,10 +34,17 @@ public class PostProcessingConsumer {
 
     private static final Logger logger = LoggerFactory.getLogger(PostProcessingConsumer.class);
 
+    // Add post-processing counters
+    private final AtomicLong totalPostProcessingRequests = new AtomicLong(0);
+    private final AtomicLong successfulPostProcessing = new AtomicLong(0);
+    private final AtomicLong failedPostProcessing = new AtomicLong(0);
+    private final AtomicLong totalPostProcessingTime = new AtomicLong(0);
+
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final PostProcessingPipelineOrchestrator pipelineOrchestrator;
     private final PostProcessingPipelineFactory pipelineFactory;
     private final PipelineConfiguration pipelineConfiguration;
+    private final SlidingWindowService slidingWindowService;
 
     @Value("${kafka.topics.ai-responses:ai.responses.queue}")
     private String aiResponsesTopic;
@@ -44,11 +53,13 @@ public class PostProcessingConsumer {
             KafkaTemplate<String, Object> kafkaTemplate,
             PostProcessingPipelineOrchestrator pipelineOrchestrator,
             PostProcessingPipelineFactory pipelineFactory,
-            PipelineConfiguration pipelineConfiguration) {
+            PipelineConfiguration pipelineConfiguration,
+            SlidingWindowService slidingWindowService) {
         this.kafkaTemplate = kafkaTemplate;
         this.pipelineOrchestrator = pipelineOrchestrator;
         this.pipelineFactory = pipelineFactory;
         this.pipelineConfiguration = pipelineConfiguration;
+        this.slidingWindowService = slidingWindowService;
 
         logger.info("🚀 === POST-PROCESSING CONSUMER INITIALIZED ===");
         logger.info("🎯 PostProcessingConsumer initialized with pipeline architecture");
@@ -68,10 +79,14 @@ public class PostProcessingConsumer {
                    containerFactory = "genericObjectListenerContainerFactory")
     public void handlePreAiResponses(ConsumerRecord<String, Object> record,
                                    Acknowledgment acknowledgment) {
+        long postProcessingStartTime = System.currentTimeMillis();
+        totalPostProcessingRequests.incrementAndGet();
+
         Object messageResponse = record.value();
         String topic = record.topic();
 
-        logger.info("🎯 Processing message from topic: {}", topic);
+        logger.info("📋 [POST-PROCESSING] Received pre-AI response | Topic: {} | Partition: {} | Offset: {} | Key: {}",
+            topic, record.partition(), record.offset(), record.key());
 
         // Extract the actual payload from ConsumerRecord if needed
         Object payload = messageResponse;
@@ -83,7 +98,12 @@ public class PostProcessingConsumer {
         }
 
         if (payload == null) {
-            logger.error("❌ Received NULL payload from topic: {}", topic);
+            failedPostProcessing.incrementAndGet();
+            long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+            totalPostProcessingTime.addAndGet(postProcessingTime);
+            logger.error("❌ [POST-PROCESSING-NULL] Received NULL payload from topic: {} | 📊 TOTALS - Requests: {} | Success: {} | Failed: {} | Avg Time: {}ms",
+                topic, totalPostProcessingRequests.get(), successfulPostProcessing.get(), failedPostProcessing.get(),
+                totalPostProcessingRequests.get() > 0 ? totalPostProcessingTime.get() / totalPostProcessingRequests.get() : 0);
             acknowledgment.acknowledge();
             return;
         }
@@ -92,8 +112,13 @@ public class PostProcessingConsumer {
         try {
             // Validate that the payload is a Map
             if (!(payload instanceof Map<?, ?>)) {
-                logger.error("❌ Invalid pre-AI response format: expected Map, got {}",
-                           payload.getClass().getSimpleName());
+                failedPostProcessing.incrementAndGet();
+                long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+                totalPostProcessingTime.addAndGet(postProcessingTime);
+                logger.error("❌ [POST-PROCESSING-INVALID] Invalid pre-AI response format: expected Map, got {} | 📊 TOTALS - Requests: {} | Success: {} | Failed: {} | Avg Time: {}ms",
+                           payload.getClass().getSimpleName(), totalPostProcessingRequests.get(),
+                           successfulPostProcessing.get(), failedPostProcessing.get(),
+                           totalPostProcessingRequests.get() > 0 ? totalPostProcessingTime.get() / totalPostProcessingRequests.get() : 0);
                 acknowledgment.acknowledge();
                 return;
             }
@@ -114,12 +139,35 @@ public class PostProcessingConsumer {
                     // Create lightweight version to avoid Kafka message size issues
                     EnrichmentResponse lightweightResponse = createLightweightResponse(enrichmentResponse);
                     sendToFinalAiResponsesTopic(lightweightResponse);
-                    logger.info("✅ Successfully processed and forwarded pre-AI response");
+
+                    // ✅ CRITICAL: Mark original messages as processed ONLY after successful AI processing
+                    // This ensures proper message lifecycle management and prevents duplicate processing
+                    markOriginalMessagesAsProcessed(context);
+
+                    successfulPostProcessing.incrementAndGet();
+                    long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+                    totalPostProcessingTime.addAndGet(postProcessingTime);
+
+                    logger.info("✅ [POST-PROCESSING-SUCCESS] Successfully processed and forwarded pre-AI response in {}ms | Key: {} | 📊 TOTALS - Requests: {} | Success: {} | Failed: {} | Avg Time: {}ms",
+                        postProcessingTime, record.key(), totalPostProcessingRequests.get(),
+                        successfulPostProcessing.get(), failedPostProcessing.get(),
+                        totalPostProcessingRequests.get() > 0 ? totalPostProcessingTime.get() / totalPostProcessingRequests.get() : 0);
                 } else {
-                    logger.error("❌ Pipeline succeeded but enrichment response is null");
+                    failedPostProcessing.incrementAndGet();
+                    long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+                    totalPostProcessingTime.addAndGet(postProcessingTime);
+                    logger.error("❌ [POST-PROCESSING-NULL-RESPONSE] Pipeline succeeded but enrichment response is null | 📊 TOTALS - Requests: {} | Success: {} | Failed: {} | Avg Time: {}ms",
+                        totalPostProcessingRequests.get(), successfulPostProcessing.get(), failedPostProcessing.get(),
+                        totalPostProcessingRequests.get() > 0 ? totalPostProcessingTime.get() / totalPostProcessingRequests.get() : 0);
                 }
             } else {
-                logger.error("❌ Pipeline execution failed: {}", pipelineResult.getErrorMessage());
+                failedPostProcessing.incrementAndGet();
+                long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+                totalPostProcessingTime.addAndGet(postProcessingTime);
+                logger.error("❌ [POST-PROCESSING-PIPELINE-FAILED] Pipeline execution failed after {}ms: {} | 📊 TOTALS - Requests: {} | Success: {} | Failed: {} | Avg Time: {}ms",
+                    postProcessingTime, pipelineResult.getErrorMessage(), totalPostProcessingRequests.get(),
+                    successfulPostProcessing.get(), failedPostProcessing.get(),
+                    totalPostProcessingRequests.get() > 0 ? totalPostProcessingTime.get() / totalPostProcessingRequests.get() : 0);
                 // Send error response if needed
                 sendErrorResponse(context, pipelineResult.getErrorMessage());
             }
@@ -127,7 +175,13 @@ public class PostProcessingConsumer {
             acknowledgment.acknowledge();
 
         } catch (Exception e) {
-            logger.error("❌ Failed to process pre-AI response from topic: {}, error: {}", topic, e.getMessage(), e);
+            failedPostProcessing.incrementAndGet();
+            long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+            totalPostProcessingTime.addAndGet(postProcessingTime);
+            logger.error("❌ [POST-PROCESSING-EXCEPTION] Failed to process pre-AI response from topic: {} after {}ms, error: {} | 📊 TOTALS - Requests: {} | Success: {} | Failed: {} | Avg Time: {}ms",
+                topic, postProcessingTime, e.getMessage(), totalPostProcessingRequests.get(),
+                successfulPostProcessing.get(), failedPostProcessing.get(),
+                totalPostProcessingRequests.get() > 0 ? totalPostProcessingTime.get() / totalPostProcessingRequests.get() : 0, e);
 
             // Send error response if context is available
             if (context != null) {
@@ -170,15 +224,78 @@ public class PostProcessingConsumer {
     }
 
     /**
-     * Send processed message to the final ai-responses topic
+     * Marks original messages as processed after successful AI processing.
+     * Extracts message IDs from the context and uses SlidingWindowService to update their status.
+     *
+     * @param context PostProcessingContext containing original message IDs and tenant information
+     */
+    private void markOriginalMessagesAsProcessed(PostProcessingContext context) {
+        try {
+            // Extract original message IDs from the AI request context
+            Map<String, Object> rawResponse = context.getRawResponseMap();
+            if (rawResponse == null) {
+                logger.warn("⚠️ [MESSAGE-PROCESSING] Cannot mark messages as processed: no raw response data");
+                return;
+            }
+
+            // Check if the context contains the original message IDs
+            // These should have been added by MessageEnrichmentScheduler when creating the AI request
+            Object originalMessageIdsObj = rawResponse.get("originalMessageIds");
+            if (originalMessageIdsObj == null) {
+                // Try to get it from the nested context within the response
+                Object contextObj = rawResponse.get("context");
+                if (contextObj instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> contextMap = (Map<String, Object>) contextObj;
+                    originalMessageIdsObj = contextMap.get("originalMessageIds");
+                }
+            }
+            
+            if (originalMessageIdsObj == null) {
+                logger.warn("⚠️ [MESSAGE-PROCESSING] Cannot mark messages as processed: no original message IDs found in context or response");
+                return;
+            }
+
+            @SuppressWarnings("unchecked")
+            List<String> originalMessageIds = (List<String>) originalMessageIdsObj;
+            
+            if (originalMessageIds.isEmpty()) {
+                logger.warn("⚠️ [MESSAGE-PROCESSING] Cannot mark messages as processed: empty original message IDs list");
+                return;
+            }
+
+            String tenantId = context.getTenantId();
+            String deemergeUserId = context.getDeemergeUserId();
+
+            if (tenantId == null || deemergeUserId == null) {
+                logger.warn("⚠️ [MESSAGE-PROCESSING] Cannot mark messages as processed: missing tenant ID or user ID");
+                return;
+            }
+
+            logger.info("✅ [MESSAGE-PROCESSING] Marking {} original messages as processed after successful AI response | Tenant: {} | User: {}", 
+                       originalMessageIds.size(), tenantId, deemergeUserId);
+
+            // Use SlidingWindowService to mark the original messages as processed
+            slidingWindowService.markMessagesAsProcessedByIds(originalMessageIds, tenantId, deemergeUserId);
+
+        } catch (Exception e) {
+            logger.error("❌ [MESSAGE-PROCESSING] Failed to mark original messages as processed: {}", e.getMessage(), e);
+            // Don't throw - this is a status update issue, not a critical pipeline failure
+        }
+    }
+
+    /**
+     * Send processed message to the final ai-responses topic synchronously
      */
     private void sendToFinalAiResponsesTopic(Object parsedAiResponse) {
         try {
-            kafkaTemplate.send(aiResponsesTopic, parsedAiResponse);
+            // Send synchronously and wait for confirmation
+            kafkaTemplate.send(aiResponsesTopic, parsedAiResponse).get();
             logger.info("✅ Successfully forwarded message to final ai-responses topic: {}", aiResponsesTopic);
         } catch (Exception e) {
             logger.error("❌ Failed to send message to final ai-responses topic: {}, error: {}",
                         aiResponsesTopic, e.getMessage(), e);
+            throw new RuntimeException("Failed to send message to final ai-responses topic", e);
         }
     }
 

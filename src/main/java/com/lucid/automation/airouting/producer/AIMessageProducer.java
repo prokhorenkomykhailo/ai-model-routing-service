@@ -102,10 +102,17 @@ public class AIMessageProducer {
                     .participants(participantData)
                     .build();
 
-            // Determine topic and publish
+            // Determine topic and publish synchronously
             String topic = getTopicForTaskType(taskType);
 
-            kafkaTemplate.send(topic, aiMessage);
+            try {
+                // Send synchronously and wait for confirmation
+                kafkaTemplate.send(topic, aiMessage).get();
+                logger.debug("Message successfully sent to topic: {}", topic);
+            } catch (Exception kafkaException) {
+                logger.error("Failed to send message to Kafka topic: {}, error: {}", topic, kafkaException.getMessage(), kafkaException);
+                throw new RuntimeException("Failed to publish message to Kafka", kafkaException);
+            }
 
             // Create EnrichmentJob after publishing (moved from scheduler)
             EnrichmentJob job = EnrichmentJob.builder()
