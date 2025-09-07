@@ -113,7 +113,7 @@ ai:
   enrichment:
     scheduler:
       cron: "${AI_ENRICHMENT_CRON:0 */15 * * * ?}"  # Every 15 minutes by default
-      enabled: "${AI_ENRICHMENT_ENABLED:false}"     # DISABLED to prevent excessive requests and rebalances
+      enabled: "${AI_ENRICHMENT_ENABLED:true}"     # DISABLED to prevent excessive requests and rebalances
 
 # Lucid Post-Processing Pipeline Configuration
 lucid:
