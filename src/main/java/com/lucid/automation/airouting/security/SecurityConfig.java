@@ -37,6 +37,9 @@ public class SecurityConfig {
                 .requestMatchers("/api/messages/**").permitAll()
                 .requestMatchers("/ai/health/**").permitAll()
                 .requestMatchers("/ai/public/**").permitAll()
+                
+                // Internal API endpoints are public (for service-to-service communication)
+                .requestMatchers("/api/internal/**").permitAll()
 
                 // Tenant API endpoints require authentication
                 .requestMatchers("/api/tenants/**").authenticated()
