@@ -7,7 +7,6 @@ import com.lucid.automation.airouting.producer.UserChannelProducer;
 import com.lucid.automation.airouting.service.UserService;
 import com.lucid.automation.airouting.service.WorkspaceService;
 import com.lucid.automation.airouting.model.User;
-import com.lucid.automation.airouting.model.Workspace;
 import com.lucid.automation.common.dto.event.UserChannelEventDTO;
 import com.lucid.automation.common.dto.messaging.IngestionEventDTO;
 import org.slf4j.Logger;
@@ -16,7 +15,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.Optional;
 
 /**
