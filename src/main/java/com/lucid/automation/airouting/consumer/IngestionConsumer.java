@@ -3,6 +3,7 @@ package com.lucid.automation.airouting.consumer;
 import com.lucid.automation.common.dto.messaging.IngestionEventDTO;
 import com.lucid.automation.airouting.pipeline.ingestion.IngestionPipelineOrchestrator;
 import com.lucid.automation.airouting.pipeline.ProcessingResult;
+import com.lucid.automation.airouting.util.TimestampUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -135,14 +136,30 @@ public class IngestionConsumer {
     private void validateTimestamp(IngestionEventDTO ingestionEventDto, Acknowledgment acknowledgment) {
         try {
             String tsStr = ingestionEventDto.getMessage().getTs();
-            double timestamp = Double.parseDouble(tsStr);
-            if (timestamp > System.currentTimeMillis() / 1000.0 + 86400) {
-                logger.warn("Message timestamp in future: {} - skipping", timestamp);
+
+            // Use TimestampUtil to handle both timestamp formats
+            TimestampUtil.ParsedTimestamp parsed = TimestampUtil.parseTimestamp(tsStr);
+
+            if (!parsed.isValid()) {
+                logger.warn("❌ [TIMESTAMP-INVALID] Invalid timestamp format: '{}' - Error: {} - continuing with processing",
+                    tsStr, parsed.getErrorMessage());
+                return; // Continue processing even with invalid timestamp
+            }
+
+            // Check if timestamp is too far in the future (24 hours threshold)
+            if (TimestampUtil.isTimestampInFuture(tsStr, 86400)) {
+                logger.warn("⏰ [TIMESTAMP-FUTURE] Message timestamp too far in future: '{}' (format: {}) - skipping message",
+                    tsStr, TimestampUtil.getTimestampFormatDescription(tsStr));
                 acknowledgment.acknowledge();
                 return;
             }
-        } catch (NumberFormatException e) {
-            logger.warn("Invalid timestamp format: {} - continuing", ingestionEventDto.getMessage().getTs());
+
+            logger.debug("✅ [TIMESTAMP-VALID] Message timestamp validated: '{}' (format: {})",
+                tsStr, TimestampUtil.getTimestampFormatDescription(tsStr));
+
+        } catch (Exception e) {
+            logger.warn("⚠️ [TIMESTAMP-ERROR] Unexpected error validating timestamp: '{}' - Error: {} - continuing with processing",
+                ingestionEventDto.getMessage().getTs(), e.getMessage());
         }
     }
 

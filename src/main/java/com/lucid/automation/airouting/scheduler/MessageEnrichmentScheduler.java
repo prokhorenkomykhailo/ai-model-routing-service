@@ -8,6 +8,7 @@ import com.lucid.automation.airouting.model.Workspace;
 import com.lucid.automation.airouting.producer.AIMessageProducer;
 import com.lucid.automation.airouting.service.SlidingWindowService;
 import com.lucid.automation.airouting.service.WorkspaceService;
+import com.lucid.automation.airouting.util.TimestampUtil;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -50,8 +51,6 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     private static final int DEFAULT_SLIDING_WINDOW_SIZE = 20;
     private static final String DEFAULT_TENANT_SCHEMA = "public";
     private static final String BATCH_CONVERSATION_ID_SEPARATOR = ":batch_";
-    private static final String TIMESTAMP_SEPARATOR = "\\.";
-    private static final int TIMESTAMP_EPOCH_INDEX = 0;
 
     // Message processing thresholds to prevent processing old messages
     private static final int DEFAULT_MAX_MESSAGE_AGE_DAYS = 30; // Don't process messages older than 30 days
@@ -372,16 +371,15 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                         continue;
                     }
 
-                    // Parse timestamp (format: "epoch_seconds.microseconds")
-                    final String[] timestampParts = messageTs.split(TIMESTAMP_SEPARATOR);
-                    final long messageEpochSeconds = Long.parseLong(timestampParts[TIMESTAMP_EPOCH_INDEX]);
+                    // Use TimestampUtil to parse both timestamp formats
+                    final long messageEpochSeconds = TimestampUtil.parseToEpochSeconds(messageTs);
 
                     if (messageEpochSeconds >= cutoffEpochSeconds) {
                         recentMessages.add(message);
                     } else {
                         oldMessageCount++;
-                        log.debug("⏰ [MESSAGE-FILTER] Excluding old message {} (timestamp: {}, {} days old)",
-                            message.getId(), messageTs,
+                        log.debug("⏰ [MESSAGE-FILTER] Excluding old message {} (timestamp: {}, format: {}, {} days old)",
+                            message.getId(), messageTs, TimestampUtil.getTimestampFormatDescription(messageTs),
                             (cutoffEpochSeconds - messageEpochSeconds) / 86400);
                     }
 
@@ -564,7 +562,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
 
     /**
      * Sets the timestamp on a SlackMessage with robust parsing and error handling.
-     * Expected format is "epoch_seconds.microseconds" (e.g., "1609459200.123456").
+     * Supports both Slack format (e.g., "1609459200.123456") and millisecond format (e.g., "1609459200000").
      */
     private void setMessageTimestamp(final SlackMessage slackMessage, final Message message) {
         final String messageTs = message.getMessageTs();
@@ -575,19 +573,20 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         }
 
         try {
-            final String[] timestampParts = messageTs.split(TIMESTAMP_SEPARATOR);
-            final long epochSeconds = Long.parseLong(timestampParts[TIMESTAMP_EPOCH_INDEX]);
+            // Use TimestampUtil to handle both timestamp formats
+            final LocalDateTime timestamp = TimestampUtil.parseToLocalDateTime(messageTs);
 
-            final var timestamp = LocalDateTime.ofEpochSecond(epochSeconds, 0, ZoneOffset.UTC);
-            slackMessage.setTimestamp(timestamp);
-        } catch (NumberFormatException e) {
-            log.warn("⚠️ Invalid timestamp format for message {}: '{}' - {}",
-                message.getId(), messageTs, e.getMessage());
-        } catch (ArrayIndexOutOfBoundsException e) {
-            log.warn("⚠️ Malformed timestamp structure for message {}: '{}' - {}",
-                message.getId(), messageTs, e.getMessage());
+            if (timestamp != null) {
+                slackMessage.setTimestamp(timestamp);
+                log.debug("✅ [TIMESTAMP-SET] Message {} timestamp set: {} (format: {})",
+                    message.getId(), timestamp, TimestampUtil.getTimestampFormatDescription(messageTs));
+            } else {
+                log.warn("⚠️ [TIMESTAMP-FAILED] Failed to parse timestamp for message {}: '{}'",
+                    message.getId(), messageTs);
+            }
+
         } catch (Exception e) {
-            log.warn("⚠️ Unexpected error parsing timestamp for message {}: '{}' - {}",
+            log.warn("⚠️ [TIMESTAMP-ERROR] Unexpected error parsing timestamp for message {}: '{}' - {}",
                 message.getId(), messageTs, e.getMessage());
         }
     }
