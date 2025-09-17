@@ -1,17 +1,10 @@
 package com.lucid.automation.airouting.service;
 
 import com.lucid.automation.airouting.config.RoutingConfig;
-import com.lucid.automation.airouting.exception.InvalidTenantException;
 import com.lucid.automation.airouting.model.AITaskType;
 import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.provider.AIProviderFactory;
-import com.lucid.automation.airouting.util.TenantValidationUtil;
-import com.lucid.automation.common.dto.TokenQuotaResponseDTO;
-import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
-import io.opentelemetry.api.trace.Span;
-import io.opentelemetry.api.trace.Tracer;
+import com.lucid.automation.airouting.exception.TokenQuotaExhaustedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -20,7 +13,8 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * AI Provider routing service with intelligent failover and load balancing
+ * AI Provider routing service with failover support
+ * @author vudu
  */
 @Service
 public class AIProviderRouterService {
@@ -28,43 +22,15 @@ public class AIProviderRouterService {
     private static final Logger logger = LoggerFactory.getLogger(AIProviderRouterService.class);
 
     private final AIProviderFactory providerFactory;
-    private final AIProviderHealthChecker healthChecker;
-    private final EnhancedTokenAvailabilityService enhancedTokenAvailabilityService;
     private final RoutingConfig routingConfig;
-    private final Tracer tracer;
-
-    // Metrics
-    private final Timer routingLatencyTimer;
-    private final Counter providerFailoverCounter;
-    private final Counter providerSelectionCounter;
 
     // Provider priority configuration
     private final Map<String, Integer> providerPriorities;
 
     public AIProviderRouterService(AIProviderFactory providerFactory,
-                                 AIProviderHealthChecker healthChecker,
-                                 EnhancedTokenAvailabilityService enhancedTokenAvailabilityService,
-                                 RoutingConfig routingConfig,
-                                 MeterRegistry meterRegistry,
-                                 Tracer tracer) {
+                                 RoutingConfig routingConfig) {
         this.providerFactory = providerFactory;
-        this.healthChecker = healthChecker;
-        this.enhancedTokenAvailabilityService = enhancedTokenAvailabilityService;
         this.routingConfig = routingConfig;
-        this.tracer = tracer;
-
-        // Initialize metrics
-        this.routingLatencyTimer = Timer.builder("ai.provider.routing.latency")
-            .description("Time taken to select and route to a provider")
-            .register(meterRegistry);
-
-        this.providerFailoverCounter = Counter.builder("ai.provider.failover.count")
-            .description("Number of provider failovers")
-            .register(meterRegistry);
-
-        this.providerSelectionCounter = Counter.builder("ai.provider.selection.count")
-            .description("Number of provider selections")
-            .register(meterRegistry);
 
         // Initialize provider priorities (can be made configurable)
         this.providerPriorities = new HashMap<>();
@@ -83,39 +49,20 @@ public class AIProviderRouterService {
      * Select the best available provider with preferred provider hint
      */
     public AIProvider selectProvider(AITaskType taskType, String tenantId, String preferredProviderId) {
-        // Validate tenant ID before any processing
-        if (TenantValidationUtil.isInvalidTenantId(tenantId)) {
-            String reason = TenantValidationUtil.getInvalidTenantIdReason(tenantId);
-            logger.warn("PROVIDER-ROUTER: Refusing to select provider for invalid tenant ID [{}]: {}",
-                       tenantId, reason);
-            throw new InvalidTenantException(tenantId, reason);
-        }
-
-        Span span = tracer.spanBuilder("ai.provider.selection")
-            .setAttribute("task_type", taskType.toString())
-            .setAttribute("tenant_id", tenantId)
-            .setAttribute("preferred_provider", preferredProviderId != null ? preferredProviderId : "none")
-            .startSpan();
-
-        Timer.Sample sample = Timer.start();
+        String debugId = "ROUTER-" + System.currentTimeMillis();
+        logger.info("ROUTER [{}]: Selecting provider for task: {}, tenant: {}, preferred: {}",
+                   debugId, taskType, tenantId, preferredProviderId);
 
         try {
-            providerSelectionCounter.increment();
-
             // Step 1: Try preferred provider if specified
             if (preferredProviderId != null && !preferredProviderId.trim().isEmpty()) {
                 AIProvider preferredProvider = providerFactory.getProvider(preferredProviderId);
-                if (isProviderAvailable(preferredProvider, tenantId)) {
-                    logger.debug("Selected preferred provider {} for task {} and tenant {}",
-                               preferredProviderId, taskType, tenantId);
-                    span.setAttribute("selected_provider", preferredProviderId);
-                    span.setAttribute("selection_reason", "preferred");
+                if (isProviderAvailableForTenant(preferredProvider, tenantId)) {
+                    logger.info("ROUTER [{}]: Using preferred provider: {}", debugId, preferredProviderId);
                     return preferredProvider;
                 } else {
-                    logger.warn("Preferred provider {} unavailable, falling back for task {} and tenant {}",
-                              preferredProviderId, taskType, tenantId);
-                    providerFailoverCounter.increment();
-                    span.setAttribute("preferred_provider_available", false);
+                    logger.warn("ROUTER [{}]: Preferred provider '{}' not available for tenant {}, falling back",
+                               debugId, preferredProviderId, tenantId);
                 }
             }
 
@@ -123,16 +70,13 @@ public class AIProviderRouterService {
             String taskProvider = routingConfig.getProviderForTask(taskType);
             if (taskProvider != null) {
                 AIProvider provider = providerFactory.getProvider(taskProvider);
-                if (isProviderAvailable(provider, tenantId)) {
-                    logger.debug("Selected task-specific provider {} for task {} and tenant {}",
-                               taskProvider, taskType, tenantId);
-                    span.setAttribute("selected_provider", taskProvider);
-                    span.setAttribute("selection_reason", "task_specific");
+                if (isProviderAvailableForTenant(provider, tenantId)) {
+                    logger.info("ROUTER [{}]: Using task-specific provider: {} for task: {}",
+                               debugId, taskProvider, taskType);
                     return provider;
                 } else {
-                    logger.warn("Task-specific provider {} unavailable, falling back for task {} and tenant {}",
-                              taskProvider, taskType, tenantId);
-                    providerFailoverCounter.increment();
+                    logger.warn("ROUTER [{}]: Task-specific provider '{}' not available for task: {} and tenant {}",
+                               debugId, taskProvider, taskType, tenantId);
                 }
             }
 
@@ -140,48 +84,53 @@ public class AIProviderRouterService {
             String defaultProvider = routingConfig.getDefaultProvider();
             if (defaultProvider != null) {
                 AIProvider provider = providerFactory.getProvider(defaultProvider);
-                if (isProviderAvailable(provider, tenantId)) {
-                    logger.debug("Selected default provider {} for task {} and tenant {}",
-                               defaultProvider, taskType, tenantId);
-                    span.setAttribute("selected_provider", defaultProvider);
-                    span.setAttribute("selection_reason", "default");
+                if (isProviderAvailableForTenant(provider, tenantId)) {
+                    logger.info("ROUTER [{}]: Using default provider: {}", debugId, defaultProvider);
                     return provider;
                 } else {
-                    logger.warn("Default provider {} unavailable, falling back for task {} and tenant {}",
-                              defaultProvider, taskType, tenantId);
-                    providerFailoverCounter.increment();
+                    logger.warn("ROUTER [{}]: Default provider '{}' not available for tenant {}", debugId, defaultProvider, tenantId);
                 }
             }
 
             // Step 4: Find any available provider by priority
-            List<AIProvider> availableProviders = findAvailableProvidersByPriority(tenantId);
+            List<AIProvider> availableProviders = findAvailableProvidersByPriorityForTenant(tenantId);
             if (!availableProviders.isEmpty()) {
                 AIProvider provider = availableProviders.get(0);
-                logger.warn("Using fallback provider {} for task {} and tenant {}",
-                          provider.getProviderId(), taskType, tenantId);
-                providerFailoverCounter.increment();
-                span.setAttribute("selected_provider", provider.getProviderId());
-                span.setAttribute("selection_reason", "fallback");
+                logger.warn("ROUTER [{}]: Using fallback provider: {}", debugId, provider.getProviderId());
                 return provider;
             }
 
-            // Step 5: No providers available
-            logger.error("No available providers found for task {} and tenant {}", taskType, tenantId);
-            span.setAttribute("error", true);
-            span.setAttribute("error_reason", "no_providers_available");
-            throw new NoAvailableProviderException(
-                String.format("No AI providers available for task %s and tenant %s", taskType, tenantId));
+            // Step 5: Check if the issue is token quota exhaustion across all providers
+            boolean allProvidersExist = providerFactory.getAllProviders().values().stream()
+                .anyMatch(this::isProviderAvailable);
 
-        } finally {
-            sample.stop(routingLatencyTimer);
-            span.end();
+            if (allProvidersExist) {
+                // Providers exist but no tokens available for this tenant
+                logger.error("ROUTER [{}]: Token quota exhausted for tenant {} across all available providers", debugId, tenantId);
+                throw new RuntimeException("Token quota exhausted for tenant " + tenantId +
+                                         ". Please upgrade your plan or wait for quota renewal.");
+            } else {
+                // No providers available at all
+                logger.error("ROUTER [{}]: No available providers found for task {} and tenant {}", debugId, taskType, tenantId);
+                throw new RuntimeException("AI service is currently unavailable: No AI providers available for task " + taskType + " and tenant " + tenantId);
+            }
+
+        } catch (TokenQuotaExhaustedException e) {
+            logger.warn("ROUTER [{}]: Token quota exhausted for tenant {} with provider {}",
+                       debugId, e.getTenantId(), e.getProviderId());
+            throw new RuntimeException("Token quota exhausted for tenant " + e.getTenantId() +
+                                     ". Please upgrade your plan or wait for quota renewal.");
+        } catch (Exception e) {
+            logger.error("ROUTER [{}]: Error selecting provider for task {} and tenant {}: {}",
+                        debugId, taskType, tenantId, e.getMessage(), e);
+            throw new RuntimeException("AI service is currently unavailable: " + e.getMessage());
         }
     }
 
     /**
-     * Check if a provider is available for a tenant
+     * Check if a provider is available
      */
-    private boolean isProviderAvailable(AIProvider provider, String tenantId) {
+    private boolean isProviderAvailable(AIProvider provider) {
         if (provider == null) {
             return false;
         }
@@ -192,172 +141,123 @@ public class AIProviderRouterService {
             return false;
         }
 
-        // Check provider health status
-        if (!healthChecker.isProviderHealthy(provider.getProviderId())) {
-            logger.debug("Provider {} failed health check", provider.getProviderId());
-            return false;
-        }
-
-        // Check tenant token availability with detailed quota information
-        try {
-            TokenQuotaResponseDTO tokenQuota = enhancedTokenAvailabilityService.getTokenQuota(tenantId);
-            if (!tokenQuota.isAvailable()) {
-                logger.debug("No tokens available for tenant {} on provider {}: {}",
-                           tenantId, provider.getProviderId(), tokenQuota.getMessage());
-                return false;
-            }
-
-            // Log quota information for monitoring
-            if (tokenQuota.getUsagePercentage() > 80.0) {
-                logger.warn("High token usage for tenant {}: {}% used ({}/{} tokens)",
-                          tenantId, String.format("%.1f", tokenQuota.getUsagePercentage()),
-                          tokenQuota.getUsedTokens(), tokenQuota.getTotalTokens());
-            }
-
-        } catch (Exception e) {
-            logger.error("Error checking token availability for tenant {} on provider {}: {}",
-                       tenantId, provider.getProviderId(), e.getMessage());
-            return false;
-        }
-
         return true;
     }
 
     /**
-     * Find all available providers sorted by priority
+     * Check if a provider is available for a specific tenant (includes token availability)
      */
-    private List<AIProvider> findAvailableProvidersByPriority(String tenantId) {
+    private boolean isProviderAvailableForTenant(AIProvider provider, String tenantId) {
+        if (!isProviderAvailable(provider)) {
+            return false;
+        }
+
+        // Use reflection to check token availability method from the provider
+        try {
+            // Call the protected method using reflection to check token availability
+            java.lang.reflect.Method method = AIProvider.class.getDeclaredMethod("isTokenAvailableForTenant", String.class);
+            method.setAccessible(true);
+            boolean hasTokens = (Boolean) method.invoke(provider, tenantId);
+
+            if (!hasTokens) {
+                logger.debug("Provider {} has no tokens available for tenant {}", provider.getProviderId(), tenantId);
+                return false;
+            }
+
+            return true;
+        } catch (Exception e) {
+            logger.warn("Could not check token availability for provider {} and tenant {}: {}",
+                       provider.getProviderId(), tenantId, e.getMessage());
+            // Fall back to basic availability check
+            return true;
+        }
+    }
+
+    /**
+     * Find all available providers for a specific tenant sorted by priority
+     */
+    private List<AIProvider> findAvailableProvidersByPriorityForTenant(String tenantId) {
         return providerFactory.getAllProviders().values().stream()
-            .filter(provider -> isProviderAvailable(provider, tenantId))
+            .filter(provider -> isProviderAvailableForTenant(provider, tenantId))
             .sorted(Comparator.comparingInt(provider ->
                 providerPriorities.getOrDefault(provider.getProviderId(), Integer.MAX_VALUE)))
             .collect(Collectors.toList());
     }
 
     /**
-     * Get provider statistics for monitoring
+     * Check if any providers are available
+     */
+    public boolean hasAvailableProviders() {
+        return providerFactory.getAllProviders().values().stream()
+            .anyMatch(this::isProviderAvailable);
+    }
+
+    /**
+     * Get status of all providers
+     */
+    public String getProviderStatus() {
+        StringBuilder status = new StringBuilder("Provider Status:\n");
+        providerFactory.getAllProviders().forEach((name, provider) -> {
+            status.append(String.format("- %s: %s\n", name, provider.isAvailable() ? "AVAILABLE" : "UNAVAILABLE"));
+        });
+        return status.toString();
+    }
+
+    /**
+     * Get detailed provider statistics
      */
     public ProviderStats getProviderStats() {
-        Map<String, AIProvider> allProviders = providerFactory.getAllProviders();
-        Map<String, Boolean> providerHealths = new HashMap<>();
+        Map<String, Boolean> providerStatuses = new HashMap<>();
+        int totalProviders = 0;
+        int availableProviders = 0;
 
-        for (String providerId : allProviders.keySet()) {
-            providerHealths.put(providerId, healthChecker.isProviderHealthy(providerId));
-        }
+        for (Map.Entry<String, AIProvider> entry : providerFactory.getAllProviders().entrySet()) {
+            String providerId = entry.getKey();
+            AIProvider provider = entry.getValue();
+            boolean isAvailable = provider.isAvailable();
 
-        return new ProviderStats(
-            allProviders.size(),
-            (int) providerHealths.values().stream().filter(h -> h).count(),
-            providerHealths
-        );
-    }
-
-    /**
-     * Select provider with estimated token usage validation
-     * This method performs pre-validation to ensure the tenant has sufficient tokens
-     * for the estimated operation before selecting a provider.
-     *
-     * @param taskType The AI task type
-     * @param tenantId The tenant ID
-     * @param estimatedTokens Estimated token usage for the operation
-     * @param preferredProvider Optional preferred provider ID
-     * @return Selected AI provider
-     * @throws NoAvailableProviderException if no provider has sufficient tokens
-     */
-    public AIProvider selectProviderWithTokenValidation(AITaskType taskType,
-                                                      String tenantId,
-                                                      long estimatedTokens,
-                                                      String preferredProvider) {
-        // Validate tenant ID before any processing
-        if (TenantValidationUtil.isInvalidTenantId(tenantId)) {
-            String reason = TenantValidationUtil.getInvalidTenantIdReason(tenantId);
-            logger.warn("PROVIDER-ROUTER: Refusing to select provider for invalid tenant ID [{}]: {}",
-                       tenantId, reason);
-            throw new InvalidTenantException(tenantId, reason);
-        }
-
-        Timer.Sample sample = Timer.start();
-        Span span = tracer.spanBuilder("ai.provider.selection.with.validation")
-                    .setAttribute("task_type", taskType.toString())
-                    .setAttribute("tenant_id", tenantId)
-                    .setAttribute("estimated_tokens", estimatedTokens)
-                    .setAttribute("preferred_provider", preferredProvider != null ? preferredProvider : "none")
-                    .startSpan();
-
-        try {
-            providerSelectionCounter.increment();
-
-            logger.debug("Selecting provider for task {} and tenant {} with estimated tokens: {}",
-                        taskType, tenantId, estimatedTokens);
-
-            // First check if tenant has sufficient tokens overall
-            try {
-                if (!enhancedTokenAvailabilityService.hasSufficientTokens(tenantId, estimatedTokens)) {
-                    TokenQuotaResponseDTO quota = enhancedTokenAvailabilityService.getTokenQuota(tenantId);
-                    logger.warn("Insufficient tokens for tenant {} (required: {}, available: {}): {}",
-                              tenantId, estimatedTokens, quota.getRemainingTokens(), quota.getMessage());
-                    span.setAttribute("error", true);
-                    span.setAttribute("error_reason", "insufficient_tokens");
-                    throw new InsufficientTokensException(
-                        String.format("Insufficient tokens for tenant %s: required %d, available %d",
-                                     tenantId, estimatedTokens, quota.getRemainingTokens()));
-                }
-            } catch (InsufficientTokensException e) {
-                throw e; // Re-throw our custom exception
-            } catch (Exception e) {
-                logger.warn("Error checking token sufficiency for tenant {}: {}", tenantId, e.getMessage());
-                // Continue with regular provider selection if token estimation fails
+            providerStatuses.put(providerId, isAvailable);
+            totalProviders++;
+            if (isAvailable) {
+                availableProviders++;
             }
-
-            // Use regular provider selection logic
-            return selectProvider(taskType, tenantId, preferredProvider);
-
-        } finally {
-            sample.stop(routingLatencyTimer);
-            span.end();
         }
+
+        return new ProviderStats(totalProviders, availableProviders, providerStatuses);
     }
 
     /**
-     * Custom exception for no available providers
-     */
-    public static class NoAvailableProviderException extends RuntimeException {
-        public NoAvailableProviderException(String message) {
-            super(message);
-        }
-    }
-
-    /**
-     * Custom exception for insufficient token quota
-     */
-    public static class InsufficientTokensException extends RuntimeException {
-        public InsufficientTokensException(String message) {
-            super(message);
-        }
-    }
-
-    /**
-     * Provider statistics data class
+     * Data class for provider statistics
      */
     public static class ProviderStats {
         private final int totalProviders;
-        private final int healthyProviders;
-        private final Map<String, Boolean> providerHealths;
+        private final int availableProviders;
+        private final Map<String, Boolean> providerStatuses;
 
-        public ProviderStats(int totalProviders, int healthyProviders, Map<String, Boolean> providerHealths) {
+        public ProviderStats(int totalProviders, int availableProviders, Map<String, Boolean> providerStatuses) {
             this.totalProviders = totalProviders;
-            this.healthyProviders = healthyProviders;
-            this.providerHealths = Map.copyOf(providerHealths);
+            this.availableProviders = availableProviders;
+            this.providerStatuses = Map.copyOf(providerStatuses);
         }
 
-        public int getTotalProviders() { return totalProviders; }
-        public int getHealthyProviders() { return healthyProviders; }
-        public Map<String, Boolean> getProviderHealths() { return providerHealths; }
+        public int getTotalProviders() {
+            return totalProviders;
+        }
 
-        @Override
-        public String toString() {
-            return String.format("ProviderStats{total=%d, healthy=%d, healths=%s}",
-                               totalProviders, healthyProviders, providerHealths);
+        public int getAvailableProviders() {
+            return availableProviders;
+        }
+
+        public Map<String, Boolean> getProviderStatuses() {
+            return providerStatuses;
+        }
+
+        public boolean isHealthy() {
+            return availableProviders > 0;
+        }
+
+        public double getAvailabilityRatio() {
+            return totalProviders > 0 ? (double) availableProviders / totalProviders : 0.0;
         }
     }
 }

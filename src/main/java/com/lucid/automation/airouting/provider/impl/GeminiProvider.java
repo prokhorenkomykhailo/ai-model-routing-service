@@ -4,6 +4,7 @@ import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.message.AIMessage;
 import com.lucid.automation.airouting.util.PromptLoader;
+import com.lucid.automation.airouting.exception.TokenQuotaExhaustedException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.genai.Client;
 import com.google.genai.types.CountTokensResponse;
@@ -179,33 +180,28 @@ public class GeminiProvider extends AIProvider {
     @Override
     public String processTextQuery(String query, String userId, String tenantId) {
         String debugId = "TEXT-QUERY-" + System.currentTimeMillis();
-        logger.info("🔍 GEMINI-TEXT [{}]: Processing text query | 📏 {} chars | 👤 User: {} | 🏢 Tenant: {}",
-                   debugId, query != null ? query.length() : 0, userId != null ? userId : "unknown", tenantId != null ? tenantId : "unknown");
+        logger.info("GEMINI-TEXT [{}]: Processing text query: {}", debugId, query != null ? query.substring(0, Math.min(query.length(), 100)) + "..." : "null");
 
         try {
-            // Validate tenant ID using centralized method
-            validateTenantId(tenantId, "text-query");
-
             // Input validation
             if (query == null || query.trim().isEmpty()) {
-                logger.warn("⚠️ GEMINI-TEXT [{}]: Empty query provided", debugId);
+                logger.warn("GEMINI-TEXT [{}]: Empty query provided", debugId);
                 return "Empty query provided";
             }
 
             if (!isClientAvailable) {
-                logger.warn("⚠️ GEMINI-TEXT [{}]: Gemini client not available", debugId);
+                logger.warn("GEMINI-TEXT [{}]: Gemini client not available", debugId);
                 return "Gemini client not available";
             }
 
-            // Call Gemini API with default user/tenant for simple text queries
+            // Call Gemini API with provided user/tenant context
             String response = callGeminiAPI(query, "text-query", debugId, userId, tenantId);
 
-            logger.info("✅ GEMINI-TEXT [{}]: Successfully processed text query | 📏 Response: {} chars",
-                       debugId, response != null ? response.length() : 0);
+            logger.info("GEMINI-TEXT [{}]: Successfully processed text query", debugId);
             return response;
 
         } catch (Exception e) {
-            logger.error("🚨 GEMINI-TEXT [{}]: Error processing text query: {}", debugId, e.getMessage(), e);
+            logger.error("GEMINI-TEXT [{}]: Error processing text query: {}", debugId, e.getMessage(), e);
             return "Error processing query: " + e.getMessage();
         }
     }
@@ -223,7 +219,7 @@ public class GeminiProvider extends AIProvider {
             // check if tokens are available for the tenant
             if (!isTokenAvailableForTenant(tenantId)) {
                 logger.warn("⚠️ GEMINI-API [{}]: No tokens available for tenant {}, cannot process operation: {}", debugId, tenantId, operation);
-                throw new RuntimeException("No tokens available for tenant " + tenantId);
+                throw new TokenQuotaExhaustedException(tenantId, getProviderId());
             }
 
             // Count input tokens

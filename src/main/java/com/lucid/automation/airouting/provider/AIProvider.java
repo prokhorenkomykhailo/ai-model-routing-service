@@ -37,12 +37,12 @@ public abstract class AIProvider {
      */
     public abstract Map<String, Object> enrichConversation(AIMessage messages);
 
-    /**
-     * Process a simple text query and return a response
+        /**
+     * Process a simple text query with user and tenant context
      *
      * @param query The text query to process
-     * @param userId The user ID associated with the request
-     * @param tenantId The tenant ID associated with the request
+     * @param userId The user ID making the request
+     * @param tenantId The tenant ID for the request
      * @return String response from the AI provider
      */
     public abstract String processTextQuery(String query, String userId, String tenantId);

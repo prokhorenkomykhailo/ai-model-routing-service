@@ -107,25 +107,25 @@ public class AITextQueryController {
             return ResponseEntity.badRequest()
                 .body(APIResponse.error("Invalid tenant ID: " + e.getReason()));
 
-        } catch (AIProviderRouterService.NoAvailableProviderException e) {
-            logger.error("AI-CONTROLLER [{}]: No available providers: {}", debugId, e.getMessage());
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(APIResponse.error("AI service is currently unavailable: " + e.getMessage()));
-
-        } catch (AIProviderRouterService.InsufficientTokensException e) {
-            logger.error("AI-CONTROLLER [{}]: Insufficient tokens: {}", debugId, e.getMessage());
-            return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
-                .body(APIResponse.error("Insufficient tokens: " + e.getMessage()));
-
-        } catch (IllegalArgumentException e) {
-            logger.error("AI-CONTROLLER [{}]: Invalid request: {}", debugId, e.getMessage());
-            return ResponseEntity.badRequest()
-                .body(APIResponse.error("Invalid request: " + e.getMessage()));
-
         } catch (RuntimeException e) {
-            logger.error("AI-CONTROLLER [{}]: Service error: {}", debugId, e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(APIResponse.error("Service error: " + e.getMessage()));
+            // Check if this is a token quota exhaustion error
+            if (e.getMessage() != null && e.getMessage().contains("Token quota exhausted")) {
+                logger.error("AI-CONTROLLER [{}]: Token quota exhausted: {}", debugId, e.getMessage());
+                return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
+                    .body(APIResponse.error(e.getMessage()));
+            }
+            // Check if this is a provider availability error
+            else if (e.getMessage() != null && e.getMessage().contains("No AI providers available")) {
+                logger.error("AI-CONTROLLER [{}]: No available providers: {}", debugId, e.getMessage());
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(APIResponse.error(e.getMessage()));
+            }
+            // General service unavailable error
+            else {
+                logger.error("AI-CONTROLLER [{}]: AI service error: {}", debugId, e.getMessage());
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(APIResponse.error("AI service is currently unavailable: " + e.getMessage()));
+            }
 
         } catch (Exception e) {
             logger.error("AI-CONTROLLER [{}]: Unexpected error: {}", debugId, e.getMessage(), e);
@@ -175,11 +175,11 @@ public class AITextQueryController {
         }
 
         try {
-            // Use the enhanced provider selection with token validation
-            AIProvider selectedProvider = providerRouter.selectProviderWithTokenValidation(
-                AITaskType.TEXT_QUERY, tenantId, estimatedTokens, preferredProvider);
+            // Select the best provider for this tenant and task
+            AIProvider selectedProvider = providerRouter.selectProvider(
+                AITaskType.TEXT_QUERY, tenantId, preferredProvider);
 
-            logger.info("AI-CONTROLLER [{}]: Selected provider: {} for tenant: {} with token validation",
+            logger.info("AI-CONTROLLER [{}]: Selected provider: {} for tenant: {}",
                        debugId, selectedProvider.getProviderId(), tenantId);
 
             // Process the query using the selected provider
@@ -205,16 +205,6 @@ public class AITextQueryController {
             return ResponseEntity.badRequest()
                 .body(APIResponse.error("Invalid tenant ID: " + e.getReason()));
 
-        } catch (AIProviderRouterService.InsufficientTokensException e) {
-            logger.error("AI-CONTROLLER [{}]: Insufficient tokens for operation: {}", debugId, e.getMessage());
-            return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
-                .body(APIResponse.error("Insufficient tokens for operation: " + e.getMessage()));
-
-        } catch (AIProviderRouterService.NoAvailableProviderException e) {
-            logger.error("AI-CONTROLLER [{}]: No available providers: {}", debugId, e.getMessage());
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(APIResponse.error("AI service is currently unavailable: " + e.getMessage()));
-
         } catch (NumberFormatException e) {
             logger.error("AI-CONTROLLER [{}]: Invalid estimated tokens header: {}", debugId, estimatedTokensHeader);
             return ResponseEntity.badRequest()
@@ -226,9 +216,24 @@ public class AITextQueryController {
                 .body(APIResponse.error("Invalid request: " + e.getMessage()));
 
         } catch (RuntimeException e) {
-            logger.error("AI-CONTROLLER [{}]: Service error: {}", debugId, e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(APIResponse.error("Service error: " + e.getMessage()));
+            // Check if this is a token quota exhaustion error
+            if (e.getMessage() != null && e.getMessage().contains("Token quota exhausted")) {
+                logger.error("AI-CONTROLLER [{}]: Token quota exhausted: {}", debugId, e.getMessage());
+                return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
+                    .body(APIResponse.error(e.getMessage()));
+            }
+            // Check if this is a provider availability error
+            else if (e.getMessage() != null && e.getMessage().contains("No AI providers available")) {
+                logger.error("AI-CONTROLLER [{}]: No available providers: {}", debugId, e.getMessage());
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(APIResponse.error(e.getMessage()));
+            }
+            // General service unavailable error
+            else {
+                logger.error("AI-CONTROLLER [{}]: AI service error: {}", debugId, e.getMessage());
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(APIResponse.error("AI service is currently unavailable: " + e.getMessage()));
+            }
 
         } catch (Exception e) {
             logger.error("AI-CONTROLLER [{}]: Unexpected error: {}", debugId, e.getMessage(), e);

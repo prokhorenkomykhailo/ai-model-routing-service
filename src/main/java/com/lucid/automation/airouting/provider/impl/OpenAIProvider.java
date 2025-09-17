@@ -4,6 +4,7 @@ import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.message.AIMessage;
 import com.lucid.automation.airouting.util.PromptLoader;
+import com.lucid.automation.airouting.exception.TokenQuotaExhaustedException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
@@ -218,7 +219,7 @@ public class OpenAIProvider extends AIProvider {
             // check if tokens are available for the tenant
             if (!isTokenAvailableForTenant(tenantId)) {
                 logger.warn("⚠️ OPENAI-API [{}]: No tokens available for tenant {}, cannot process operation : {}", debugId, tenantId, operation);
-                throw new RuntimeException("No tokens available for tenant " + tenantId);
+                throw new TokenQuotaExhaustedException(tenantId, getProviderId());
             }
 
             // Build OpenAI request using official client
