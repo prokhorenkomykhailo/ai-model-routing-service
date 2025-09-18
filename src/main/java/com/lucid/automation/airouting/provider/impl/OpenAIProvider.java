@@ -3,7 +3,6 @@ package com.lucid.automation.airouting.provider.impl;
 import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.message.AIMessage;
-import com.lucid.automation.airouting.util.PromptLoader;
 import com.lucid.automation.airouting.exception.TokenQuotaExhaustedException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.client.OpenAIClient;
@@ -50,14 +49,11 @@ public class OpenAIProvider extends AIProvider {
 
     private final OpenAIClient openaiClient;
     private final ObjectMapper objectMapper;
-    private final PromptLoader promptLoader;
     private double lastConfidence = 0.0;
     private final boolean isClientAvailable;
 
-    public OpenAIProvider(ObjectMapper objectMapper,
-                         PromptLoader promptLoader) {
+    public OpenAIProvider(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
-        this.promptLoader = promptLoader;
 
         // Try to initialize the client, but handle gracefully if API key is not available
         OpenAIClient tempClient = null;
@@ -285,7 +281,7 @@ public class OpenAIProvider extends AIProvider {
     }
 
     private String buildConversationEnrichmentPrompt(String conversationText, String deemergeUserName) {
-        String template = promptLoader.loadPromptTemplate("conversation-enrichment");
+        String template = loadPromptTemplate("conversation-enrichment");
         String formattedPrompt = template.replace("{{current_user}}", deemergeUserName);
 
         if (formattedPrompt.contains(MESSAGE_PLACEHOLDER)) {

@@ -3,7 +3,6 @@ package com.lucid.automation.airouting.provider.impl;
 import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.message.AIMessage;
-import com.lucid.automation.airouting.util.PromptLoader;
 import com.lucid.automation.airouting.exception.TokenQuotaExhaustedException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.genai.Client;
@@ -43,14 +42,11 @@ public class GeminiProvider extends AIProvider {
 
     private final Client geminiClient;
     private final ObjectMapper objectMapper;
-    private final PromptLoader promptLoader;
     private double lastConfidence = 0.0;
     private final boolean isClientAvailable;
 
-    public GeminiProvider(ObjectMapper objectMapper,
-                         PromptLoader promptLoader) {
+    public GeminiProvider(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
-        this.promptLoader = promptLoader;
         // Try to initialize the client, but handle gracefully if API key is not available
         Client tempClient = null;
         boolean clientAvailable = false;
@@ -275,7 +271,7 @@ public class GeminiProvider extends AIProvider {
     }
 
     private String buildConversationEnrichmentPrompt(String conversationText, String deemergeUserName) {
-        String template = promptLoader.loadPromptTemplate("conversation-enrichment");
+        String template = loadPromptTemplate("conversation-enrichment");
         String formattedPrompt = template.replace("{{current_user}}", deemergeUserName);
 
         if (formattedPrompt.contains(MESSAGE_PLACEHOLDER)) {

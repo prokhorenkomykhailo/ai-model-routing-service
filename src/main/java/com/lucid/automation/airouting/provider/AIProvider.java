@@ -3,6 +3,7 @@ package com.lucid.automation.airouting.provider;
 import com.lucid.automation.airouting.exception.InvalidTenantException;
 import com.lucid.automation.airouting.model.message.AIMessage;
 import com.lucid.automation.airouting.util.TenantValidationUtil;
+import com.lucid.automation.airouting.util.PromptLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,6 +21,9 @@ public abstract class AIProvider {
 
     @Autowired
     private EnhancedTokenAvailabilityService enhancedTokenAvailabilityService;
+
+    @Autowired
+    protected PromptLoader promptLoader;
 
     private static final Logger logger = LoggerFactory.getLogger(AIProvider.class);
 
@@ -163,5 +167,16 @@ public abstract class AIProvider {
             logger.warn("Failed to get token quota for tenant {}: {}", tenantId, e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * Load a prompt template using the injected PromptLoader.
+     * This method is available to all AI provider implementations.
+     *
+     * @param promptName The name of the prompt template to load
+     * @return The loaded prompt template string
+     */
+    protected String loadPromptTemplate(String promptName) {
+        return promptLoader.loadPromptTemplate(promptName);
     }
 }

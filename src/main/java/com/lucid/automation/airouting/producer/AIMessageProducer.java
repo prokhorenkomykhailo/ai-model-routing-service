@@ -8,7 +8,6 @@ import com.lucid.automation.airouting.model.Workspace;
 import com.lucid.automation.airouting.model.message.AIMessage;
 import com.lucid.automation.airouting.model.message.SlackParticipantData;
 import com.lucid.automation.airouting.service.EnrichmentJobService;
-import com.lucid.automation.airouting.service.MessageConverterService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -34,7 +33,6 @@ public class AIMessageProducer {
     private static final Logger logger = LoggerFactory.getLogger(AIMessageProducer.class);
 
     private final KafkaTemplate<String, Object> kafkaTemplate;
-    private final MessageConverterService messageConverter;
 
     @Value("${kafka.topics.ai-categorize:ai-categorize}")
     private String categorizeTopic;
@@ -51,14 +49,11 @@ public class AIMessageProducer {
      * Constructor with dependency injection
      *
      * @param kafkaTemplate Kafka template for sending messages
-     * @param messageConverter Service for converting messages
      * @param enrichmentJobService Service for managing enrichment jobs
      */
     public AIMessageProducer(KafkaTemplate<String, Object> kafkaTemplate,
-                                   MessageConverterService messageConverter,
                                    EnrichmentJobService enrichmentJobService) {
         this.kafkaTemplate = kafkaTemplate;
-        this.messageConverter = messageConverter;
         this.enrichmentJobService = enrichmentJobService;
     }
 
@@ -79,7 +74,7 @@ public class AIMessageProducer {
             List<SlackParticipantData> participantData = null;
             if (participants != null && !participants.isEmpty()) {
                 participantData = participants.stream()
-                        .map(messageConverter::convertToParticipantData)
+                        .map(this::convertToParticipantData)
                         .collect(Collectors.toList());
             }
 
@@ -174,5 +169,18 @@ public class AIMessageProducer {
             case ENRICH_CONVERSATION, ENRICH_MESSAGE, ANALYZE_PARTICIPANT,
                  ASSESS_URGENCY, GENERATE_TOPIC, EXTRACT_ENTITIES, SENTIMENT_ANALYSIS, TEXT_QUERY -> enrichTopic;
         };
+    }
+
+    /**
+     * Convert SlackParticipant to SlackParticipantData for lightweight transport
+     * Inlined from the removed MessageConverterService
+     */
+    private SlackParticipantData convertToParticipantData(SlackParticipant participant) {
+        SlackParticipantData data = new SlackParticipantData();
+        data.setId(participant.getId());
+        data.setName(participant.getName());
+        data.setEmail(participant.getEmail());
+        data.setRole(participant.getRole());
+        return data;
     }
 }

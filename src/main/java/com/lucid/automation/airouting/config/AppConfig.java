@@ -4,27 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.http.client.reactive.ReactorClientHttpConnector;
-import reactor.netty.http.client.HttpClient;
-import io.netty.channel.ChannelOption;
-
-import java.time.Duration;
 
 @Configuration
 public class AppConfig {
-    
-    @Bean
-    public WebClient webClient() {
-        HttpClient httpClient = HttpClient.create()
-            .responseTimeout(Duration.ofSeconds(60))
-            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 30000);
-            
-        return WebClient.builder()
-            .clientConnector(new ReactorClientHttpConnector(httpClient))
-            .build();
-    }
-    
+    // Note: WebClient bean removed as there are no current usages in this service.
+    // If HTTP integrations are added later (e.g., Prompts Manager, provider APIs),
+    // reintroduce a preconfigured WebClient here with Reactor Netty timeouts and OTEL.
+
     @Bean
     public ObjectMapper objectMapper() {
         ObjectMapper mapper = new ObjectMapper();
