@@ -42,7 +42,7 @@ public class UserController {
         @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     public ResponseEntity<Void> deleteUserById(
-            @Parameter(description = "User ID (format: tenantId:workspaceId:slackUserId)", required = true)
+            @Parameter(description = "User ID (format: tenantId:workspaceId:uniqueUserId) - legacy slackUserId format is accepted during migration", required = true)
             @PathVariable String userId) {
         try {
             if (userId == null || userId.trim().isEmpty()) {

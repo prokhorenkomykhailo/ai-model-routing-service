@@ -151,16 +151,19 @@ public class TopicEnrichmentStep implements PipelineStep {
     private Map<String, EnrichmentUserDTO> buildUserInfoMap(List<SlackMessage> messages, String tenantId, String workspaceId) {
         Map<String, EnrichmentUserDTO> userInfos = messages.stream()
             .filter(msg -> {
+                // Prefer uniqueUserId over slackUserId, then username as fallback
                 String key = msg.getSlackUserId() != null ? msg.getSlackUserId() : msg.getUsername();
                 return key != null && !key.trim().isEmpty();
             })
             .collect(Collectors.toMap(
+                // Key by resolved user ID (slackUserId field contains resolved uniqueUserId/slackUserId from MessageService)
                 msg -> msg.getSlackUserId() != null ? msg.getSlackUserId() : msg.getUsername(),
                 msg -> new EnrichmentUserDTO(
                     msg.getSlackUserId(),
                     msg.getUsername(),
                     getBestDisplayNameFromSlackMessage(msg),
-                    msg.getImage72()
+                    // Prefer avatarUrl over imageOriginal then image72 - imageOriginal now contains resolved avatarUrl from MessageService
+                    msg.getImageOriginal() != null ? msg.getImageOriginal() : msg.getImage72()
                 ),
                 (existing, replacement) -> existing // Keep existing if duplicate
             ));

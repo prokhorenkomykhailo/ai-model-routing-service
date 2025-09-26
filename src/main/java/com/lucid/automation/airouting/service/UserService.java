@@ -40,18 +40,19 @@ public class UserService {
         SlackUserDTO userData = ingestionEvent.getUser();
         String tenantId = ingestionEvent.getTenantId();
         String workspaceId = ingestionEvent.getMessage() != null ? ingestionEvent.getMessage().getTeamId() : null;
-        String slackUserId = userData.getSlackUserId();
+        // Resolve user key: prefer uniqueUserId over slackUserId
+        String userKey = userData.getUniqueUserId() != null ? userData.getUniqueUserId() : userData.getSlackUserId();
 
         // Validate required fields
-        if (!StringUtils.hasText(tenantId) || !StringUtils.hasText(workspaceId) || !StringUtils.hasText(slackUserId)) {
-            logger.warn("Missing required user data: tenantId={}, workspaceId={}, slackUserId={}",
-                       tenantId, workspaceId, slackUserId);
+        if (!StringUtils.hasText(tenantId) || !StringUtils.hasText(workspaceId) || !StringUtils.hasText(userKey)) {
+            logger.warn("Missing required user data: tenantId={}, workspaceId={}, userKey={}",
+                       tenantId, workspaceId, userKey);
             return null;
         }
 
         try {
-            // Generate user ID
-            String userId = User.generateId(tenantId, workspaceId, slackUserId);
+            // Generate user ID using resolved user key (uniqueUserId or slackUserId)
+            String userId = User.generateId(tenantId, workspaceId, userKey);
 
             // Check if user already exists
             Optional<User> existingUser = userRepository.findById(userId);
@@ -110,7 +111,8 @@ public class UserService {
                 .pronouns(userData.getPronouns())
                 .statusText(userData.getStatusText())
                 .avatarHash(userData.getAvatarHash())
-                .imageOriginal(userData.getImageOriginal())
+                // Prefer avatarUrl over imageOriginal for image handling
+                .imageOriginal(userData.getAvatarUrl() != null ? userData.getAvatarUrl() : userData.getImageOriginal())
                 .image24(userData.getImage24())
                 .image32(userData.getImage32())
                 .image48(userData.getImage48())

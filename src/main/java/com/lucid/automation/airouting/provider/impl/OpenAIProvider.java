@@ -310,6 +310,7 @@ public class OpenAIProvider extends AIProvider {
                 content = msg.getText();
             }
             messageMap.put("CONTENT", safeString(content));
+            // USER_ID uses resolved uniqueUserId/slackUserId from MessageService
             messageMap.put("USER_ID", safeString(msg.getSlackUserId()));
             messageMap.put("AUTHOR", safeString(msg.getDisplayName()));
 

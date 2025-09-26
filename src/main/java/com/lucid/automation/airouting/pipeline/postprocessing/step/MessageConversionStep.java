@@ -162,7 +162,11 @@ public class MessageConversionStep implements PipelineStep {
         message.setSource(source != null ? source : "slack");
 
         // Set additional required fields for complete SlackMessage
-        message.setSlackUserId((String) map.get("slackUserId"));
+        // Prefer uniqueUserId over slackUserId when extracting from map
+        String uniqueUserId = (String) map.get("uniqueUserId");
+        String slackUserId = (String) map.get("slackUserId");
+        String resolvedUserId = uniqueUserId != null ? uniqueUserId : slackUserId;
+        message.setSlackUserId(resolvedUserId);
         message.setDisplayName((String) map.get("displayName"));
         message.setText((String) map.get("text"));
         message.setTs((String) map.get("ts"));

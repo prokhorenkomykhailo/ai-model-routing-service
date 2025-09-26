@@ -89,8 +89,13 @@ public class RelatedUsersEnrichmentProcessor implements MessageProcessor {
         }
 
         // Get the message sender ID to exclude from related users
-        String senderUserId = ingestionEvent.getUser() != null ?
-                            ingestionEvent.getUser().getSlackUserId() : null;
+        // Prefer uniqueUserId over slackUserId
+        String senderUserId = null;
+        if (ingestionEvent.getUser() != null) {
+            senderUserId = ingestionEvent.getUser().getUniqueUserId() != null ?
+                          ingestionEvent.getUser().getUniqueUserId() :
+                          ingestionEvent.getUser().getSlackUserId();
+        }
         String tenantId = ingestionEvent.getTenantId();
         String teamId = ingestionEvent.getMessage().getTeamId();
 
@@ -147,8 +152,14 @@ public class RelatedUsersEnrichmentProcessor implements MessageProcessor {
         String tenantId = ingestionEvent.getTenantId();
         String tenantSchema = ingestionEvent.getTenantSchema();
 
-        String userId = ingestionEvent.getUser() != null ?
-                       ingestionEvent.getUser().getSlackUserId() : "unknown";
+        // Prefer uniqueUserId over slackUserId for event publishing
+        String userId = "unknown";
+        if (ingestionEvent.getUser() != null) {
+            userId = ingestionEvent.getUser().getUniqueUserId() != null ?
+                    ingestionEvent.getUser().getUniqueUserId() :
+                    ingestionEvent.getUser().getSlackUserId();
+            if (userId == null) userId = "unknown";
+        }
         String teamId = ingestionEvent.getMessage().getTeamId();
         String channelId = ingestionEvent.getMessage().getChannelId();
         String channelName = ingestionEvent.getMessage().getChannelName();
