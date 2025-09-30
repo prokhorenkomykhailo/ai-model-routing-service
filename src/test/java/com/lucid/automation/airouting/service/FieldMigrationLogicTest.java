@@ -30,7 +30,7 @@ class FieldMigrationLogicTest {
         String resolvedId = user.getUniqueUserId() != null ? user.getUniqueUserId() : user.getSlackUserId();
 
         // Then
-        assertEquals("unique-123", resolvedId, 
+        assertEquals("unique-123", resolvedId,
                 "Should prefer uniqueUserId when both are present");
     }
 
@@ -47,7 +47,7 @@ class FieldMigrationLogicTest {
         String resolvedId = user.getUniqueUserId() != null ? user.getUniqueUserId() : user.getSlackUserId();
 
         // Then
-        assertEquals("slack-456", resolvedId, 
+        assertEquals("slack-456", resolvedId,
                 "Should fallback to slackUserId when uniqueUserId is null");
     }
 
@@ -64,7 +64,7 @@ class FieldMigrationLogicTest {
         String resolvedImage = user.getAvatarUrl() != null ? user.getAvatarUrl() : user.getImageOriginal();
 
         // Then
-        assertEquals("https://avatar.com/user.jpg", resolvedImage, 
+        assertEquals("https://avatar.com/user.jpg", resolvedImage,
                 "Should prefer avatarUrl when both are present");
     }
 
@@ -81,7 +81,7 @@ class FieldMigrationLogicTest {
         String resolvedImage = user.getAvatarUrl() != null ? user.getAvatarUrl() : user.getImageOriginal();
 
         // Then
-        assertEquals("https://slack.com/original.jpg", resolvedImage, 
+        assertEquals("https://slack.com/original.jpg", resolvedImage,
                 "Should fallback to imageOriginal when avatarUrl is null");
     }
 
@@ -98,7 +98,7 @@ class FieldMigrationLogicTest {
         message.setSlackUserId(resolvedUserId);
 
         // Then
-        assertEquals("unique-789", message.getSlackUserId(), 
+        assertEquals("unique-789", message.getSlackUserId(),
                 "Message should store the resolved user ID");
     }
 
@@ -117,18 +117,18 @@ class FieldMigrationLogicTest {
         // When
         String resolvedUserId = user.getUniqueUserId() != null ? user.getUniqueUserId() : user.getSlackUserId();
         String resolvedImage = user.getAvatarUrl() != null ? user.getAvatarUrl() : user.getImageOriginal();
-        
+
         SlackMessage message = new SlackMessage();
         message.setSlackUserId(resolvedUserId);
         message.setImageOriginal(resolvedImage);
         message.setName(user.getName());
 
         // Then
-        assertEquals("integration-unique", message.getSlackUserId(), 
+        assertEquals("integration-unique", message.getSlackUserId(),
                 "Should use uniqueUserId for user identification");
-        assertEquals("https://avatar-integrated.com/user.png", message.getImageOriginal(), 
+        assertEquals("https://avatar-integrated.com/user.png", message.getImageOriginal(),
                 "Should use avatarUrl for image");
-        assertEquals("Integration User", message.getName(), 
+        assertEquals("Integration User", message.getName(),
                 "Should preserve other fields");
     }
 }
