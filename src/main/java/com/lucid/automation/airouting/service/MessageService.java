@@ -272,7 +272,7 @@ public class MessageService {
         // Cast to MetadataDTO for Slack messages (for backward compatibility)
         MetadataDTO meta = dto.getSlackMetadata();
         if (meta == null) return metadata;
-        
+
         metadata.put("channelName", meta.getChannelName());
         metadata.put("channelType", meta.getChannelType());
         metadata.put("workspaceName", meta.getWorkspaceName());
