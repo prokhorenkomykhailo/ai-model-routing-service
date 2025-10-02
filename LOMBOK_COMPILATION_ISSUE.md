@@ -1,7 +1,7 @@
 # AI Routing Service - Lombok Compilation Issue
 
-**Date**: October 2, 2025  
-**Version**: 1.1.1 (attempted)  
+**Date**: October 2, 2025
+**Version**: 1.1.1 (attempted)
 **Status**: ⚠️ BLOCKED - Build Failure
 
 ## Problem Summary
@@ -10,7 +10,7 @@ After upgrading `lucid-common-dtos` from **v1.2.0** to **v1.3.0**, the AI routin
 
 ## Error Details
 
-**Compilation Errors**: 60+ errors across multiple files  
+**Compilation Errors**: 60+ errors across multiple files
 **Error Pattern**:
 ```
 cannot find symbol
@@ -92,7 +92,7 @@ The error message "location: class java.lang.Object" indicates the compiler is t
 // Reflection-based sourceType access (works)
 String sourceType = null;
 try {
-    java.lang.reflect.Method getSourceTypeMethod = 
+    java.lang.reflect.Method getSourceTypeMethod =
         ingestionEventDto.getClass().getMethod("getSourceType");
     sourceType = (String) getSourceTypeMethod.invoke(ingestionEventDto);
 } catch (Exception e) {
@@ -181,6 +181,6 @@ try {
 
 ---
 
-**Status**: Work in Progress  
-**Owner**: AI Routing Service Team  
+**Status**: Work in Progress
+**Owner**: AI Routing Service Team
 **Priority**: Medium (not blocking production)

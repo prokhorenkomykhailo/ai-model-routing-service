@@ -1,7 +1,8 @@
 package com.lucid.automation.airouting.service;
 
 import com.lucid.automation.common.dto.messaging.IngestionEventDTO;
-import com.lucid.automation.common.dto.messaging.SlackUserDTO;
+import com.lucid.automation.common.dto.messaging.IngestionUserDTO;
+import com.lucid.automation.common.dto.messaging.IngestionMessageDTO;
 import com.lucid.automation.airouting.model.User;
 import com.lucid.automation.airouting.repository.UserRepository;
 import org.slf4j.Logger;
@@ -37,9 +38,11 @@ public class UserService {
             return null;
         }
 
-        SlackUserDTO userData = ingestionEvent.getUser();
+        IngestionUserDTO userData = ingestionEvent.getUser();
         String tenantId = ingestionEvent.getTenantId();
-        String workspaceId = ingestionEvent.getMessage() != null ? ingestionEvent.getMessage().getTeamId() : null;
+        // Get workspace ID from message using unified DTO helper method
+        IngestionMessageDTO message = ingestionEvent.getMessage();
+        String workspaceId = message != null ? message.getBestWorkspaceId() : null;
         // Resolve user key: prefer uniqueUserId over slackUserId
         String userKey = userData.getUniqueUserId() != null ? userData.getUniqueUserId() : userData.getSlackUserId();
 
@@ -86,9 +89,11 @@ public class UserService {
     /**
      * Creates a new User from ingestion event data
      */
-    private User createUserFromEvent(SlackUserDTO userData, IngestionEventDTO ingestionEvent) {
+    private User createUserFromEvent(IngestionUserDTO userData, IngestionEventDTO ingestionEvent) {
         String tenantId = ingestionEvent.getTenantId();
-        String workspaceId = ingestionEvent.getMessage().getTeamId();
+        // Get workspace ID from message using unified DTO helper method
+        IngestionMessageDTO message = ingestionEvent.getMessage();
+        String workspaceId = message != null ? message.getBestWorkspaceId() : null;
         String slackUserId = userData.getSlackUserId();
         String userId = User.generateId(tenantId, workspaceId, slackUserId);
 
@@ -99,7 +104,7 @@ public class UserService {
                 .slackUserId(slackUserId)
                 .teamId(userData.getTeamId())
                 .name(userData.getName())
-                .emailConfirmed(userData.getEmailConfirmed())
+                .emailConfirmed(userData.getEmailVerified())
                 .displayName(userData.getDisplayName())
                 .displayNameNormalized(userData.getDisplayNameNormalized())
                 .realNameNormalized(userData.getRealNameNormalized())
@@ -130,11 +135,11 @@ public class UserService {
     /**
      * Updates an existing User with new data from ingestion event
      */
-    private void updateUserFromEvent(User user, SlackUserDTO userData, IngestionEventDTO ingestionEvent) {
+    private void updateUserFromEvent(User user, IngestionUserDTO userData, IngestionEventDTO ingestionEvent) {
         // Update all user profile fields with latest data
         user.setTeamId(userData.getTeamId());
         user.setName(userData.getName());
-        user.setEmailConfirmed(userData.getEmailConfirmed());
+        user.setEmailConfirmed(userData.getEmailVerified());
         user.setDisplayName(userData.getDisplayName());
         user.setDisplayNameNormalized(userData.getDisplayNameNormalized());
         user.setRealNameNormalized(userData.getRealNameNormalized());

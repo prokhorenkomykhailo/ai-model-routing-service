@@ -1,7 +1,9 @@
 package com.lucid.automation.airouting.service;
 
 import com.lucid.automation.common.dto.messaging.IngestionEventDTO;
-import com.lucid.automation.common.dto.messaging.SlackUserDTO;
+import com.lucid.automation.common.dto.messaging.IngestionUserDTO;
+import com.lucid.automation.common.dto.messaging.IngestionMessageDTO;
+import com.lucid.automation.common.dto.messaging.MetadataDTO;
 import com.lucid.automation.airouting.model.Message;
 import com.lucid.automation.airouting.repository.MessageRepository;
 import org.slf4j.Logger;
@@ -267,7 +269,10 @@ public class MessageService {
         Map<String, Object> metadata = new HashMap<>();
         if (dto.getMetadata() == null) return metadata;
 
-        var meta = dto.getMetadata();
+        // Cast to MetadataDTO for Slack messages (for backward compatibility)
+        MetadataDTO meta = dto.getSlackMetadata();
+        if (meta == null) return metadata;
+        
         metadata.put("channelName", meta.getChannelName());
         metadata.put("channelType", meta.getChannelType());
         metadata.put("workspaceName", meta.getWorkspaceName());
@@ -286,8 +291,9 @@ public class MessageService {
     private void setMessageFields(Message message, IngestionEventDTO dto) {
         if (dto.getMessage() == null) return;
 
-        var msg = dto.getMessage();
-        message.setWorkspaceId(msg.getTeamId());
+        IngestionMessageDTO msg = dto.getMessage();
+        // Use unified message DTO - workspaceId is now directly available
+        message.setWorkspaceId(msg.getBestWorkspaceId());
         message.setChannelId(msg.getChannelId());
         message.setChannelName(msg.getChannelName());
         message.setUserId(msg.getUser());
@@ -301,14 +307,14 @@ public class MessageService {
     private void setUserFields(Message message, IngestionEventDTO dto) {
         if (dto.getUser() == null) return;
 
-        SlackUserDTO user = dto.getUser();
+        IngestionUserDTO user = dto.getUser();
         message.setUsername(user.getName());
         // Prefer uniqueUserId over slackUserId
         String resolvedUserId = user.getUniqueUserId() != null ? user.getUniqueUserId() : user.getSlackUserId();
         message.setSlackUserId(resolvedUserId);
         message.setTeamId(determineTeamId(user, dto));
         message.setName(user.getName());
-        message.setEmailConfirmed(user.getEmailConfirmed());
+        message.setEmailConfirmed(user.getEmailVerified());
         message.setDisplayName(user.getDisplayName());
         message.setDisplayNameNormalized(user.getDisplayNameNormalized());
         message.setRealNameNormalized(user.getRealNameNormalized());
@@ -317,13 +323,14 @@ public class MessageService {
         setUserImageFields(message, user);
     }
 
-    private String determineTeamId(SlackUserDTO user, IngestionEventDTO dto) {
+    private String determineTeamId(IngestionUserDTO user, IngestionEventDTO dto) {
         if (user.getTeamId() != null) return user.getTeamId();
-        if (dto.getMessage() != null) return dto.getMessage().getTeamId();
+        IngestionMessageDTO message = dto.getMessage();
+        if (message != null) return message.getBestWorkspaceId();
         return null;
     }
 
-    private void setUserProfileFields(Message message, SlackUserDTO user) {
+    private void setUserProfileFields(Message message, IngestionUserDTO user) {
         message.setTitle(user.getTitle());
         message.setPhone(user.getPhone());
         message.setFirstName(user.getFirstName());
@@ -334,7 +341,7 @@ public class MessageService {
         message.setSlackUpdatedAt(user.getSlackUpdatedAt());
     }
 
-    private void setUserImageFields(Message message, SlackUserDTO user) {
+    private void setUserImageFields(Message message, IngestionUserDTO user) {
         message.setAvatarHash(user.getAvatarHash());
         // Prefer avatarUrl over imageOriginal
         String resolvedImageOriginal = user.getAvatarUrl() != null ? user.getAvatarUrl() : user.getImageOriginal();

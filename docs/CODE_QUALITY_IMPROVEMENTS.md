@@ -1,8 +1,8 @@
 # AI Routing Service - Code Quality Improvement Suggestions
 
-**Generated:** September 30, 2025  
-**Service:** lucid-ai-routing-service  
-**Version:** 1.1.0  
+**Generated:** September 30, 2025
+**Service:** lucid-ai-routing-service
+**Version:** 1.1.0
 **Target Audience:** Development Team
 
 ---
@@ -85,7 +85,7 @@ public record TokenQuotaExhaustedEvent(
 @Service
 public class EnrichmentService {
     private final ApplicationEventPublisher eventPublisher;
-    
+
     public void processEnrichment(String tenantId, List<Message> messages) {
         if (!tokenService.hasAvailableTokens(tenantId)) {
             eventPublisher.publishEvent(
@@ -100,17 +100,17 @@ public class EnrichmentService {
 // Subscriber (in infrastructure)
 @Component
 public class TokenQuotaEventHandler {
-    
+
     @EventListener
     @Async
     public void handleTokenQuotaExhausted(TokenQuotaExhaustedEvent event) {
         // Send notification
-        notificationService.notifyTenantAdmin(event.tenantId(), 
+        notificationService.notifyTenantAdmin(event.tenantId(),
             "Token quota exhausted for job " + event.jobId());
-        
+
         // Pause scheduled enrichments
         schedulerService.pauseEnrichmentForTenant(event.tenantId());
-        
+
         // Log for analytics
         analyticsService.trackQuotaExhaustion(event);
     }
@@ -139,18 +139,18 @@ public interface AIProviderStrategy {
 // Strategies
 @Component
 public class GeminiProviderStrategy implements AIProviderStrategy {
-    
+
     @Override
     public boolean canHandle(AITask task) {
-        return geminiProvider.isAvailable() && 
+        return geminiProvider.isAvailable() &&
                task.getType().isSupported(ModelType.GEMINI);
     }
-    
+
     @Override
     public int priority() {
         return 1; // Highest priority
     }
-    
+
     @Override
     public AIResponse process(AITask task) {
         return geminiProvider.enrichConversation(task);
@@ -159,18 +159,18 @@ public class GeminiProviderStrategy implements AIProviderStrategy {
 
 @Component
 public class OpenAIProviderStrategy implements AIProviderStrategy {
-    
+
     @Override
     public boolean canHandle(AITask task) {
-        return openAIProvider.isAvailable() && 
+        return openAIProvider.isAvailable() &&
                task.getType().isSupported(ModelType.OPENAI);
     }
-    
+
     @Override
     public int priority() {
         return 2; // Fallback
     }
-    
+
     @Override
     public AIResponse process(AITask task) {
         return openAIProvider.enrichConversation(task);
@@ -181,7 +181,7 @@ public class OpenAIProviderStrategy implements AIProviderStrategy {
 @Service
 public class AIProviderExecutor {
     private final List<AIProviderStrategy> strategies;
-    
+
     public AIResponse execute(AITask task) {
         return strategies.stream()
             .filter(s -> s.canHandle(task))
@@ -210,7 +210,7 @@ public class AIProviderExecutor {
 ```java
 @Configuration
 public class APIKeyRotationConfig {
-    
+
     @Bean
     public APIKeyManager apiKeyManager() {
         return new APIKeyManager(
@@ -225,28 +225,28 @@ public class APIKeyRotationConfig {
 public class APIKeyManager {
     private final Map<String, APIKey> currentKeys = new ConcurrentHashMap<>();
     private final VaultClient vaultClient;
-    
+
     @Scheduled(fixedDelay = 3600000) // Every hour
     public void refreshKeys() {
         try {
             String newGeminiKey = vaultClient.getSecret("gemini-api-key");
             String newOpenAIKey = vaultClient.getSecret("openai-api-key");
-            
+
             // Graceful rotation: keep old key for 5 minutes
             currentKeys.put("gemini", new APIKey(newGeminiKey, LocalDateTime.now()));
             currentKeys.put("openai", new APIKey(newOpenAIKey, LocalDateTime.now()));
-            
+
             logger.info("API keys rotated successfully");
         } catch (Exception e) {
             logger.error("Failed to rotate API keys", e);
             alertService.sendAlert("API key rotation failed");
         }
     }
-    
+
     public String getGeminiKey() {
         return currentKeys.get("gemini").getValue();
     }
-    
+
     public String getOpenAIKey() {
         return currentKeys.get("openai").getValue();
     }
@@ -267,44 +267,44 @@ public class APIKeyManager {
 ```java
 @Component
 public class RequestSignatureFilter extends OncePerRequestFilter {
-    
+
     @Override
-    protected void doFilterInternal(HttpServletRequest request, 
-                                   HttpServletResponse response, 
+    protected void doFilterInternal(HttpServletRequest request,
+                                   HttpServletResponse response,
                                    FilterChain chain) {
         if (request.getRequestURI().startsWith("/api/internal/")) {
             String signature = request.getHeader("X-Request-Signature");
             String timestamp = request.getHeader("X-Request-Timestamp");
             String serviceId = request.getHeader("X-Service-Id");
-            
+
             if (!validateSignature(request, signature, timestamp, serviceId)) {
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                 response.getWriter().write("{\"error\":\"Invalid signature\"}");
                 return;
             }
         }
-        
+
         chain.doFilter(request, response);
     }
-    
-    private boolean validateSignature(HttpServletRequest request, 
-                                      String signature, 
-                                      String timestamp, 
+
+    private boolean validateSignature(HttpServletRequest request,
+                                      String signature,
+                                      String timestamp,
                                       String serviceId) {
         // Prevent replay attacks (timestamp should be within 5 minutes)
         if (!isTimestampValid(timestamp)) {
             return false;
         }
-        
+
         // Get service secret from secure storage
         String serviceSecret = secretsManager.getServiceSecret(serviceId);
-        
+
         // Compute expected signature
         String payload = request.getMethod() + request.getRequestURI() + timestamp;
         String expectedSignature = HMAC.sha256(payload, serviceSecret);
-        
+
         return MessageDigest.isEqual(
-            signature.getBytes(), 
+            signature.getBytes(),
             expectedSignature.getBytes()
         );
     }
@@ -325,20 +325,20 @@ public class RequestSignatureFilter extends OncePerRequestFilter {
 ```java
 @Configuration
 public class RedisEncryptionConfig {
-    
+
     @Bean
     public RedisTemplate<String, Object> encryptedRedisTemplate(
             RedisConnectionFactory connectionFactory,
             EncryptionService encryptionService) {
-        
+
         RedisTemplate<String, Object> template = new RedisTemplate<>();
         template.setConnectionFactory(connectionFactory);
-        
+
         // Use encrypting serializer
         template.setDefaultSerializer(
             new EncryptingJsonSerializer(encryptionService)
         );
-        
+
         return template;
     }
 }
@@ -346,7 +346,7 @@ public class RedisEncryptionConfig {
 public class EncryptingJsonSerializer implements RedisSerializer<Object> {
     private final ObjectMapper objectMapper;
     private final EncryptionService encryptionService;
-    
+
     @Override
     public byte[] serialize(Object value) {
         try {
@@ -356,7 +356,7 @@ public class EncryptingJsonSerializer implements RedisSerializer<Object> {
             throw new SerializationException("Encryption failed", e);
         }
     }
-    
+
     @Override
     public Object deserialize(byte[] bytes) {
         try {
@@ -410,12 +410,12 @@ public record ErrorResponse(
 // Global exception handler
 @RestControllerAdvice
 public class GlobalExceptionHandler {
-    
+
     @ExceptionHandler(TokenQuotaExhaustedException.class)
     public ResponseEntity<ErrorResponse> handleTokenQuotaExhausted(
-            TokenQuotaExhaustedException ex, 
+            TokenQuotaExhaustedException ex,
             HttpServletRequest request) {
-        
+
         ErrorResponse error = ErrorResponse.of(
             "TOKEN_QUOTA_EXHAUSTED",
             "Tenant has insufficient token quota",
@@ -425,17 +425,17 @@ public class GlobalExceptionHandler {
             "requiredTokens", String.valueOf(ex.getRequiredTokens()),
             "availableTokens", String.valueOf(ex.getAvailableTokens())
         ));
-        
+
         return ResponseEntity
             .status(HttpStatus.PAYMENT_REQUIRED)
             .body(error);
     }
-    
+
     @ExceptionHandler(AIProviderException.class)
     public ResponseEntity<ErrorResponse> handleProviderError(
-            AIProviderException ex, 
+            AIProviderException ex,
             HttpServletRequest request) {
-        
+
         ErrorResponse error = ErrorResponse.of(
             "AI_PROVIDER_ERROR",
             "AI provider temporarily unavailable",
@@ -444,7 +444,7 @@ public class GlobalExceptionHandler {
             "provider", ex.getProviderName(),
             "retryAfter", "300" // seconds
         ));
-        
+
         return ResponseEntity
             .status(HttpStatus.SERVICE_UNAVAILABLE)
             .header("Retry-After", "300")
@@ -467,7 +467,7 @@ public class GlobalExceptionHandler {
 ```java
 @Configuration
 public class BulkheadConfig {
-    
+
     @Bean
     public ThreadPoolTaskExecutor geminiExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
@@ -478,7 +478,7 @@ public class BulkheadConfig {
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         return executor;
     }
-    
+
     @Bean
     public ThreadPoolTaskExecutor openAIExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
@@ -493,7 +493,7 @@ public class BulkheadConfig {
 
 @Service
 public class GeminiProvider {
-    
+
     @Async("geminiExecutor")
     @Bulkhead(name = "gemini", type = Bulkhead.Type.THREADPOOL)
     public CompletableFuture<AIResponse> processAsync(AITask task) {
@@ -541,16 +541,16 @@ public interface CompensatingAction {
 
 @Component
 public class MessageConversionStep implements PipelineStep {
-    
+
     @Override
     public void execute(ProcessingContext context) {
         String originalFormat = context.getMessageFormat();
-        
+
         // Transform message
         Message transformed = convertMessage(context.getMessage());
         context.setMessage(transformed);
         context.setMessageFormat("enriched");
-        
+
         // Register compensating action
         context.registerCompensation(() -> {
             logger.info("Reverting message conversion for job {}", context.getJobId());
@@ -562,7 +562,7 @@ public class MessageConversionStep implements PipelineStep {
 
 @Component
 public class PipelineExecutor {
-    
+
     public PipelineResult execute(ProcessingContext context, List<PipelineStep> steps) {
         try {
             for (PipelineStep step : steps) {
@@ -575,11 +575,11 @@ public class PipelineExecutor {
             throw e;
         }
     }
-    
+
     private void executeCompensations(ProcessingContext context) {
         List<CompensatingAction> compensations = context.getCompensations();
         Collections.reverse(compensations); // Execute in reverse order
-        
+
         for (CompensatingAction compensation : compensations) {
             try {
                 compensation.compensate(context);
@@ -609,44 +609,44 @@ public class PipelineExecutor {
 ```java
 @Configuration
 public class KafkaConsumerConfig {
-    
+
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, IngestionEventDTO> 
+    public ConcurrentKafkaListenerContainerFactory<String, IngestionEventDTO>
             batchFactory(ConsumerFactory<String, IngestionEventDTO> consumerFactory) {
-        
-        ConcurrentKafkaListenerContainerFactory<String, IngestionEventDTO> factory = 
+
+        ConcurrentKafkaListenerContainerFactory<String, IngestionEventDTO> factory =
             new ConcurrentKafkaListenerContainerFactory<>();
-        
+
         factory.setConsumerFactory(consumerFactory);
         factory.setBatchListener(true);
         factory.setConcurrency(3);
         factory.getContainerProperties().setAckMode(AckMode.BATCH);
-        
+
         return factory;
     }
 }
 
 @Component
 public class IngestionEventConsumer {
-    
+
     @KafkaListener(
         topics = "${kafka.topics.ingestion-messages}",
         containerFactory = "batchFactory"
     )
-    public void consumeBatch(List<IngestionEventDTO> messages, 
+    public void consumeBatch(List<IngestionEventDTO> messages,
                             Acknowledgment ack) {
         logger.info("Processing batch of {} messages", messages.size());
-        
+
         try {
             // Group by tenant for efficient processing
             Map<String, List<IngestionEventDTO>> byTenant = messages.stream()
                 .collect(Collectors.groupingBy(IngestionEventDTO::getTenantId));
-            
+
             // Process each tenant's messages together
             byTenant.forEach((tenantId, tenantMessages) -> {
                 processTenantMessages(tenantId, tenantMessages);
             });
-            
+
             ack.acknowledge();
         } catch (Exception e) {
             logger.error("Batch processing failed", e);
@@ -672,7 +672,7 @@ public class IngestionEventConsumer {
 @Configuration
 @EnableCaching
 public class CacheConfig {
-    
+
     @Bean
     public CacheManager cacheManager(RedisConnectionFactory connectionFactory) {
         RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
@@ -682,14 +682,14 @@ public class CacheConfig {
                     new GenericJackson2JsonRedisSerializer()
                 )
             );
-        
+
         Map<String, RedisCacheConfiguration> cacheConfigurations = Map.of(
             "tenants", config.entryTtl(Duration.ofHours(1)),
             "workspaces", config.entryTtl(Duration.ofMinutes(30)),
             "users", config.entryTtl(Duration.ofMinutes(15)),
             "providerHealth", config.entryTtl(Duration.ofMinutes(5))
         );
-        
+
         return RedisCacheManager.builder(connectionFactory)
             .cacheDefaults(config)
             .withInitialCacheConfigurations(cacheConfigurations)
@@ -699,18 +699,18 @@ public class CacheConfig {
 
 @Service
 public class WorkspaceService {
-    
+
     @Cacheable(value = "workspaces", key = "#workspaceId", unless = "#result == null")
     public Workspace getWorkspace(String workspaceId) {
         return workspaceRepository.findById(workspaceId)
             .orElseThrow(() -> new WorkspaceNotFoundException(workspaceId));
     }
-    
+
     @CachePut(value = "workspaces", key = "#workspace.id")
     public Workspace updateWorkspace(Workspace workspace) {
         return workspaceRepository.save(workspace);
     }
-    
+
     @CacheEvict(value = "workspaces", key = "#workspaceId")
     public void deleteWorkspace(String workspaceId) {
         workspaceRepository.deleteById(workspaceId);
@@ -732,43 +732,43 @@ public class WorkspaceService {
 ```java
 @Configuration
 public class JacksonConfig {
-    
+
     @Bean
     public ObjectMapper objectMapper() {
         ObjectMapper mapper = new ObjectMapper();
-        
+
         // Performance optimizations
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         mapper.configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
-        
+
         // Use faster date module
         mapper.registerModule(new JavaTimeModule());
-        
+
         // Enable afterburner for 20-30% performance boost
         mapper.registerModule(new AfterburnerModule());
-        
+
         // Reuse string values
         mapper.configure(JsonParser.Feature.CANONICALIZE_FIELD_NAMES, true);
-        
+
         return mapper;
     }
 }
 
 // Stream-based JSON processing for large payloads
 public class JsonStreamProcessor {
-    
+
     public List<Message> parseMessagesStream(InputStream inputStream) throws IOException {
         List<Message> messages = new ArrayList<>();
-        
+
         try (JsonParser parser = objectMapper.getFactory().createParser(inputStream)) {
             if (parser.nextToken() != JsonToken.START_ARRAY) {
                 throw new IllegalStateException("Expected array start");
             }
-            
+
             while (parser.nextToken() != JsonToken.END_ARRAY) {
                 Message message = parser.readValueAs(Message.class);
                 messages.add(message);
-                
+
                 // Memory management: clear if batch gets too large
                 if (messages.size() >= 1000) {
                     processBatch(messages);
@@ -776,7 +776,7 @@ public class JsonStreamProcessor {
                 }
             }
         }
-        
+
         return messages;
     }
 }
@@ -800,7 +800,7 @@ public class JsonStreamProcessor {
 ```java
 @Configuration
 public class TracingConfig {
-    
+
     @Bean
     public Tracer tracer() {
         return GlobalOpenTelemetry.getTracer("ai-routing-service", "1.1.0");
@@ -811,20 +811,20 @@ public class TracingConfig {
 @Component
 public class TracingAspect {
     private final Tracer tracer;
-    
+
     @Around("@annotation(traced)")
     public Object traceMethod(ProceedingJoinPoint joinPoint, Traced traced) throws Throwable {
         Span span = tracer.spanBuilder(traced.value())
             .setSpanKind(SpanKind.INTERNAL)
             .startSpan();
-        
+
         try (Scope scope = span.makeCurrent()) {
             // Add attributes
             span.setAttribute("method", joinPoint.getSignature().getName());
             span.setAttribute("class", joinPoint.getTarget().getClass().getSimpleName());
-            
+
             Object result = joinPoint.proceed();
-            
+
             span.setStatus(StatusCode.OK);
             return result;
         } catch (Exception e) {
@@ -840,15 +840,15 @@ public class TracingAspect {
 // Usage
 @Service
 public class EnrichmentService {
-    
+
     @Traced("enrichment.process")
     public EnrichmentResult processEnrichment(String jobId, List<Message> messages) {
         Span currentSpan = Span.current();
         currentSpan.setAttribute("job.id", jobId);
         currentSpan.setAttribute("message.count", messages.size());
-        
+
         // Business logic
-        
+
         return result;
     }
 }
@@ -869,81 +869,81 @@ public class EnrichmentService {
 @Component
 public class BusinessMetrics {
     private final MeterRegistry registry;
-    
+
     // Counters
     private final Counter enrichmentRequests;
     private final Counter enrichmentSuccess;
     private final Counter enrichmentFailures;
     private final Counter tokenConsumption;
-    
+
     // Gauges
     private final AtomicInteger activeTenants = new AtomicInteger(0);
     private final AtomicInteger pendingJobs = new AtomicInteger(0);
-    
+
     // Timers
     private final Timer enrichmentDuration;
     private final Timer aiProviderLatency;
-    
+
     // Distribution summaries
     private final DistributionSummary messagesPerEnrichment;
     private final DistributionSummary tokensPerRequest;
-    
+
     public BusinessMetrics(MeterRegistry registry) {
         this.registry = registry;
-        
+
         // Initialize metrics
         enrichmentRequests = Counter.builder("enrichment.requests")
             .tag("type", "conversation")
             .description("Total enrichment requests")
             .register(registry);
-        
+
         enrichmentSuccess = Counter.builder("enrichment.success")
             .description("Successful enrichments")
             .register(registry);
-        
+
         enrichmentFailures = Counter.builder("enrichment.failures")
             .description("Failed enrichments")
             .register(registry);
-        
+
         tokenConsumption = Counter.builder("tokens.consumed")
             .description("Total tokens consumed")
             .register(registry);
-        
+
         enrichmentDuration = Timer.builder("enrichment.duration")
             .description("Enrichment processing time")
             .publishPercentiles(0.5, 0.95, 0.99)
             .register(registry);
-        
+
         aiProviderLatency = Timer.builder("ai.provider.latency")
             .description("AI provider response time")
             .publishPercentiles(0.5, 0.95, 0.99)
             .register(registry);
-        
+
         messagesPerEnrichment = DistributionSummary.builder("enrichment.messages")
             .description("Number of messages per enrichment")
             .publishPercentiles(0.5, 0.95, 0.99)
             .register(registry);
-        
+
         tokensPerRequest = DistributionSummary.builder("ai.tokens.per_request")
             .description("Tokens consumed per AI request")
             .publishPercentiles(0.5, 0.95, 0.99)
             .register(registry);
-        
+
         // Register gauges
         registry.gauge("tenants.active", activeTenants);
         registry.gauge("jobs.pending", pendingJobs);
     }
-    
+
     public void recordEnrichmentRequest(String tenantId) {
         enrichmentRequests.increment();
         Tags.of("tenant", tenantId);
     }
-    
+
     public void recordTokenConsumption(String provider, int tokens) {
         tokenConsumption.increment(tokens);
         tokensPerRequest.record(tokens);
     }
-    
+
     public <T> T timeEnrichment(Supplier<T> operation) {
         return enrichmentDuration.record(operation);
     }
@@ -980,12 +980,12 @@ avg_over_time(tenants_active[1h])
 @Component
 public class AIProvidersHealthIndicator implements HealthIndicator {
     private final List<AIProvider> providers;
-    
+
     @Override
     public Health health() {
         Map<String, Object> details = new HashMap<>();
         boolean allHealthy = true;
-        
+
         for (AIProvider provider : providers) {
             ProviderHealth health = provider.checkHealth();
             details.put(provider.getProviderId(), Map.of(
@@ -993,13 +993,13 @@ public class AIProvidersHealthIndicator implements HealthIndicator {
                 "latency", health.getLatencyMs() + "ms",
                 "quotaRemaining", health.getQuotaRemaining()
             ));
-            
+
             if (!health.isAvailable()) {
                 allHealthy = false;
             }
         }
-        
-        return allHealthy ? 
+
+        return allHealthy ?
             Health.up().withDetails(details).build() :
             Health.down().withDetails(details).build();
     }
@@ -1008,18 +1008,18 @@ public class AIProvidersHealthIndicator implements HealthIndicator {
 @Component
 public class RedisHealthIndicator implements HealthIndicator {
     private final RedisTemplate<String, Object> redisTemplate;
-    
+
     @Override
     public Health health() {
         try {
             String pong = redisTemplate.getConnectionFactory()
                 .getConnection()
                 .ping();
-            
+
             long dbSize = redisTemplate.getConnectionFactory()
                 .getConnection()
                 .dbSize();
-            
+
             return Health.up()
                 .withDetail("ping", pong)
                 .withDetail("dbSize", dbSize)
@@ -1035,12 +1035,12 @@ public class RedisHealthIndicator implements HealthIndicator {
 @Component
 public class KafkaHealthIndicator implements HealthIndicator {
     private final KafkaTemplate<String, Object> kafkaTemplate;
-    
+
     @Override
     public Health health() {
         try {
             List<PartitionInfo> partitions = kafkaTemplate.partitionsFor("health-check");
-            
+
             return Health.up()
                 .withDetail("broker.count", partitions.size())
                 .build();
@@ -1073,15 +1073,15 @@ public class KafkaHealthIndicator implements HealthIndicator {
 @SpringBootTest
 @AutoConfigureMessageVerifier
 public class AIResponseProducerContractTest {
-    
+
     @Autowired
     private MessageVerifier verifier;
-    
+
     @Test
     public void shouldPublishValidAIResponse() {
         // Trigger message production
         aiResponseProducer.sendResponse(createSampleResponse());
-        
+
         // Verify contract
         verifier.send(new ContractVerifierMessage(
             topicName("ai-responses"),
@@ -1096,11 +1096,11 @@ public class AIResponseProducerContractTest {
     ids = "com.lucid:ai-routing-service:+:stubs:8083"
 )
 public class AIResponseConsumerContractTest {
-    
+
     @Test
     public void shouldConsumeAIResponse() {
         // Stub will send message based on contract
-        await().atMost(5, SECONDS).until(() -> 
+        await().atMost(5, SECONDS).until(() ->
             dataStorageService.hasReceivedAIResponse()
         );
     }
@@ -1121,15 +1121,15 @@ public class AIResponseConsumerContractTest {
 ```java
 @ExtendWith(JqwikExtension.class)
 public class SlidingWindowServicePropertyTest {
-    
+
     @Property
     void shouldPreserveMessageOrder(@ForAll List<Message> messages) {
         // Assume messages are ordered by timestamp
         Assume.that(!messages.isEmpty());
-        
+
         SlidingWindowService service = new SlidingWindowService();
         List<List<Message>> windows = service.createWindows(messages);
-        
+
         // Property: all windows maintain chronological order
         for (List<Message> window : windows) {
             assertThat(window).isSortedAccordingTo(
@@ -1137,45 +1137,45 @@ public class SlidingWindowServicePropertyTest {
             );
         }
     }
-    
+
     @Property
     void shouldNotLoseMessages(@ForAll List<Message> messages) {
         SlidingWindowService service = new SlidingWindowService();
         List<List<Message>> windows = service.createWindows(messages);
-        
+
         // Property: no messages are lost
         Set<String> originalIds = messages.stream()
             .map(Message::getId)
             .collect(Collectors.toSet());
-        
+
         Set<String> windowIds = windows.stream()
             .flatMap(List::stream)
             .map(Message::getId)
             .collect(Collectors.toSet());
-        
+
         assertThat(windowIds).containsExactlyInAnyOrderElementsOf(originalIds);
     }
-    
+
     @Property
     void overlapShouldRespectPercentage(
             @ForAll @IntRange(min = 1, max = 100) int batchSize,
             @ForAll @IntRange(min = 0, max = 50) int overlapPercentage) {
-        
+
         SlidingWindowConfig config = new SlidingWindowConfig(batchSize, overlapPercentage);
         SlidingWindowService service = new SlidingWindowService(config);
-        
+
         List<Message> messages = generateMessages(batchSize * 3);
         List<List<Message>> windows = service.createWindows(messages);
-        
+
         // Property: overlap between consecutive windows matches percentage
         for (int i = 1; i < windows.size(); i++) {
             List<Message> prev = windows.get(i - 1);
             List<Message> curr = windows.get(i);
-            
+
             long overlapCount = prev.stream()
                 .filter(curr::contains)
                 .count();
-            
+
             int expectedOverlap = (int) (batchSize * overlapPercentage / 100.0);
             assertThat(overlapCount).isCloseTo(expectedOverlap, Offset.offset(1L));
         }
@@ -1280,7 +1280,7 @@ ai-routing-service/
 @Value
 public class TenantId {
     String value;
-    
+
     public TenantId(String value) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException("Tenant ID cannot be blank");
@@ -1290,7 +1290,7 @@ public class TenantId {
         }
         this.value = value;
     }
-    
+
     public static TenantId of(String value) {
         return new TenantId(value);
     }
@@ -1299,22 +1299,22 @@ public class TenantId {
 @Value
 public class TokenCount {
     int value;
-    
+
     public TokenCount(int value) {
         if (value < 0) {
             throw new IllegalArgumentException("Token count cannot be negative");
         }
         this.value = value;
     }
-    
+
     public TokenCount add(TokenCount other) {
         return new TokenCount(this.value + other.value);
     }
-    
+
     public boolean isGreaterThan(TokenCount other) {
         return this.value > other.value;
     }
-    
+
     public static TokenCount zero() {
         return new TokenCount(0);
     }
@@ -1323,11 +1323,11 @@ public class TokenCount {
 @Value
 public class JobId {
     UUID value;
-    
+
     public static JobId generate() {
         return new JobId(UUID.randomUUID());
     }
-    
+
     public static JobId of(String value) {
         return new JobId(UUID.fromString(value));
     }
@@ -1339,11 +1339,11 @@ public class EnrichmentJob {
     private final TenantId tenantId;
     private TokenCount tokensConsumed;
     private JobStatus status;
-    
+
     public void consumeTokens(TokenCount tokens) {
         this.tokensConsumed = this.tokensConsumed.add(tokens);
     }
-    
+
     public boolean hasConsumedMoreThan(TokenCount threshold) {
         return this.tokensConsumed.isGreaterThan(threshold);
     }
@@ -1365,15 +1365,15 @@ public class EnrichmentJob {
 // Specification interface
 public interface Specification<T> {
     boolean isSatisfiedBy(T candidate);
-    
+
     default Specification<T> and(Specification<T> other) {
         return candidate -> this.isSatisfiedBy(candidate) && other.isSatisfiedBy(candidate);
     }
-    
+
     default Specification<T> or(Specification<T> other) {
         return candidate -> this.isSatisfiedBy(candidate) || other.isSatisfiedBy(candidate);
     }
-    
+
     default Specification<T> not() {
         return candidate -> !this.isSatisfiedBy(candidate);
     }
@@ -1382,7 +1382,7 @@ public interface Specification<T> {
 // Concrete specifications
 public class TokensAvailableSpecification implements Specification<EnrichmentRequest> {
     private final TokenAvailabilityService tokenService;
-    
+
     @Override
     public boolean isSatisfiedBy(EnrichmentRequest request) {
         return tokenService.isTokenAvailable(request.getTenantId());
@@ -1391,7 +1391,7 @@ public class TokensAvailableSpecification implements Specification<EnrichmentReq
 
 public class ProviderAvailableSpecification implements Specification<EnrichmentRequest> {
     private final AIProvider provider;
-    
+
     @Override
     public boolean isSatisfiedBy(EnrichmentRequest request) {
         return provider.isAvailable();
@@ -1400,7 +1400,7 @@ public class ProviderAvailableSpecification implements Specification<EnrichmentR
 
 public class WithinRateLimitSpecification implements Specification<EnrichmentRequest> {
     private final RateLimiter rateLimiter;
-    
+
     @Override
     public boolean isSatisfiedBy(EnrichmentRequest request) {
         return rateLimiter.tryAcquire(request.getTenantId());
@@ -1410,13 +1410,13 @@ public class WithinRateLimitSpecification implements Specification<EnrichmentReq
 // Usage
 @Service
 public class EnrichmentEligibilityService {
-    
+
     public boolean canEnrich(EnrichmentRequest request) {
-        Specification<EnrichmentRequest> eligibility = 
+        Specification<EnrichmentRequest> eligibility =
             new TokensAvailableSpecification(tokenService)
                 .and(new ProviderAvailableSpecification(provider))
                 .and(new WithinRateLimitSpecification(rateLimiter));
-        
+
         return eligibility.isSatisfiedBy(request);
     }
 }
@@ -1464,7 +1464,7 @@ resilience4j:
       geminiProvider:
         slidingWindowSize: 20
         failureRateThreshold: 50
-        
+
 # config-server repository: ai-routing-service-dev.yml
 logging:
   level:
@@ -1494,7 +1494,7 @@ ai:
 ```java
 @Configuration
 public class FeatureFlagConfig {
-    
+
     @Bean
     public FeatureManager featureManager(Environment env) {
         return FeatureManager.builder()
@@ -1507,7 +1507,7 @@ public class FeatureFlagConfig {
 @Service
 public class EnrichmentService {
     private final FeatureManager featureManager;
-    
+
     public void enrichConversation(String tenantId, List<Message> messages) {
         // Check feature flag
         if (featureManager.isEnabled("new-enrichment-algorithm", tenantId)) {
@@ -1516,11 +1516,11 @@ public class EnrichmentService {
             enrichWithLegacyAlgorithm(messages);
         }
     }
-    
+
     public AIResponse processQuery(TextQueryRequest request) {
         // Gradual rollout: 10% of traffic to new provider
-        if (featureManager.isEnabled("openai-provider-rollout", 
-                request.getTenantId(), 
+        if (featureManager.isEnabled("openai-provider-rollout",
+                request.getTenantId(),
                 Percentage.of(10))) {
             return openAIProvider.process(request);
         }
@@ -1603,7 +1603,7 @@ Provider can be changed via config: `ai.routing.default-provider`
 ```java
 @Configuration
 public class OpenAPIConfig {
-    
+
     @Bean
     public OpenAPI customOpenAPI() {
         return new OpenAPI()
@@ -1633,7 +1633,7 @@ public class OpenAPIConfig {
 @RequestMapping("/api/enrichment")
 @Tag(name = "Enrichment", description = "Conversation enrichment operations")
 public class EnrichmentController {
-    
+
     @PostMapping
     @Operation(
         summary = "Enrich conversation",
@@ -1660,7 +1660,7 @@ public class EnrichmentController {
     public ResponseEntity<EnrichmentResponse> enrichConversation(
             @Parameter(description = "Tenant identifier", required = true)
             @RequestHeader("X-Tenant-Id") String tenantId,
-            
+
             @Parameter(description = "Enrichment request payload", required = true)
             @Valid @RequestBody EnrichmentRequest request) {
         // ...
@@ -1754,7 +1754,7 @@ repos:
       - id: check-json
       - id: check-added-large-files
         args: ['--maxkb=500']
-      
+
   - repo: local
     hooks:
       - id: checkstyle
@@ -1762,19 +1762,19 @@ repos:
         entry: mvn checkstyle:check
         language: system
         pass_filenames: false
-        
+
       - id: pmd
         name: PMD
         entry: mvn pmd:check
         language: system
         pass_filenames: false
-        
+
       - id: spotbugs
         name: SpotBugs
         entry: mvn spotbugs:check
         language: system
         pass_filenames: false
-        
+
       - id: tests
         name: Unit Tests
         entry: mvn test
@@ -1859,45 +1859,45 @@ on:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Set up JDK 17
         uses: actions/setup-java@v3
         with:
           java-version: '17'
           distribution: 'temurin'
-      
+
       - name: Cache Maven packages
         uses: actions/cache@v3
         with:
           path: ~/.m2
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-      
+
       - name: Run Checkstyle
         run: mvn checkstyle:check
-      
+
       - name: Run PMD
         run: mvn pmd:check
-      
+
       - name: Run SpotBugs
         run: mvn spotbugs:check
-      
+
       - name: Run Tests with Coverage
         run: mvn clean test jacoco:report
-      
+
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      
+
       - name: Upload Coverage to Codecov
         uses: codecov/codecov-action@v3
         with:
           files: ./target/site/jacoco/jacoco.xml
-          
+
       - name: Comment PR with Coverage
         uses: romeovs/lcov-reporter-action@v0.3.1
         with:
@@ -1998,7 +1998,7 @@ This document provides a comprehensive roadmap for improving code quality in the
 
 ---
 
-**Document Owner:** Platform Team  
-**Last Updated:** September 30, 2025  
-**Review Cycle:** Monthly  
+**Document Owner:** Platform Team
+**Last Updated:** September 30, 2025
+**Review Cycle:** Monthly
 **Feedback:** platform@lucid.com

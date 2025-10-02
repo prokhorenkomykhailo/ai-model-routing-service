@@ -1,7 +1,7 @@
 package com.lucid.automation.airouting.service;
 
 import com.lucid.automation.common.dto.messaging.IngestionEventDTO;
-import com.lucid.automation.common.dto.messaging.MessageDTO;
+import com.lucid.automation.common.dto.messaging.IngestionMessageDTO;
 import com.lucid.automation.airouting.model.Workspace;
 import com.lucid.automation.airouting.repository.WorkspaceRepository;
 import org.slf4j.Logger;
@@ -80,11 +80,11 @@ public class WorkspaceService {
      * @param ingestionEventDto The message data
      */
     private void updateWorkspaceFromMessage(Workspace workspace, IngestionEventDTO ingestionEventDto) {
-        MessageDTO messageData = ingestionEventDto.getMessage();
+        IngestionMessageDTO messageData = ingestionEventDto.getMessage();
 
-        // Update basic info
-        if (workspace.getTeamId() == null && messageData.getTeamId() != null) {
-            workspace.setTeamId(messageData.getTeamId());
+        // Update basic info - use unified workspaceId
+        if (workspace.getTeamId() == null && messageData.getBestWorkspaceId() != null) {
+            workspace.setTeamId(messageData.getBestWorkspaceId());
         }
 
         // Update tenant schema if not set
@@ -128,7 +128,7 @@ public class WorkspaceService {
     /**
      * Parse message timestamp
      */
-    private Instant parseMessageTime(IngestionEventDTO dto, MessageDTO messageData) {
+    private Instant parseMessageTime(IngestionEventDTO dto, IngestionMessageDTO messageData) {
         // Try to use ingestedAt first
         if (dto.getIngestedAt() != null) {
             return dto.getIngestedAt();
@@ -153,12 +153,15 @@ public class WorkspaceService {
     }
 
     /**
-     * Extract workspace name from message metadata
+     * Extract workspace name from message metadata or unified message DTO
      */
     private void extractWorkspaceName(Workspace workspace, IngestionEventDTO dto) {
-        // Try to get name from metadata
-        if (dto.getMetadata() != null && dto.getMetadata().getWorkspaceName() != null) {
-            workspace.setName(dto.getMetadata().getWorkspaceName());
+        // Try to get name from metadata (Slack)
+        if (dto.getSlackMetadata() != null && dto.getSlackMetadata().getWorkspaceName() != null) {
+            workspace.setName(dto.getSlackMetadata().getWorkspaceName());
+        } else if (dto.getMessage() != null && dto.getMessage().getBestWorkspaceName() != null) {
+            // Try to get from unified message DTO (works for both Slack and Gmail)
+            workspace.setName(dto.getMessage().getBestWorkspaceName());
         } else {
             // Default name
             workspace.setName("Workspace " + workspace.getId());
