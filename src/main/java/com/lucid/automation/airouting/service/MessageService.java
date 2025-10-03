@@ -269,21 +269,37 @@ public class MessageService {
         Map<String, Object> metadata = new HashMap<>();
         if (dto.getMetadata() == null) return metadata;
 
-        // Cast to MetadataDTO for Slack messages (for backward compatibility)
-        MetadataDTO meta = dto.getSlackMetadata();
-        if (meta == null) return metadata;
+        // Use unified MetadataDTO for all platforms (Slack, Gmail)
+        MetadataDTO meta = dto.getMetadata();
 
+        // Common fields (all platforms)
         metadata.put("channelName", meta.getChannelName());
         metadata.put("channelType", meta.getChannelType());
         metadata.put("workspaceName", meta.getWorkspaceName());
-        metadata.put("isThreadMessage", meta.isThreadMessage());
-        metadata.put("hasAttachments", meta.isHasAttachments());
+        metadata.put("isThreadMessage", meta.getIsThreadMessage());
+        metadata.put("hasAttachments", meta.getHasAttachments());
         metadata.put("mentionedUsers", meta.getMentionedUsers());
-        metadata.put("hasReactions", meta.isHasReactions());
+        metadata.put("hasReactions", meta.getHasReactions());
         metadata.put("messageLength", meta.getMessageLength());
-        metadata.put("containsUrls", meta.isContainsUrls());
+        metadata.put("containsUrls", meta.getContainsUrls());
         metadata.put("priority", meta.getPriority());
         metadata.put("source", meta.getSource());
+        metadata.put("oldestTs", meta.getOldestTs());
+        metadata.put("additionalAttributes", meta.getAdditionalAttributes());
+
+        // Gmail-specific fields (only present for Gmail messages)
+        if (dto.isGmailMessage()) {
+            metadata.put("to", meta.getTo());
+            metadata.put("cc", meta.getCc());
+            metadata.put("bcc", meta.getBcc());
+            metadata.put("from", meta.getFrom());
+            metadata.put("subject", meta.getSubject());
+            metadata.put("gmailMessageId", meta.getGmailMessageId());
+            metadata.put("threadId", meta.getThreadId());
+            metadata.put("historyId", meta.getHistoryId());
+            metadata.put("internalDate", meta.getInternalDate());
+            metadata.put("rfcMessageId", meta.getRfcMessageId());
+        }
 
         return metadata;
     }

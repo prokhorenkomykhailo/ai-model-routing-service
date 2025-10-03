@@ -156,9 +156,9 @@ public class WorkspaceService {
      * Extract workspace name from message metadata or unified message DTO
      */
     private void extractWorkspaceName(Workspace workspace, IngestionEventDTO dto) {
-        // Try to get name from metadata (Slack)
-        if (dto.getSlackMetadata() != null && dto.getSlackMetadata().getWorkspaceName() != null) {
-            workspace.setName(dto.getSlackMetadata().getWorkspaceName());
+        // Try to get name from unified metadata (all platforms)
+        if (dto.getMetadata() != null && dto.getMetadata().getWorkspaceName() != null) {
+            workspace.setName(dto.getMetadata().getWorkspaceName());
         } else if (dto.getMessage() != null && dto.getMessage().getBestWorkspaceName() != null) {
             // Try to get from unified message DTO (works for both Slack and Gmail)
             workspace.setName(dto.getMessage().getBestWorkspaceName());

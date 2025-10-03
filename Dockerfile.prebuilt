@@ -2,8 +2,11 @@
 FROM eclipse-temurin:17-jre-alpine
 
 LABEL maintainer="Lucid Team <support@lucid.com>"
-LABEL description="Lucid AI Routing Service"
-LABEL version="1.1.1"
+LABEL description="Lucid AI Routing Service - AI model routing and orchestration for Slack and Gmail messages"
+LABEL version="1.1.2"
+LABEL com.lucid.service="ai-routing-service"
+LABEL com.lucid.component="backend"
+LABEL com.lucid.common-dtos-version="1.4.2"
 
 # Create a non-root user to run the application
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
@@ -13,8 +16,8 @@ WORKDIR /app
 # Add curl for healthcheck
 RUN apk --no-cache add curl
 
-# Copy the pre-built JAR file
-COPY target/lucid-ai-routing-service-1.1.1.jar app.jar
+# Copy the pre-built JAR file (version from Maven build)
+COPY target/lucid-ai-routing-service-*.jar app.jar
 
 # Set proper ownership
 RUN chown -R appuser:appgroup /app

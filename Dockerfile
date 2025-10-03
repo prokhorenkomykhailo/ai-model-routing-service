@@ -3,6 +3,8 @@ FROM eclipse-temurin:17-jdk-alpine AS builder
 
 LABEL maintainer="Lucid Team <support@lucid.com>"
 LABEL description="Lucid AI Routing Service - Build Stage"
+LABEL version="1.1.2"
+LABEL com.lucid.service="ai-routing-service"
 
 WORKDIR /app
 
@@ -30,7 +32,11 @@ RUN chmod +x ./mvnw && \
 FROM eclipse-temurin:17-jre-alpine
 
 LABEL maintainer="Lucid Team <support@lucid.com>"
-LABEL description="Lucid AI Routing Service"
+LABEL description="Lucid AI Routing Service - AI model routing and orchestration for Slack and Gmail messages"
+LABEL version="1.1.2"
+LABEL com.lucid.service="ai-routing-service"
+LABEL com.lucid.component="backend"
+LABEL com.lucid.common-dtos-version="1.4.2"
 
 # Create a non-root user to run the application
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup

@@ -108,7 +108,7 @@
         <dependency>
             <groupId>com.lucid.automation</groupId>
             <artifactId>lucid-common-dtos</artifactId>
-            <version>1.4.0</version>
+            <version>1.4.2</version>
         </dependency>
 
         <!-- Spring Boot AOP Starter for audit annotations -->
