@@ -12,24 +12,24 @@ import java.util.Optional;
  */
 @Repository
 public interface UserRepository extends CrudRepository<User, String> {
-    
+
     /**
      * Find user by unique user ID (preferred method for lookups)
      */
     List<User> findByUniqueUserId(String uniqueUserId);
-    
+
     /**
      * Find user by tenant, workspace, and unique user ID (primary lookup method)
      */
     Optional<User> findByTenantIdAndWorkspaceIdAndUniqueUserId(String tenantId, String workspaceId, String uniqueUserId);
-    
+
     /**
      * Find user by slack user ID (legacy support)
      * @deprecated Use findByUniqueUserId instead
      */
     @Deprecated
     List<User> findBySlackUserId(String slackUserId);
-    
+
     /**
      * Find user by tenant, workspace, and slack user ID (legacy support)
      * @deprecated Use findByTenantIdAndWorkspaceIdAndUniqueUserId instead
