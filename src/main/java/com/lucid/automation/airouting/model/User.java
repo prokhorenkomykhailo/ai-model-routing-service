@@ -26,7 +26,8 @@ public class User implements Serializable {
     private static final long serialVersionUID = 1L;
     
     /**
-     * Unique ID generated as: tenantId:workspaceId:slackUserId
+     * Unique ID generated as: tenantId:workspaceId:uniqueUserId
+     * Uses uniqueUserId (preferred) or falls back to slackUserId
      */
     @Id
     private String id;
@@ -48,6 +49,13 @@ public class User implements Serializable {
      */
     @Indexed
     private String slackUserId;
+    
+    /**
+     * Unique user ID (unified identifier across platforms)
+     * Preferred over slackUserId for lookups
+     */
+    @Indexed
+    private String uniqueUserId;
     
     /**
      * Team ID the user belongs to
@@ -200,13 +208,17 @@ public class User implements Serializable {
     private String metadata;
     
     /**
-     * Generate composite ID from tenant, workspace, and slack user ID
+     * Generate composite ID from tenant, workspace, and unique user ID
+     * @param tenantId The tenant ID
+     * @param workspaceId The workspace ID
+     * @param uniqueUserId The unique user ID (preferred) or slackUserId (fallback)
+     * @return Composite ID in format: tenantId:workspaceId:uniqueUserId
      */
-    public static String generateId(String tenantId, String workspaceId, String slackUserId) {
-        if (tenantId == null || workspaceId == null || slackUserId == null) {
-            throw new IllegalArgumentException("TenantId, workspaceId, and slackUserId cannot be null");
+    public static String generateId(String tenantId, String workspaceId, String uniqueUserId) {
+        if (tenantId == null || workspaceId == null || uniqueUserId == null) {
+            throw new IllegalArgumentException("TenantId, workspaceId, and uniqueUserId cannot be null");
         }
-        return tenantId + ":" + workspaceId + ":" + slackUserId;
+        return tenantId + ":" + workspaceId + ":" + uniqueUserId;
     }
     
     /**

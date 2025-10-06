@@ -95,13 +95,16 @@ public class UserService {
         IngestionMessageDTO message = ingestionEvent.getMessage();
         String workspaceId = message != null ? message.getBestWorkspaceId() : null;
         String slackUserId = userData.getSlackUserId();
-        String userId = User.generateId(tenantId, workspaceId, slackUserId);
+        // Prefer uniqueUserId over slackUserId
+        String uniqueUserId = userData.getUniqueUserId() != null ? userData.getUniqueUserId() : slackUserId;
+        String userId = User.generateId(tenantId, workspaceId, uniqueUserId);
 
         return User.builder()
                 .id(userId)
                 .tenantId(tenantId)
                 .workspaceId(workspaceId)
                 .slackUserId(slackUserId)
+                .uniqueUserId(uniqueUserId)
                 .teamId(userData.getTeamId())
                 .name(userData.getName())
                 .emailConfirmed(userData.getEmailVerified())
@@ -140,6 +143,10 @@ public class UserService {
         user.setTeamId(userData.getTeamId());
         user.setName(userData.getName());
         user.setEmailConfirmed(userData.getEmailVerified());
+        // Update uniqueUserId if provided (prefer over slackUserId)
+        if (userData.getUniqueUserId() != null) {
+            user.setUniqueUserId(userData.getUniqueUserId());
+        }
         user.setDisplayName(userData.getDisplayName());
         user.setDisplayNameNormalized(userData.getDisplayNameNormalized());
         user.setRealNameNormalized(userData.getRealNameNormalized());
@@ -174,8 +181,34 @@ public class UserService {
     }
 
     /**
-     * Get user by tenant, workspace, and slack user ID (used by consumers)
+     * Get user by tenant, workspace, and unique user ID (preferred method)
+     * @param tenantId The tenant ID
+     * @param workspaceId The workspace ID
+     * @param uniqueUserId The unique user ID
+     * @return Optional containing the user if found
      */
+    public Optional<User> getUserByUniqueUserId(String tenantId, String workspaceId, String uniqueUserId) {
+        // Add null checks to prevent Redis query issues
+        if (tenantId == null || workspaceId == null || uniqueUserId == null) {
+            logger.warn("Cannot query user with null parameters: tenantId={}, workspaceId={}, uniqueUserId={}",
+                       tenantId, workspaceId, uniqueUserId);
+            return Optional.empty();
+        }
+
+        try {
+            return userRepository.findByTenantIdAndWorkspaceIdAndUniqueUserId(tenantId, workspaceId, uniqueUserId);
+        } catch (Exception e) {
+            logger.error("Error querying user with tenantId={}, workspaceId={}, uniqueUserId={}: {}",
+                        tenantId, workspaceId, uniqueUserId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Get user by tenant, workspace, and slack user ID (legacy support)
+     * @deprecated Use getUserByUniqueUserId instead
+     */
+    @Deprecated
     public Optional<User> getUser(String tenantId, String workspaceId, String slackUserId) {
         // Add null checks to prevent Redis query issues
         if (tenantId == null || workspaceId == null || slackUserId == null) {
@@ -196,7 +229,7 @@ public class UserService {
     /**
      * Delete a user by ID
      *
-     * @param userId The user ID (format: tenantId:workspaceId:slackUserId)
+     * @param userId The user ID (format: tenantId:workspaceId:uniqueUserId)
      */
     public void deleteUser(String userId) {
         logger.info("Deleting user with ID: {}", userId);
