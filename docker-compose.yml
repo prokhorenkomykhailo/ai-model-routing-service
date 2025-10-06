@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.prebuilt
-    image: docker.x51.vn/lucy/lucid-ai-routing-service:1.1.4
+    image: docker.x51.vn/lucy/lucid-ai-routing-service:1.1.5
     container_name: ai-routing-service
     ports:
       - "8083:8083"

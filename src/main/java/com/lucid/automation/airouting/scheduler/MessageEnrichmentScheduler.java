@@ -499,7 +499,10 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
             ? message.getDisplayName()
             : normalizedDisplayName;
 
+        // Set both uniqueUserId (preferred) and slackUserId (legacy fallback)
+        slackMessage.setUniqueUserId(message.getUniqueUserId());
         slackMessage.setSlackUserId(message.getSlackUserId());
+
         slackMessage.setTeamId(message.getTeamId());
         slackMessage.setName(message.getName());
         slackMessage.setEmailConfirmed(message.getEmailConfirmed());
@@ -525,7 +528,11 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
      */
     private void setUserProfileImages(final SlackMessage slackMessage, final Message message) {
         slackMessage.setAvatarHash(message.getAvatarHash());
+
+        // Set both avatarUrl (preferred) and imageOriginal (legacy fallback)
+        slackMessage.setAvatarUrl(message.getAvatarUrl());
         slackMessage.setImageOriginal(message.getImageOriginal());
+
         slackMessage.setImage24(message.getImage24());
         slackMessage.setImage32(message.getImage32());
         slackMessage.setImage48(message.getImage48());

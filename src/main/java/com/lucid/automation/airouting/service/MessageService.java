@@ -325,9 +325,11 @@ public class MessageService {
 
         IngestionUserDTO user = dto.getUser();
         message.setUsername(user.getName());
-        // Prefer uniqueUserId over slackUserId
-        String resolvedUserId = user.getUniqueUserId() != null ? user.getUniqueUserId() : user.getSlackUserId();
-        message.setSlackUserId(resolvedUserId);
+
+        // Set both uniqueUserId (preferred) and slackUserId (legacy fallback)
+        message.setUniqueUserId(user.getUniqueUserId());
+        message.setSlackUserId(user.getSlackUserId());
+
         message.setTeamId(determineTeamId(user, dto));
         message.setName(user.getName());
         message.setEmailConfirmed(user.getEmailVerified());
@@ -359,9 +361,11 @@ public class MessageService {
 
     private void setUserImageFields(Message message, IngestionUserDTO user) {
         message.setAvatarHash(user.getAvatarHash());
-        // Prefer avatarUrl over imageOriginal
-        String resolvedImageOriginal = user.getAvatarUrl() != null ? user.getAvatarUrl() : user.getImageOriginal();
-        message.setImageOriginal(resolvedImageOriginal);
+
+        // Set both avatarUrl (preferred) and imageOriginal (legacy fallback)
+        message.setAvatarUrl(user.getAvatarUrl());
+        message.setImageOriginal(user.getImageOriginal());
+
         message.setImage24(user.getImage24());
         message.setImage32(user.getImage32());
         message.setImage48(user.getImage48());
