@@ -38,7 +38,7 @@ public class UserProcessingProcessor implements MessageProcessor {
             User user = userService.createOrUpdateUser(ingestionEvent);
 
             if (user == null) {
-                String userId = ingestionEvent.getUser() != null ? ingestionEvent.getUser().getSlackUserId() : "null";
+                String userId = ingestionEvent.getUser() != null ? ingestionEvent.getUser().getUniqueUserId() : "null";
                 // This is not a critical failure, so we continue
                 context.setUserProcessed(false);
                 context.setProcessingData("userWarning", "User service returned null");
