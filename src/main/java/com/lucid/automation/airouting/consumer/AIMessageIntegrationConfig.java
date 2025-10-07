@@ -19,6 +19,7 @@ import org.springframework.integration.kafka.dsl.Kafka;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessagingException;
 import org.springframework.messaging.Message;
@@ -69,7 +70,11 @@ public class AIMessageIntegrationConfig {
     public IntegrationFlow aiEnrichKafkaListenerFlow() {
         return IntegrationFlow
                 .from(Kafka.messageDrivenChannelAdapter(aiMessageListenerContainerFactory, aiEnrichTopic)
-                        .id("aiEnrichKafkaListenerAdapter"))
+                        .id("aiEnrichKafkaListenerAdapter")
+                        // Ensure acknowledgment header is propagated through the flow
+                        .configureListenerContainer(spec ->
+                            spec.ackMode(org.springframework.kafka.listener.ContainerProperties.AckMode.MANUAL_IMMEDIATE)
+                        ))
                 .channel(aiEnrichInputChannel())
                 .transform(Message.class, message -> {
                     // Transform while preserving headers including acknowledgment
@@ -337,20 +342,23 @@ public class AIMessageIntegrationConfig {
                 "AI enrichment pipeline completed successfully");
 
 
-            Acknowledgment acknowledgment = (Acknowledgment) headers.get("kafka_acknowledgment");
+            // Use the correct KafkaHeaders constant for acknowledgment
+            Acknowledgment acknowledgment = (Acknowledgment) headers.get(KafkaHeaders.ACKNOWLEDGMENT);
             if (acknowledgment != null) {
                 acknowledgment.acknowledge();
-                logger.debug("Kafka message acknowledged successfully");
+                logger.debug("✅ [ACK-SUCCESS] Kafka message acknowledged successfully for jobId={}", jobId);
             } else {
-                logger.warn("No acknowledgment found in message headers");
+                // Log all available header keys for debugging
+                logger.warn("⚠️ [ACK-MISSING] No acknowledgment found in message headers for jobId={}. Available headers: {}",
+                           jobId, headers.keySet());
             }
         } catch (Exception e) {
             // Don't mark job as failed here since acknowledgment issues are usually not critical
             // for the business logic, but log for monitoring
-            logger.error("Error during message acknowledgment: {}", e.getMessage(), e);
+            logger.error("❌ [ACK-ERROR] Error during message acknowledgment: {}", e.getMessage(), e);
 
             if (jobId != null && !jobId.trim().isEmpty()) {
-                logger.warn("Job {} completed processing but acknowledgment failed", jobId);
+                logger.warn("⚠️ [ACK-WARN] Job {} completed processing but acknowledgment failed", jobId);
             }
         }
     }
