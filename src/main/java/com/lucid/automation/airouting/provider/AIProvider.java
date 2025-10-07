@@ -1,6 +1,8 @@
 package com.lucid.automation.airouting.provider;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lucid.automation.airouting.exception.InvalidTenantException;
+import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.message.AIMessage;
 import com.lucid.automation.airouting.util.TenantValidationUtil;
 import com.lucid.automation.airouting.util.PromptLoader;
@@ -11,7 +13,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import com.lucid.automation.common.dto.TokenConsumptionDTO;
 import com.lucid.automation.common.dto.TokenQuotaResponseDTO;
@@ -19,13 +24,17 @@ import com.lucid.automation.airouting.service.EnhancedTokenAvailabilityService;
 
 public abstract class AIProvider {
 
+    private static final Logger logger = LoggerFactory.getLogger(AIProvider.class);
+    protected static final String MESSAGE_PLACEHOLDER = "##messages##";
+
     @Autowired
     private EnhancedTokenAvailabilityService enhancedTokenAvailabilityService;
 
     @Autowired
     protected PromptLoader promptLoader;
 
-    private static final Logger logger = LoggerFactory.getLogger(AIProvider.class);
+    @Autowired
+    protected ObjectMapper objectMapper;
 
     @Autowired
     private KafkaTemplate<String, Object> kafkaTemplate;
@@ -178,5 +187,89 @@ public abstract class AIProvider {
      */
     protected String loadPromptTemplate(String promptName) {
         return promptLoader.loadPromptTemplate(promptName);
+    }
+
+    /**
+     * Build conversation enrichment prompt by loading template and replacing placeholders.
+     * This method is shared across all AI provider implementations.
+     *
+     * @param conversationText The formatted conversation text
+     * @param deemergeUserName The current user's name
+     * @return The formatted prompt with conversation text injected
+     */
+    protected String buildConversationEnrichmentPrompt(String conversationText, String deemergeUserName) {
+        String template = loadPromptTemplate("conversation-enrichment");
+        String formattedPrompt = template.replace("{{current_user}}", deemergeUserName);
+
+        if (formattedPrompt.contains(MESSAGE_PLACEHOLDER)) {
+            return formattedPrompt.replace(MESSAGE_PLACEHOLDER, MESSAGE_PLACEHOLDER + "\n" + conversationText);
+        } else {
+            return formattedPrompt + "\n" + conversationText;
+        }
+    }
+
+    /**
+     * Format a list of Slack messages into a string suitable for AI analysis.
+     * This method is shared across all AI provider implementations.
+     *
+     * @param messages List of SlackMessage objects to format
+     * @return Formatted conversation string with each message as a JSON line
+     */
+    protected String formatConversationForAnalysis(List<SlackMessage> messages) {
+        return messages.stream()
+            .map(this::formatMessageForAnalysis)
+            .collect(Collectors.joining("\n"));
+    }
+
+    /**
+     * Format a single Slack message into JSON representation for AI analysis.
+     * This method is shared across all AI provider implementations.
+     *
+     * @param msg The SlackMessage to format
+     * @return JSON string representation of the message
+     */
+    protected String formatMessageForAnalysis(SlackMessage msg) {
+        try {
+            Map<String, Object> messageMap = new LinkedHashMap<>();
+            messageMap.put("ROLE", safeString("user"));
+
+            // Message content (prioritize content over text)
+            String content = msg.getContent();
+            if (content == null || content.trim().isEmpty()) {
+                content = msg.getText();
+            }
+            messageMap.put("CONTENT", safeString(content));
+
+            // USER_ID: Fallback chain for user identification
+            // Priority: uniqueUserId > userId > slackUserId (consistent with TopicEnrichmentStep)
+            String userId = msg.getUniqueUserId() != null ? msg.getUniqueUserId() :
+                           msg.getUserId() != null ? msg.getUserId() :
+                           msg.getSlackUserId();
+            messageMap.put("USER_ID", safeString(userId));
+            messageMap.put("AUTHOR", safeString(msg.getDisplayName()));
+
+            messageMap.put("TIMESTAMP", msg.getTimestamp());
+            // Channel and thread context
+            messageMap.put("CHANNEL_ID", safeString(msg.getChannelId()));
+
+            if (msg.getThreadTs() != null) {
+                messageMap.put("THREAD_TS", msg.getThreadTs());
+            }
+            return objectMapper.writeValueAsString(messageMap);
+        } catch (Exception e) {
+            logger.warn("⚠️ Failed to format message as JSON: {}", e.getMessage());
+            return "{}";
+        }
+    }
+
+    /**
+     * Safely convert a string value to a non-null representation.
+     * This method is shared across all AI provider implementations.
+     *
+     * @param value The string value to check
+     * @return The original value if not null, "N/A" otherwise
+     */
+    protected String safeString(String value) {
+        return value != null ? value : "N/A";
     }
 }
