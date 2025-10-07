@@ -406,6 +406,12 @@ public class AIMessageIntegrationConfig {
         response.put("deemergeUserName", deemergeUserNameObj != null ? deemergeUserNameObj.toString() : "NoUser");
         response.put("teamId", context != null && context.get("teamId") != null ? context.get("teamId").toString() : "");
 
+        // CRITICAL: Include full context to preserve originalMessageIds and other tracking data
+        // This is needed by PostProcessingConsumer to mark original messages as processed
+        if (context != null) {
+            response.put("context", context);
+        }
+
         return response;
     }
 
@@ -423,6 +429,13 @@ public class AIMessageIntegrationConfig {
         response.put("tenantId", originalMessage.getTenantId());
         response.put("tenantSchema", originalMessage.getTenantSchema());
         response.put("userId", originalMessage.getUserId());
+
+        // CRITICAL: Include full context to preserve originalMessageIds and other tracking data
+        // This ensures PostProcessingConsumer can access tracking information even on errors
+        Map<String, Object> context = originalMessage.getContext();
+        if (context != null) {
+            response.put("context", context);
+        }
 
         return response;
     }
