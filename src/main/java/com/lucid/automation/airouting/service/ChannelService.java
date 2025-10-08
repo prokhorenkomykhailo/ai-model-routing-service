@@ -113,7 +113,16 @@ public class ChannelService {
      */
     public Channel createOrUpdateChannelFromEvent(IngestionEventDTO ingestionEventDto) {
         if (isInvalidIngestionEvent(ingestionEventDto)) {
-            logger.warn("⚠️ Cannot create channel from invalid ingestion event");
+            // Provide detailed diagnostic information about WHY the event is invalid
+            String channelId = (ingestionEventDto != null && ingestionEventDto.getMessage() != null)
+                ? ingestionEventDto.getMessage().getChannelId() : "null";
+            String messageTs = (ingestionEventDto != null && ingestionEventDto.getMessage() != null)
+                ? ingestionEventDto.getMessage().getTs() : "null";
+            String tenantId = (ingestionEventDto != null) ? ingestionEventDto.getTenantId() : "null";
+
+            logger.warn("⚠️ [CHANNEL-INVALID] Cannot create channel from invalid ingestion event | " +
+                    "Reason: missing or empty channelId | channelId={} | messageTs={} | tenantId={}",
+                    channelId, messageTs, tenantId);
             return null;
         }
 
