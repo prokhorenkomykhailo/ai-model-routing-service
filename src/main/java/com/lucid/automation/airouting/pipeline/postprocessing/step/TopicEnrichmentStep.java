@@ -544,7 +544,9 @@ public class TopicEnrichmentStep implements PipelineStep {
             .map(msg -> {
                 String permalink = getPermalinkWithFallback(msg);
                 String shortText = createShortTextFromMessage(msg, tenantId, workspaceId);
-                return new SourceDTO(permalink, shortText, msg.getSource());
+                // Normalize source name to uppercase, default to SLACK if not set
+                String sourceName = SourceName.normalize(msg.getSource());
+                return new SourceDTO(permalink, shortText, sourceName);
             })
             .distinct()
             .collect(Collectors.toList());
