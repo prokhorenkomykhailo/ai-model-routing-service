@@ -95,10 +95,10 @@ class FieldMigrationLogicTest {
         String resolvedUserId = uniqueUserId != null ? uniqueUserId : slackUserId;
 
         // When
-        message.setSlackUserId(resolvedUserId);
+        message.setUniqueUserId(resolvedUserId);
 
         // Then
-        assertEquals("unique-789", message.getSlackUserId(),
+        assertEquals("unique-789", message.getUniqueUserId(),
                 "Message should store the resolved user ID");
     }
 
@@ -119,12 +119,12 @@ class FieldMigrationLogicTest {
         String resolvedImage = user.getAvatarUrl() != null ? user.getAvatarUrl() : user.getImageOriginal();
 
         SlackMessage message = new SlackMessage();
-        message.setSlackUserId(resolvedUserId);
+        message.setUniqueUserId(resolvedUserId);
         message.setImageOriginal(resolvedImage);
         message.setName(user.getName());
 
         // Then
-        assertEquals("integration-unique", message.getSlackUserId(),
+        assertEquals("integration-unique", message.getUniqueUserId(),
                 "Should use uniqueUserId for user identification");
         assertEquals("https://avatar-integrated.com/user.png", message.getImageOriginal(),
                 "Should use avatarUrl for image");
