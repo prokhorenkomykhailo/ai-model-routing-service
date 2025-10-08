@@ -240,17 +240,18 @@ public abstract class AIProvider {
             }
             messageMap.put("CONTENT", safeString(content));
 
-            // USER_ID: Fallback chain for user identification
-            // Priority: uniqueUserId > userId > slackUserId (consistent with TopicEnrichmentStep)
-            String userId = msg.getUniqueUserId() != null ? msg.getUniqueUserId() :
-                           msg.getUserId() != null ? msg.getUserId() :
-                           msg.getSlackUserId();
+            // USER_ID: Use uniqueUserId (platform-agnostic identifier)
+            String userId = msg.getUniqueUserId();
             messageMap.put("USER_ID", safeString(userId));
+
             messageMap.put("AUTHOR", safeString(msg.getDisplayName()));
 
             messageMap.put("TIMESTAMP", msg.getTimestamp());
+
             // Channel and thread context
-            messageMap.put("CHANNEL_ID", safeString(msg.getChannelId()));
+            if (msg.getChannelId() != null) {
+                messageMap.put("CHANNEL_ID", safeString(msg.getChannelId()));
+            }
 
             if (msg.getThreadTs() != null) {
                 messageMap.put("THREAD_TS", msg.getThreadTs());

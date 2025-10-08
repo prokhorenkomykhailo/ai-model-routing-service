@@ -10,7 +10,6 @@ public class SlackMessage {
     // Core message fields
     private String id;
     private String content;
-    private String userId;
     private String username;
     private LocalDateTime timestamp;
     private String channelId;
@@ -32,8 +31,7 @@ public class SlackMessage {
     private String workspaceChannelThreadIndex;
 
     // User profile fields from Message
-    private String slackUserId;
-    private String uniqueUserId;  // Platform-agnostic unique user identifier (preferred over slackUserId)
+    private String uniqueUserId;  // Platform-agnostic unique user identifier
     private String teamId;
     private String name;
     private Boolean emailConfirmed;
@@ -85,10 +83,10 @@ public class SlackMessage {
     // Constructors
     public SlackMessage() {}
 
-    public SlackMessage(String id, String content, String userId, String username, LocalDateTime timestamp) {
+    public SlackMessage(String id, String content, String uniqueUserId, String username, LocalDateTime timestamp) {
         this.id = id;
         this.content = content;
-        this.userId = userId;
+        this.uniqueUserId = uniqueUserId;
         this.username = username;
         this.timestamp = timestamp;
     }
@@ -118,9 +116,6 @@ public class SlackMessage {
 
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
-
-    public String getUserId() { return userId; }
-    public void setUserId(String userId) { this.userId = userId; }
 
     public String getUsername() { return username; }
     public void setUsername(String username) { this.username = username; }
@@ -182,9 +177,6 @@ public class SlackMessage {
     public void setWorkspaceChannelThreadIndex(String workspaceChannelThreadIndex) { this.workspaceChannelThreadIndex = workspaceChannelThreadIndex; }
 
     // User profile fields getters and setters
-    public String getSlackUserId() { return slackUserId; }
-    public void setSlackUserId(String slackUserId) { this.slackUserId = slackUserId; }
-
     public String getUniqueUserId() { return uniqueUserId; }
     public void setUniqueUserId(String uniqueUserId) { this.uniqueUserId = uniqueUserId; }
 

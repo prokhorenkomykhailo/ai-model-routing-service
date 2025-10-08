@@ -135,7 +135,7 @@ public class MessageConversionStep implements PipelineStep {
         SlackMessage message = new SlackMessage();
         message.setId((String) map.get("id"));
         message.setContent((String) map.get("content"));
-        message.setUserId((String) map.get("userId"));
+        message.setUniqueUserId((String) map.get("uniqueUserId"));
         message.setChannelId((String) map.get("channelId"));
 
         String channelName = (String) map.get("channelName");
@@ -162,11 +162,16 @@ public class MessageConversionStep implements PipelineStep {
         message.setSource(source != null ? source : "slack");
 
         // Set additional required fields for complete SlackMessage
-        // Set both uniqueUserId (preferred) and slackUserId (legacy) from map
+        // Set uniqueUserId from map (legacy fields userId and slackUserId are no longer used)
         String uniqueUserId = (String) map.get("uniqueUserId");
-        String slackUserId = (String) map.get("slackUserId");
+        // Fallback to userId or slackUserId from map for backward compatibility
+        if (uniqueUserId == null) {
+            uniqueUserId = (String) map.get("userId");
+            if (uniqueUserId == null) {
+                uniqueUserId = (String) map.get("slackUserId");
+            }
+        }
         message.setUniqueUserId(uniqueUserId);
-        message.setSlackUserId(slackUserId);
 
         message.setDisplayName((String) map.get("displayName"));
         message.setText((String) map.get("text"));

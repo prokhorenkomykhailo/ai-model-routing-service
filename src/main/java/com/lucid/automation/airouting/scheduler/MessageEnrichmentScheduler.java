@@ -307,7 +307,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
 
             if (!slackMessages.isEmpty()) {
                 // Calculate unique users and channels for statistics
-                long uniqueUsers = slackMessages.stream().map(SlackMessage::getUserId).distinct().count();
+                long uniqueUsers = slackMessages.stream().map(SlackMessage::getUniqueUserId).distinct().count();
                 long uniqueChannels = slackMessages.stream().map(SlackMessage::getChannelId).distinct().count();
 
                 long batchProcessingTime = System.currentTimeMillis() - batchStartTime;
@@ -457,7 +457,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         slackMessage.setId(message.getId());
         slackMessage.setTs(message.getMessageTs());
         slackMessage.setMessageTs(message.getMessageTs());
-        slackMessage.setUserId(message.getUserId());
+        slackMessage.setUniqueUserId(message.getUserId());
         slackMessage.setUsername(message.getUsername());
         slackMessage.setText(message.getText());
         slackMessage.setContent(message.getText());
@@ -474,7 +474,10 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
             permalink = "deemerge.ai"; // Default value to ensure field is not null
         }
         slackMessage.setPermaLink(permalink);
-        slackMessage.setSource(message.getSource() != null ? message.getSource() : "slack");
+        // Normalize source to uppercase for consistency
+        slackMessage.setSource(message.getSource() != null && !message.getSource().trim().isEmpty()
+            ? message.getSource().toUpperCase()
+            : "SLACK");
 
         // Debug: Log permalink setting
         log.debug("🔗 Setting permalink for message {}: {} -> {}",
@@ -499,9 +502,12 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
             ? message.getDisplayName()
             : normalizedDisplayName;
 
-        // Set both uniqueUserId (preferred) and slackUserId (legacy fallback)
-        slackMessage.setUniqueUserId(message.getUniqueUserId());
-        slackMessage.setSlackUserId(message.getSlackUserId());
+        // Set uniqueUserId (use uniqueUserId, fallback to slackUserId for backward compatibility)
+        String uniqueUserId = message.getUniqueUserId();
+        if (uniqueUserId == null || uniqueUserId.trim().isEmpty()) {
+            uniqueUserId = message.getSlackUserId();
+        }
+        slackMessage.setUniqueUserId(uniqueUserId);
 
         slackMessage.setTeamId(message.getTeamId());
         slackMessage.setName(message.getName());

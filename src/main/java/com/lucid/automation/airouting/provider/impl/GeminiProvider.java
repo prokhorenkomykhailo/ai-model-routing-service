@@ -97,7 +97,7 @@ public class GeminiProvider extends AIProvider {
 
         // Calculate message statistics
         if (messages != null && !messages.isEmpty()) {
-            long uniqueUsers = messages.stream().map(SlackMessage::getUserId).distinct().count();
+            long uniqueUsers = messages.stream().map(SlackMessage::getUniqueUserId).distinct().count();
             long uniqueChannels = messages.stream().map(SlackMessage::getChannelId).distinct().count();
             logger.info("📈 GEMINI-ENRICH [{}]: Stats | 🏷️ {} unique users, 📺 {} channels",
                        debugId, uniqueUsers, uniqueChannels);

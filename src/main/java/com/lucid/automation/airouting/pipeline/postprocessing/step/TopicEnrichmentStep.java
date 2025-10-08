@@ -151,22 +151,15 @@ public class TopicEnrichmentStep implements PipelineStep {
     private Map<String, EnrichmentUserDTO> buildUserInfoMap(List<SlackMessage> messages, String tenantId, String workspaceId) {
         Map<String, EnrichmentUserDTO> userInfos = messages.stream()
             .filter(msg -> {
-                // Prefer uniqueUserId over userId/slackUserId, then username as fallback
-                // Priority: uniqueUserId > userId > slackUserId > username
-                String key = msg.getUniqueUserId() != null ? msg.getUniqueUserId() :
-                            msg.getUserId() != null ? msg.getUserId() :
-                            msg.getSlackUserId() != null ? msg.getSlackUserId() : msg.getUsername();
+                // Use uniqueUserId, fallback to username
+                String key = msg.getUniqueUserId() != null ? msg.getUniqueUserId() : msg.getUsername();
                 return key != null && !key.trim().isEmpty();
             })
             .collect(Collectors.toMap(
-                // Key by uniqueUserId (preferred) or userId (resolved by MessageService during ingestion)
-                msg -> msg.getUniqueUserId() != null ? msg.getUniqueUserId() :
-                      msg.getUserId() != null ? msg.getUserId() :
-                      msg.getSlackUserId() != null ? msg.getSlackUserId() : msg.getUsername(),
+                // Key by uniqueUserId (preferred) or username as fallback
+                msg -> msg.getUniqueUserId() != null ? msg.getUniqueUserId() : msg.getUsername(),
                 msg -> new EnrichmentUserDTO(
-                    // id: prefer uniqueUserId over userId over slackUserId
-                    msg.getUniqueUserId() != null ? msg.getUniqueUserId() :
-                    msg.getUserId() != null ? msg.getUserId() : msg.getSlackUserId(),
+                    msg.getUniqueUserId(), // id: platform-agnostic unique user identifier
                     msg.getUsername(), // username: user's name/username
                     getBestDisplayNameFromSlackMessage(msg), // displayName: best available display name
                     // Prefer avatarUrl over imageOriginal then image72
@@ -193,9 +186,9 @@ public class TopicEnrichmentStep implements PipelineStep {
             return msg.getUsername();
         }
 
-        // Use userId which contains the resolved uniqueUserId
-        if (msg.getUserId() != null && !msg.getUserId().trim().isEmpty()) {
-            return msg.getUserId();
+        // Use uniqueUserId as fallback
+        if (msg.getUniqueUserId() != null && !msg.getUniqueUserId().trim().isEmpty()) {
+            return msg.getUniqueUserId();
         }
 
         return UNKNOWN_USER;
@@ -210,7 +203,7 @@ public class TopicEnrichmentStep implements PipelineStep {
         userInfos.forEach((userId, user) -> {
             try {
                 if (userId != null && !userId.trim().isEmpty()) {
-                    // userId here is the resolved identifier (uniqueUserId > userId > slackUserId > username)
+                    // userId here is the uniqueUserId
                     Optional<User> updatedUser = userService.getUser(tenantId, workspaceId, userId);
                     if (updatedUser.isPresent()) {
                         User dbUser = updatedUser.get();
@@ -400,11 +393,9 @@ public class TopicEnrichmentStep implements PipelineStep {
             );
 
             // Calculate message statistics from actual messages
-            // Filter by userId (which contains resolved uniqueUserId) or legacy slackUserId for backward compatibility
+            // Filter by uniqueUserId
             List<SlackMessage> userMessages = messages.stream()
-                .filter(msg -> userId.equals(msg.getUserId()) ||
-                              userId.equals(msg.getUniqueUserId()) ||
-                              userId.equals(msg.getSlackUserId()))
+                .filter(msg -> userId.equals(msg.getUniqueUserId()))
                 .collect(Collectors.toList());
 
             int messageCount = userMessages.size();
@@ -452,8 +443,8 @@ public class TopicEnrichmentStep implements PipelineStep {
      */
     private List<EnrichmentUserDTO> extractPeopleInvolvedFromMessages(List<SlackMessage> messages, String tenantId, String workspaceId) {
         return messages.stream()
-            // Use userId which contains the resolved uniqueUserId
-            .map(msg -> msg.getUserId() != null ? msg.getUserId() : msg.getUsername())
+            // Use uniqueUserId or fallback to username
+            .map(msg -> msg.getUniqueUserId() != null ? msg.getUniqueUserId() : msg.getUsername())
             .filter(Objects::nonNull)
             .distinct()
             .map(userId -> enrichUserDTO(userId, tenantId, workspaceId))
@@ -493,8 +484,8 @@ public class TopicEnrichmentStep implements PipelineStep {
      */
     private List<SummaryPerPerson> extractSummaryPerPersonFromMessages(List<SlackMessage> messages, String tenantId, String workspaceId) {
         Map<String, List<SlackMessage>> messagesByUser = messages.stream()
-            .filter(msg -> msg.getUserId() != null)
-            .collect(Collectors.groupingBy(SlackMessage::getUserId));
+            .filter(msg -> msg.getUniqueUserId() != null)
+            .collect(Collectors.groupingBy(SlackMessage::getUniqueUserId));
 
         return messagesByUser.entrySet().stream()
             .map(entry -> {
@@ -540,7 +531,7 @@ public class TopicEnrichmentStep implements PipelineStep {
 
     private List<SourceDTO> extractUserSources(String userId, List<SlackMessage> messages, String tenantId, String workspaceId) {
         return messages.stream()
-            .filter(msg -> userId.equals(msg.getUserId()))
+            .filter(msg -> userId.equals(msg.getUniqueUserId()))
             .map(msg -> {
                 String permalink = getPermalinkWithFallback(msg);
                 String shortText = createShortTextFromMessage(msg, tenantId, workspaceId);
@@ -592,8 +583,8 @@ public class TopicEnrichmentStep implements PipelineStep {
     }
 
     private String resolveUsernameFromMessage(SlackMessage msg, String tenantId, String workspaceId) {
-        // Use userId which contains the resolved uniqueUserId (preferred over slackUserId)
-        String userId = msg.getUserId();
+        // Use uniqueUserId
+        String userId = msg.getUniqueUserId();
 
         if (userId != null && !userId.trim().isEmpty() && tenantId != null && workspaceId != null) {
             try {
@@ -603,7 +594,7 @@ public class TopicEnrichmentStep implements PipelineStep {
                     return getBestDisplayNameFromUser(user, userId);
                 }
             } catch (Exception e) {
-                logger.debug("Failed to resolve username for userId {}: {}", userId, e.getMessage());
+                logger.debug("Failed to resolve username for uniqueUserId {}: {}", userId, e.getMessage());
             }
         }
 
