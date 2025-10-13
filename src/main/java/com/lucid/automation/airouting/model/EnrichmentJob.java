@@ -46,6 +46,17 @@ public class EnrichmentJob implements Serializable {
     private String tenantId;
     private String tenantSchema;
 
+    // AI-specific progress metrics
+    private Integer messagesEnriched;        // Number of messages enriched
+    private Integer conversationsEnriched;   // Number of conversations enriched
+    private Integer batchesProcessed;        // Number of batches processed
+    private Integer batchesTotal;            // Total batches to process
+    private Long tokensConsumed;             // Total tokens used by LLM
+    private Long inferenceTimeMs;            // Time spent in LLM inference
+    private Integer retryCount;              // Number of retries attempted
+    private String aiProvider;               // AI provider (e.g., "gemini")
+    private String aiModel;                  // AI model (e.g., "gemini-2.0-flash")
+
     // TTL (Time To Live) for Redis entries - 60 minutes (3600 seconds)
     // This ensures enrichment jobs are automatically cleaned up after 60 minutes
     // to prevent Redis memory buildup and maintain performance

@@ -1,10 +1,11 @@
 package com.lucid.automation.airouting.service;
 
 import com.lucid.automation.airouting.model.EnrichmentJob;
+import com.lucid.automation.airouting.publisher.AIProgressPublisher;
 import com.lucid.automation.airouting.repository.EnrichmentJobRepository;
+import com.lucid.automation.common.dto.messaging.IngestionStatusEvent;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -12,15 +13,17 @@ import java.util.Optional;
 
 /**
  * Service for tracking and updating enrichment job progress through pipeline stages.
+ * 
+ * @author vudu
+ * @since 1.1.0
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class EnrichmentJobProgressService {
 
-    private static final Logger logger = LoggerFactory.getLogger(EnrichmentJobProgressService.class);
-
     private final EnrichmentJobRepository enrichmentJobRepository;
-    private final JobService jobService;
+    private final AIProgressPublisher aiProgressPublisher;
 
     /**
      * Pipeline stage progress percentages
@@ -54,7 +57,7 @@ public class EnrichmentJobProgressService {
      */
     public void updateProgress(String jobId, PipelineStage stage, String message) {
         if (jobId == null || jobId.trim().isEmpty()) {
-            logger.warn("Cannot update progress: jobId is null or empty");
+            log.warn("Cannot update progress: jobId is null or empty");
             return;
         }
 
@@ -100,19 +103,19 @@ public class EnrichmentJobProgressService {
                 // Publish progress to Kafka
                 publishProgressToKafka(job, stage);
 
-                logger.debug("Updated job progress: jobId={}, stage={}, progress={}%, status={}, estimatedTimeLeft={}ms",
+                log.debug("Updated job progress: jobId={}, stage={}, progress={}%, status={}, estimatedTimeLeft={}ms",
                            jobId, stage.name(), stage.getProgressPercentage(), job.getStatus(), job.getEstimatedTimeLeft());
 
                 if (message != null && !message.trim().isEmpty()) {
-                    logger.debug("Progress message for jobId={}: {}", jobId, message);
+                    log.debug("Progress message for jobId={}: {}", jobId, message);
                 }
 
             } else {
-                logger.warn("Job not found for progress update: jobId={}", jobId);
+                log.warn("Job not found for progress update: jobId={}", jobId);
             }
 
         } catch (Exception e) {
-            logger.error("Failed to update job progress: jobId={}, stage={}, error={}",
+            log.error("Failed to update job progress: jobId={}, stage={}, error={}",
                         jobId, stage.name(), e.getMessage(), e);
         }
     }
@@ -125,7 +128,7 @@ public class EnrichmentJobProgressService {
      */
     public void markJobFailed(String jobId, String errorMessage) {
         if (jobId == null || jobId.trim().isEmpty()) {
-            logger.warn("Cannot mark job as failed: jobId is null or empty");
+            log.warn("Cannot mark job as failed: jobId is null or empty");
             return;
         }
 
@@ -144,19 +147,19 @@ public class EnrichmentJobProgressService {
 
                 enrichmentJobRepository.save(job);
 
-                // Publish failure to Kafka
+                // Publish failure to Kafka with comprehensive event
                 if (job.getTenantId() != null && job.getTenantSchema() != null) {
-                    jobService.publishJobFailed(job.getId(), job.getParentId(), job.getTenantId(), job.getTenantSchema(), errorMessage);
+                    aiProgressPublisher.publishProgress(job, "failed", IngestionStatusEvent.StatusType.FINAL);
                 }
 
-                logger.warn("Marked job as failed: jobId={}, error={}", jobId, errorMessage);
+                log.warn("⚠️ [AI-PROGRESS] Marked job as failed: jobId={}, error={}", jobId, errorMessage);
 
             } else {
-                logger.warn("Job not found for failure marking: jobId={}", jobId);
+                log.warn("Job not found for failure marking: jobId={}", jobId);
             }
 
         } catch (Exception e) {
-            logger.error("Failed to mark job as failed: jobId={}, error={}",
+            log.error("Failed to mark job as failed: jobId={}, error={}",
                         jobId, e.getMessage(), e);
         }
     }
@@ -189,7 +192,7 @@ public class EnrichmentJobProgressService {
      */
     public void initializeJob(String jobId, String parentId, String userId, String tenantId, String tenantSchema, String taskType) {
         if (jobId == null || jobId.trim().isEmpty()) {
-            logger.warn("Cannot initialize job: jobId is null or empty");
+            log.warn("Cannot initialize job: jobId is null or empty");
             return;
         }
 
@@ -213,55 +216,35 @@ public class EnrichmentJobProgressService {
 
                 enrichmentJobRepository.save(newJob);
 
-                logger.debug("Initialized new enrichment job: jobId={}, parentId={}, type={}, userId={}, tenantId={}",
+                log.debug("Initialized new enrichment job: jobId={}, parentId={}, type={}, userId={}, tenantId={}",
                            jobId, parentId, taskType, userId, tenantId);
             }
 
         } catch (Exception e) {
-            logger.error("Failed to initialize job: jobId={}, parentId={}, error={}", jobId, parentId, e.getMessage(), e);
+            log.error("Failed to initialize job: jobId={}, parentId={}, error={}", jobId, parentId, e.getMessage(), e);
         }
     }
 
     /**
-     * Publishes job progress to Kafka using the JobService
+     * Publishes job progress to Kafka using the new AIProgressPublisher
+     * This provides comprehensive progress tracking with AI-specific metrics
      */
     private void publishProgressToKafka(EnrichmentJob job, PipelineStage stage) {
         try {
-            if (job.getTenantId() == null || job.getTenantSchema() == null) {
-                logger.warn("Cannot publish progress to Kafka: job {} missing tenantId or tenantSchema", job.getId());
-                return;
-            }
-
-            // Calculate estimated time left in seconds
-            Integer timeLeftEta = null;
-            if (job.getEstimatedTimeLeft() != null && job.getEstimatedTimeLeft() > 0) {
-                timeLeftEta = Math.max(0, (int) (job.getEstimatedTimeLeft() / 1000));
-            }
-
-            // Map pipeline stage to progress stage
+            // Map pipeline stage to progress stage name
             String progressStage = mapPipelineStageToProgressStage(stage);
+            
+            // Determine status type based on stage
+            String statusType = stage == PipelineStage.COMPLETED 
+                    ? IngestionStatusEvent.StatusType.FINAL 
+                    : IngestionStatusEvent.StatusType.PROGRESS;
 
-            // Convert progress to percentage
-            int percent = (int) Math.max(0, stage.getProgressPercentage());
-
-            // Ensure parentId is not null - use jobId as parentId if no parent exists (makes it a parent job)
-            String parentId = job.getParentId() != null ? job.getParentId() : job.getId();
-
-            // Publish to Kafka
-            jobService.publishJobProgress(
-                job.getId(),
-                parentId, // parentId - never null, uses jobId if no parent exists
-                "CREATION", // AI enrichment jobs are CREATION type for AI-generated content
-                job.getTenantId(),
-                job.getTenantSchema(),
-                progressStage,
-                percent,
-                timeLeftEta,
-                null // topics will be added when implementing topic creation progress
-            );
+            // Publish comprehensive progress event
+            aiProgressPublisher.publishProgress(job, progressStage, statusType);
 
         } catch (Exception e) {
-            logger.warn("Failed to publish job progress to Kafka for jobId={}: {}", job.getId(), e.getMessage());
+            log.warn("⚠️ [AI-PROGRESS] Failed to publish job progress for jobId={}: {}", 
+                    job.getId(), e.getMessage());
         }
     }
 
