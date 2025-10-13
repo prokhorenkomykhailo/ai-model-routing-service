@@ -13,7 +13,7 @@ import java.util.Optional;
 
 /**
  * Service for tracking and updating enrichment job progress through pipeline stages.
- * 
+ *
  * @author vudu
  * @since 1.1.0
  */
@@ -233,17 +233,17 @@ public class EnrichmentJobProgressService {
         try {
             // Map pipeline stage to progress stage name
             String progressStage = mapPipelineStageToProgressStage(stage);
-            
+
             // Determine status type based on stage
-            String statusType = stage == PipelineStage.COMPLETED 
-                    ? IngestionStatusEvent.StatusType.FINAL 
+            String statusType = stage == PipelineStage.COMPLETED
+                    ? IngestionStatusEvent.StatusType.FINAL
                     : IngestionStatusEvent.StatusType.PROGRESS;
 
             // Publish comprehensive progress event
             aiProgressPublisher.publishProgress(job, progressStage, statusType);
 
         } catch (Exception e) {
-            log.warn("⚠️ [AI-PROGRESS] Failed to publish job progress for jobId={}: {}", 
+            log.warn("⚠️ [AI-PROGRESS] Failed to publish job progress for jobId={}: {}",
                     job.getId(), e.getMessage());
         }
     }

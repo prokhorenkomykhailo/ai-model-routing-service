@@ -1,8 +1,8 @@
 # AI LLM Progress Tracking in AI Routing Service
 
-**Document Version:** 1.0  
-**Last Updated:** October 13, 2025  
-**Service:** lucid-ai-routing-service v1.1.x  
+**Document Version:** 1.0
+**Last Updated:** October 13, 2025
+**Service:** lucid-ai-routing-service v1.1.x
 **Author:** AI Analysis
 
 ---
@@ -112,18 +112,18 @@ The AI Routing Service tracks progress for AI enrichment tasks (LLM operations) 
 public class EnrichmentJob implements Serializable {
     @Id
     private String id;                          // Job ID (e.g., "job-abc123")
-    
+
     @Indexed
     private String parentId;                    // Parent job ID for hierarchical tracking
-    
+
     private String status;                      // PENDING, PROCESSING, COMPLETED, FAILED
     private String type;                        // Task type (e.g., ENRICH_CONVERSATION)
     private String result;                      // Final result or error message
-    
+
     // Timestamps
     private Long createdAt;                     // Unix timestamp (ms)
     private Long updatedAt;                     // Unix timestamp (ms)
-    
+
     // Progress tracking
     private Double progress;                    // 0.0 to 1.0 (0% to 100%)
     private Long durationMs;                    // Total duration in milliseconds
@@ -131,14 +131,14 @@ public class EnrichmentJob implements Serializable {
     private String endTime;                     // ISO-8601 string or null
     private String estimatedCompletionTime;     // ISO-8601 string or null
     private Long estimatedTimeLeft;             // Milliseconds remaining
-    
+
     // Multi-tenant tracking
     @Indexed
     private String userId;
     @Indexed
     private String tenantId;
     private String tenantSchema;
-    
+
     // TTL (Time To Live) - Auto-cleanup after 60 minutes
     @TimeToLive(unit = TimeUnit.SECONDS)
     @Builder.Default
@@ -197,23 +197,23 @@ enrichmentJobService.create(job);
 // EnrichmentJobProgressService.updateProgress()
 void updateProgress(String jobId, PipelineStage stage, String message) {
     EnrichmentJob job = enrichmentJobRepository.findById(jobId);
-    
+
     // 1. Update progress percentage
     double progressPercentage = stage.getProgressPercentage();
     job.setProgress(progressPercentage / 100.0);
-    
+
     // 2. Calculate ETA and time left
     if (progressPercentage > 0 && progressPercentage < 100) {
         long elapsedMs = System.currentTimeMillis() - job.getCreatedAt();
         long estimatedTotalMs = (long) (elapsedMs / (progressPercentage / 100.0));
         long estimatedTimeLeftMs = estimatedTotalMs - elapsedMs;
-        
+
         job.setEstimatedTimeLeft(Math.max(0, estimatedTimeLeftMs));
         job.setEstimatedCompletionTime(
             Instant.ofEpochMilli(updatedAt + estimatedTimeLeftMs).toString()
         );
     }
-    
+
     // 3. Update status based on stage
     switch (stage) {
         case STARTED -> job.setStatus("PROCESSING");
@@ -224,10 +224,10 @@ void updateProgress(String jobId, PipelineStage stage, String message) {
         }
         case FAILED -> job.setStatus("FAILED");
     }
-    
+
     // 4. Save to Redis
     enrichmentJobRepository.save(job);
-    
+
     // 5. Publish to Kafka (ingestion-progress topic)
     publishProgressToKafka(job, stage);
 }
@@ -241,7 +241,7 @@ private void publishProgressToKafka(EnrichmentJob job, PipelineStage stage) {
     // Calculate time left in seconds
     Integer timeLeftEta = job.getEstimatedTimeLeft() != null ?
         Math.max(0, (int) (job.getEstimatedTimeLeft() / 1000)) : null;
-    
+
     // Map pipeline stage to progress stage
     String progressStage = mapPipelineStageToProgressStage(stage);
     // STARTED → "starting"
@@ -250,7 +250,7 @@ private void publishProgressToKafka(EnrichmentJob job, PipelineStage stage) {
     // RESPONSE_SENT → "finalizing"
     // COMPLETED → "completed"
     // FAILED → "failed"
-    
+
     // Publish to Kafka using JobService
     jobService.publishJobProgress(
         job.getId(),                    // jobId
@@ -332,7 +332,7 @@ long remainingMs = estimatedTotalMs - elapsedMs;
   "stage": "enriching",                // starting, processing, enriching, finalizing, completed, failed
   "status": "IN_PROGRESS",             // PENDING, IN_PROGRESS, COMPLETED, FAILED
   "percent_complete": 70.0,
-  
+
   // Performance metrics
   "progress_metrics": {
     "messages_processed": null,        // Not tracked for AI jobs
@@ -342,7 +342,7 @@ long remainingMs = estimatedTotalMs - elapsedMs;
     "channels_processed": null,
     "teams_processed": null
   },
-  
+
   "performance": {
     "started_at": "2025-10-13T06:00:00Z",
     "last_update_at": "2025-10-13T06:02:00Z",
@@ -350,7 +350,7 @@ long remainingMs = estimatedTotalMs - elapsedMs;
     "duration_ms": 120000,
     "time_left_eta_seconds": 90
   },
-  
+
   // Not populated for AI jobs
   "coverage": null,
   "failures": null,
@@ -442,11 +442,11 @@ void markJobFailed(String jobId, String errorMessage);
 
 // Initialize new job (deprecated - use version with parentId)
 @Deprecated
-void initializeJob(String jobId, String userId, String tenantId, 
+void initializeJob(String jobId, String userId, String tenantId,
                    String tenantSchema, String taskType);
 
 // Initialize new job with parent tracking
-void initializeJob(String jobId, String parentId, String userId, 
+void initializeJob(String jobId, String parentId, String userId,
                    String tenantId, String tenantSchema, String taskType);
 ```
 
@@ -630,13 +630,13 @@ private Integer conversationsEnriched;       // Count of conversations enriched
 ```java
 // Proposed: ProgressPublisher interface
 public interface ProgressPublisher {
-    void publishProgress(String jobId, String parentId, 
+    void publishProgress(String jobId, String parentId,
                         ProgressSnapshot snapshot);
 }
 
 // Implemented by:
 // - SlackProgressPublisher
-// - GmailProgressPublisher  
+// - GmailProgressPublisher
 // - AIProgressPublisher (NEW)
 ```
 

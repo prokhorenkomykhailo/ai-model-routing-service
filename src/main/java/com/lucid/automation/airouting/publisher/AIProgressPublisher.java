@@ -16,7 +16,7 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Publisher for AI enrichment job progress events to Kafka.
  * Transforms EnrichmentJob entities into IngestionStatusEvent DTOs with AI-specific metrics.
- * 
+ *
  * @author vudu
  * @since 1.2.0
  */
@@ -51,30 +51,30 @@ public class AIProgressPublisher {
 
         try {
             IngestionStatusEvent event = buildProgressEvent(job, stage, statusType);
-            
+
             // Use tenantId as partition key for ordered processing
             String partitionKey = job.getTenantId();
-            
-            log.info("📤 [AI-PROGRESS] Publishing progress: jobId={}, stage={}, percent={}%, type={}", 
+
+            log.info("📤 [AI-PROGRESS] Publishing progress: jobId={}, stage={}, percent={}%, type={}",
                     job.getId(), stage, event.getStatus().getPercentComplete(), statusType);
 
-            CompletableFuture<SendResult<String, Object>> future = 
+            CompletableFuture<SendResult<String, Object>> future =
                 kafkaTemplate.send(INGESTION_PROGRESS_TOPIC, partitionKey, event);
 
             future.whenComplete((result, ex) -> {
                 if (ex == null) {
-                    log.debug("✅ [AI-PROGRESS] Published to partition {} offset {} for jobId={}", 
+                    log.debug("✅ [AI-PROGRESS] Published to partition {} offset {} for jobId={}",
                             result.getRecordMetadata().partition(),
                             result.getRecordMetadata().offset(),
                             job.getId());
                 } else {
-                    log.error("❌ [AI-PROGRESS] Failed to publish for jobId={}: {}", 
+                    log.error("❌ [AI-PROGRESS] Failed to publish for jobId={}: {}",
                             job.getId(), ex.getMessage(), ex);
                 }
             });
 
         } catch (Exception e) {
-            log.error("❌ [AI-PROGRESS] Error building/publishing progress for jobId={}: {}", 
+            log.error("❌ [AI-PROGRESS] Error building/publishing progress for jobId={}: {}",
                     job.getId(), e.getMessage(), e);
         }
     }
@@ -98,8 +98,8 @@ public class AIProgressPublisher {
      */
     private JobDetails buildJobDetails(EnrichmentJob job) {
         // Ensure parentId is never null - use jobId as parent if not set
-        String parentId = job.getParentId() != null && !job.getParentId().isEmpty() 
-                ? job.getParentId() 
+        String parentId = job.getParentId() != null && !job.getParentId().isEmpty()
+                ? job.getParentId()
                 : job.getId();
 
         return JobDetails.builder()
@@ -164,7 +164,7 @@ public class AIProgressPublisher {
      */
     private Map<String, Object> buildServiceSpecificMetadata(EnrichmentJob job) {
         Map<String, Object> metadata = new HashMap<>();
-        
+
         // AI provider and model
         if (job.getAiProvider() != null) {
             metadata.put("ai_provider", job.getAiProvider());
@@ -172,12 +172,12 @@ public class AIProgressPublisher {
         if (job.getAiModel() != null) {
             metadata.put("ai_model", job.getAiModel());
         }
-        
+
         // Task type
         if (job.getType() != null) {
             metadata.put("task_type", job.getType());
         }
-        
+
         // Batch processing info
         if (job.getBatchesProcessed() != null) {
             metadata.put("batches_processed", job.getBatchesProcessed());
@@ -185,25 +185,25 @@ public class AIProgressPublisher {
         if (job.getBatchesTotal() != null) {
             metadata.put("batches_total", job.getBatchesTotal());
         }
-        
+
         // Token consumption
         if (job.getTokensConsumed() != null && job.getTokensConsumed() > 0) {
             metadata.put("tokens_consumed", job.getTokensConsumed());
         }
-        
+
         // Inference timing
         if (job.getInferenceTimeMs() != null && job.getInferenceTimeMs() > 0) {
             metadata.put("inference_time_ms", job.getInferenceTimeMs());
         }
-        
+
         // Retry count
         if (job.getRetryCount() != null && job.getRetryCount() > 0) {
             metadata.put("retry_count", job.getRetryCount());
         }
-        
+
         // Pipeline stage (inferred from progress)
         metadata.put("pipeline_stage", inferPipelineStage(job));
-        
+
         return metadata.isEmpty() ? null : metadata;
     }
 
@@ -221,7 +221,7 @@ public class AIProgressPublisher {
         }
 
         // Tier 2: Calculate from progress if > 0%
-        if (job.getProgress() != null && job.getProgress() > 0 && job.getProgress() < 1.0 
+        if (job.getProgress() != null && job.getProgress() > 0 && job.getProgress() < 1.0
                 && job.getCreatedAt() != null && job.getUpdatedAt() != null) {
             long elapsedMs = job.getUpdatedAt() - job.getCreatedAt();
             long estimatedTotalMs = (long) (elapsedMs / job.getProgress());
@@ -242,7 +242,7 @@ public class AIProgressPublisher {
         }
 
         // Calculate from progress if available
-        if (job.getProgress() != null && job.getProgress() > 0 && job.getProgress() < 1.0 
+        if (job.getProgress() != null && job.getProgress() > 0 && job.getProgress() < 1.0
                 && job.getCreatedAt() != null && job.getUpdatedAt() != null) {
             long elapsedMs = job.getUpdatedAt() - job.getCreatedAt();
             long estimatedTotalMs = (long) (elapsedMs / job.getProgress());
@@ -272,7 +272,7 @@ public class AIProgressPublisher {
         if (jobStatus == null) {
             return StatusDetails.Status.PROCESSING;
         }
-        
+
         return switch (jobStatus.toUpperCase()) {
             case "COMPLETED" -> StatusDetails.Status.COMPLETED;
             case "FAILED" -> StatusDetails.Status.FAILED;
@@ -288,9 +288,9 @@ public class AIProgressPublisher {
         if (job.getProgress() == null) {
             return "STARTED";
         }
-        
+
         double progress = job.getProgress() * 100.0;
-        
+
         if (progress < 10) return "STARTED";
         if (progress < 30) return "TRANSFORMED";
         if (progress < 50) return "VALIDATED";
