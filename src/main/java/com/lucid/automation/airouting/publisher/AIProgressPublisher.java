@@ -145,7 +145,7 @@ public class AIProgressPublisher {
      * Builds performance metrics with timing information
      */
     private PerformanceMetrics buildPerformanceMetrics(EnrichmentJob job) {
-        Instant startedAt = job.getStartTime() != null ? Instant.parse(job.getStartTime()) : null;
+        Instant startedAt = parseTimestampSafely(job.getStartTime());
         Instant lastUpdateAt = job.getUpdatedAt() != null ? Instant.ofEpochMilli(job.getUpdatedAt()) : Instant.now();
         Instant etaAt = calculateEtaInstant(job);
         Integer timeLeftEtaSeconds = calculateTimeLeftSeconds(job);
@@ -157,6 +157,55 @@ public class AIProgressPublisher {
                 .durationMs(job.getDurationMs())
                 .timeLeftEtaSeconds(timeLeftEtaSeconds)
                 .build();
+    }
+
+    /**
+     * Safely parses timestamp strings, handling both microsecond and nanosecond precision.
+     * Java's Instant.parse() only supports up to 6 decimal places (microseconds), but the database
+     * may store 9 decimal places (nanoseconds). This method truncates to 6 digits before parsing.
+     *
+     * @param timestamp The timestamp string to parse (may be null)
+     * @return Parsed Instant or null if parsing fails or input is null
+     */
+    private Instant parseTimestampSafely(String timestamp) {
+        if (timestamp == null || timestamp.isEmpty()) {
+            return null;
+        }
+
+        try {
+            // Check if timestamp has more than 6 decimal places (nanosecond precision)
+            // Format: 2025-10-13T08:45:03.731860498
+            //                                 ^ index 19 (start of decimal)
+            int decimalIndex = timestamp.lastIndexOf('.');
+            if (decimalIndex > 0) {
+                // Find the end of the decimal portion (before Z or T timezone indicators)
+                int endIndex = timestamp.length();
+                if (timestamp.contains("Z")) {
+                    endIndex = timestamp.indexOf('Z');
+                } else if (timestamp.lastIndexOf('T') > decimalIndex) {
+                    // Handle timezone offsets like +00:00
+                    endIndex = timestamp.lastIndexOf('T');
+                }
+
+                int decimalPlaces = endIndex - decimalIndex - 1;
+
+                // If more than 6 decimal places, truncate to microseconds
+                if (decimalPlaces > 6) {
+                    String truncated = timestamp.substring(0, decimalIndex + 7); // Keep 6 decimal places
+                    if (timestamp.endsWith("Z")) {
+                        truncated += "Z";
+                    }
+                    return Instant.parse(truncated);
+                }
+            }
+
+            // Standard parsing for properly formatted timestamps
+            return Instant.parse(timestamp);
+
+        } catch (Exception e) {
+            log.warn("⚠️ [AI-PROGRESS] Failed to parse timestamp '{}': {}", timestamp, e.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -213,10 +262,9 @@ public class AIProgressPublisher {
     private Instant calculateEtaInstant(EnrichmentJob job) {
         // Tier 1: Use existing estimatedCompletionTime if present
         if (job.getEstimatedCompletionTime() != null && !job.getEstimatedCompletionTime().isEmpty()) {
-            try {
-                return Instant.parse(job.getEstimatedCompletionTime());
-            } catch (Exception e) {
-                log.debug("🔍 [AI-PROGRESS] Failed to parse estimatedCompletionTime: {}", e.getMessage());
+            Instant parsed = parseTimestampSafely(job.getEstimatedCompletionTime());
+            if (parsed != null) {
+                return parsed;
             }
         }
 
