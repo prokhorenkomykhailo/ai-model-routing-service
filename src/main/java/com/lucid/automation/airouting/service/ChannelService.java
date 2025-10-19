@@ -13,7 +13,7 @@ import java.util.Optional;
 /**
  * Service for managing channels in Redis
  *
- * @author AI Assistant
+ * @author vudu
  */
 @Service
 public class ChannelService {
