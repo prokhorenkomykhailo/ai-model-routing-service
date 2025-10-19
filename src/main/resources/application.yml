@@ -198,6 +198,16 @@ info:
     java:
       version: ${java.version}
 
+# Anonymization Service Configuration
+anonymization:
+  service:
+    url: ${ANONYMIZATION_SERVICE_URL:http://localhost:8089}
+    enabled: ${ANONYMIZATION_ENABLED:true}
+    timeout: ${ANONYMIZATION_TIMEOUT:5000}
+    retry:
+      max-attempts: ${ANONYMIZATION_RETRY_MAX_ATTEMPTS:3}
+      backoff: ${ANONYMIZATION_RETRY_BACKOFF:2000}
+
 # Redis Conversation Configuration
 redis:
   conversation:

@@ -106,6 +106,16 @@ lucid:
   audit:
     enabled: true
 
+# Anonymization Service Configuration for Docker
+anonymization:
+  service:
+    url: ${ANONYMIZATION_SERVICE_URL:http://anonymization-service:8089}
+    enabled: ${ANONYMIZATION_ENABLED:true}
+    timeout: ${ANONYMIZATION_TIMEOUT:5000}
+    retry:
+      max-attempts: ${ANONYMIZATION_RETRY_MAX_ATTEMPTS:3}
+      backoff: ${ANONYMIZATION_RETRY_BACKOFF:2000}
+
 # Data storage service configuration
 data-storage-service:
   url: ${DATA_STORAGE_SERVICE_URL:http://localhost:8082}
