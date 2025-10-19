@@ -27,6 +27,12 @@ public class UnmaskRequest {
     private String maskedText;
 
     /**
+     * Tenant ID for token vault access (optional for service-to-service calls)
+     */
+    @JsonProperty("tenant_id")
+    private String tenantId;
+
+    /**
      * Reason for unmasking (required for audit trail)
      * Example: "AI topic re-enrichment for UI display"
      */

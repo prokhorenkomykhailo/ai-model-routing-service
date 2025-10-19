@@ -6,6 +6,11 @@ import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.message.AIMessage;
 import com.lucid.automation.airouting.util.TenantValidationUtil;
 import com.lucid.automation.airouting.util.PromptLoader;
+import com.lucid.automation.airouting.client.AnonymizationClient;
+import com.lucid.automation.airouting.dto.anonymization.MaskRequest;
+import com.lucid.automation.airouting.dto.anonymization.MaskResponse;
+import com.lucid.automation.airouting.dto.anonymization.UnmaskRequest;
+import com.lucid.automation.airouting.dto.anonymization.UnmaskResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,26 +44,115 @@ public abstract class AIProvider {
     @Autowired
     private KafkaTemplate<String, Object> kafkaTemplate;
 
+    @Autowired(required = false)
+    protected AnonymizationClient anonymizationClient;
+
     @Value("${kafka.topics.ai-token-consumption:ai-token-consumption}")
     private String tokenConsumptionTopic;
 
+    @Value("${anonymization.service.enabled:false}")
+    protected boolean anonymizationEnabled;
+
     /**
-     * Enrich an entire conversation with dynamic categories
+     * Template method for conversation enrichment with PII protection.
+     * This method orchestrates the complete flow: validate → mask → enrich → unmask
+     *
+     * Concrete providers should NOT override this method.
+     * Instead, implement {@link #doEnrichConversation(AIMessage, String, String, String)}
      *
      * @param messages The AI message containing the list of Slack messages to analyze and context
-     * @return Map containing the analysis results
+     * @return Map containing the analysis results with PII unmasked
      */
-    public abstract Map<String, Object> enrichConversation(AIMessage messages);
+    public final Map<String, Object> enrichConversation(AIMessage messages) {
+        String debugId = "ENRICH-" + System.currentTimeMillis();
+        Map<String, Object> context = messages.getContext();
+        String tenantId = (String) context.get("tenantId");
+        String deemergeUserId = (String) context.get("deemergeUserId");
+        String deemergeUserName = (String) context.get("deemergeUserName");
 
-        /**
-     * Process a simple text query with user and tenant context
+        try {
+            // Step 1: Validate tenant
+            validateTenantId(tenantId, "conversation-enrichment");
+
+            // Step 2: Let concrete provider build the prompt and call LLM (with masking inside)
+            return doEnrichConversation(messages, tenantId, deemergeUserId, deemergeUserName, debugId);
+
+        } catch (Exception e) {
+            logger.error("🚨 {}: [{}] Error in conversation enrichment: {}",
+                        getProviderId(), debugId, e.getMessage(), e);
+            return Map.of(
+                "response", "Error during conversation enrichment: " + e.getMessage(),
+                "request", messages
+            );
+        }
+    }
+
+    /**
+     * Template method for text query processing with PII protection.
+     * This method orchestrates the complete flow: validate → mask → query → unmask
+     *
+     * Concrete providers should NOT override this method.
+     * Instead, implement {@link #doProcessTextQuery(String, String, String, String)}
      *
      * @param query The text query to process
      * @param userId The user ID making the request
      * @param tenantId The tenant ID for the request
-     * @return String response from the AI provider
+     * @return String response from the AI provider with PII unmasked
      */
-    public abstract String processTextQuery(String query, String userId, String tenantId);
+    public final String processTextQuery(String query, String userId, String tenantId) {
+        String debugId = "TEXT-QUERY-" + System.currentTimeMillis();
+
+        try {
+            // Step 1: Validate tenant
+            validateTenantId(tenantId, "text-query");
+
+            // Step 2: Validate input
+            if (query == null || query.trim().isEmpty()) {
+                logger.warn("⚠️ {}: [{}] Empty query provided", getProviderId(), debugId);
+                return "Empty query provided";
+            }
+
+            // Step 3: Mask PII in query
+            String maskedQuery = maskPII(query, tenantId, debugId);
+
+            // Step 4: Let concrete provider call LLM
+            String maskedResponse = doProcessTextQuery(maskedQuery, userId, tenantId, debugId);
+
+            // Step 5: Unmask PII in response
+            return unmaskPII(maskedResponse, tenantId, debugId);
+
+        } catch (Exception e) {
+            logger.error("🚨 {}: [{}] Error processing text query: {}",
+                        getProviderId(), debugId, e.getMessage(), e);
+            return "Error processing query: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Concrete providers must implement this to perform the actual conversation enrichment.
+     * This method should build the prompt, mask PII, call the LLM API, and unmask the response.
+     *
+     * @param messages The AI message with conversation context
+     * @param tenantId The tenant ID (already validated)
+     * @param deemergeUserId The user ID
+     * @param deemergeUserName The user name
+     * @param debugId Debug identifier for logging
+     * @return Map containing the enrichment results
+     */
+    protected abstract Map<String, Object> doEnrichConversation(
+        AIMessage messages, String tenantId, String deemergeUserId, String deemergeUserName, String debugId);
+
+    /**
+     * Concrete providers must implement this to perform the actual text query processing.
+     * The query is already masked, and the response will be unmasked by the template method.
+     *
+     * @param maskedQuery The query with PII already masked
+     * @param userId The user ID
+     * @param tenantId The tenant ID (already validated)
+     * @param debugId Debug identifier for logging
+     * @return The response from the LLM (still masked)
+     */
+    protected abstract String doProcessTextQuery(String maskedQuery, String userId, String tenantId, String debugId);
 
     /**
      * Get provider identifier
@@ -93,6 +187,87 @@ public abstract class AIProvider {
 
         logger.debug("{}: Tenant ID validation passed for operation: {}, tenant: {}",
                     getProviderId(), operation, tenantId);
+    }
+
+    /**
+     * Mask PII in text before sending to LLM provider.
+     * This method provides centralized PII protection across all AI providers.
+     *
+     * @param text The text to mask
+     * @param tenantId The tenant ID for token vault isolation
+     * @param debugId Request ID for logging correlation
+     * @return Masked text with PII replaced by placeholders, or original text if masking fails/disabled
+     */
+    protected String maskPII(String text, String tenantId, String debugId) {
+        // Skip masking if feature is disabled or client not available
+        if (!anonymizationEnabled || anonymizationClient == null) {
+            logger.debug("🔓 {}: [{}] PII masking disabled or client unavailable", getProviderId(), debugId);
+            return text;
+        }
+
+        try {
+            logger.info("🔒 {}: [{}] Masking PII before LLM call | Tenant: {}",
+                       getProviderId(), debugId, tenantId);
+
+            MaskRequest request = new MaskRequest();
+            request.setText(text);
+            request.setConfidenceThreshold(0.5);
+            request.setTenantId(tenantId);
+
+            MaskResponse response = anonymizationClient.maskText(request);
+
+            logger.info("✅ {}: [{}] PII masking successful | Entities: {} | Original length: {} | Masked length: {}",
+                       getProviderId(), debugId, response.getEntitiesFound(),
+                       text.length(), response.getMaskedText().length());
+
+            return response.getMaskedText();
+        } catch (Exception e) {
+            logger.error("❌ {}: [{}] PII masking failed: {} | Falling back to original text",
+                        getProviderId(), debugId, e.getMessage());
+            // Fail-open pattern: return original text to avoid blocking LLM calls
+            return text;
+        }
+    }
+
+    /**
+     * Unmask PII in LLM response before returning to user.
+     * This method provides centralized PII restoration across all AI providers.
+     *
+     * @param text The text to unmask
+     * @param tenantId The tenant ID for token vault access
+     * @param debugId Request ID for logging correlation
+     * @return Unmasked text with placeholders replaced by original PII, or original text if unmasking fails/disabled
+     */
+    protected String unmaskPII(String text, String tenantId, String debugId) {
+        // Skip unmasking if feature is disabled or client not available
+        if (!anonymizationEnabled || anonymizationClient == null) {
+            logger.debug("🔓 {}: [{}] PII unmasking disabled or client unavailable", getProviderId(), debugId);
+            return text;
+        }
+
+        try {
+            logger.info("🔓 {}: [{}] Unmasking PII after LLM response | Tenant: {}",
+                       getProviderId(), debugId, tenantId);
+
+            UnmaskRequest request = new UnmaskRequest();
+            request.setMaskedText(text);
+            request.setTenantId(tenantId);
+            request.setJustification("AI response re-enrichment for user display");
+
+            UnmaskResponse response = anonymizationClient.unmaskText(request);
+
+            logger.info("✅ {}: [{}] PII unmasking successful | Tokens: {} processed, {} retrieved | Request ID: {}",
+                       getProviderId(), debugId, response.getTokensProcessed(),
+                       response.getTokensRetrieved(), response.getRequestId());
+
+            return response.getUnmaskedText();
+        } catch (Exception e) {
+            logger.error("❌ {}: [{}] PII unmasking failed: {} | Returning masked text",
+                        getProviderId(), debugId, e.getMessage());
+            // Fail-open pattern: return masked text to avoid breaking responses
+            // Note: This means PII will remain masked in the response if unmasking fails
+            return text;
+        }
     }
 
     /**

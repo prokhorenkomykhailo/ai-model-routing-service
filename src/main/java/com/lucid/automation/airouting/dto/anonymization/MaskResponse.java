@@ -40,6 +40,12 @@ public class MaskResponse {
     private Integer tokenCount;
 
     /**
+     * Number of distinct entities found
+     */
+    @JsonProperty("entities_found")
+    private Integer entitiesFound;
+
+    /**
      * Unique request identifier for tracking
      */
     @JsonProperty("request_id")

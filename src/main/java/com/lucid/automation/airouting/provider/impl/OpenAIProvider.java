@@ -4,7 +4,6 @@ import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.message.AIMessage;
 import com.lucid.automation.airouting.exception.TokenQuotaExhaustedException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.models.ChatCompletion;
@@ -18,13 +17,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Component("openaiProvider")
 public class OpenAIProvider extends AIProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(OpenAIProvider.class);
-    private static final String MESSAGE_PLACEHOLDER = "##messages##";
 
     @Value("${ai.providers.openai.api-key:}")
     private String apiKey;
@@ -48,13 +45,10 @@ public class OpenAIProvider extends AIProvider {
     private String defaultTenantSchema;
 
     private final OpenAIClient openaiClient;
-    private final ObjectMapper objectMapper;
     private double lastConfidence = 0.0;
     private final boolean isClientAvailable;
 
-    public OpenAIProvider(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
-
+    public OpenAIProvider() {
         // Try to initialize the client, but handle gracefully if API key is not available
         OpenAIClient tempClient = null;
         boolean clientAvailable = false;
@@ -80,19 +74,11 @@ public class OpenAIProvider extends AIProvider {
     }
 
     @Override
-    public Map<String, Object> enrichConversation(AIMessage request) {
-        String debugId = "ENRICH-CONV-" + System.currentTimeMillis();
+    protected Map<String, Object> doEnrichConversation(
+            AIMessage request, String tenantId, String deemergeUserId, String deemergeUserName, String debugId) {
+
         logger.info("OPENAI-ENRICH [{}]: Starting conversation enrichment", debugId);
         List<SlackMessage> messages = request.getMessages();
-        Map<String, Object> context = request.getContext();
-
-        // Extract user and tenant information from context
-        String deemergeUserName = (String) context.get("deemergeUserName");
-        String deemergeUserId = (String) context.get("deemergeUserId");
-        String tenantId = (String) context.get("tenantId");
-
-        // Validate tenant ID using centralized method
-        validateTenantId(tenantId, "conversation-enrichment");
 
         // Use default values if not provided
         if (deemergeUserId == null || deemergeUserId.trim().isEmpty()) {
@@ -127,7 +113,15 @@ public class OpenAIProvider extends AIProvider {
             String conversationText = formatConversationForAnalysis(messages);
             String prompt = buildConversationEnrichmentPrompt(conversationText, deemergeUserName);
             System.out.println("OPENAI-ENRICH [" + debugId + "]: Built conversation enrichment prompt: \n" + prompt);
-            String response = callOpenAIAPI(prompt, "conversation-enrichment", debugId, deemergeUserId, tenantId);
+
+            // Mask PII before sending to OpenAI
+            String maskedPrompt = maskPII(prompt, tenantId, debugId);
+
+            String maskedResponse = callOpenAIAPI(maskedPrompt, "conversation-enrichment", debugId, deemergeUserId, tenantId);
+
+            // Unmask PII before returning to user
+            String response = unmaskPII(maskedResponse, tenantId, debugId);
+
             return Map.of(
                 "response", response,
                 "request", messages
@@ -154,36 +148,29 @@ public class OpenAIProvider extends AIProvider {
     }
 
     @Override
-    public String processTextQuery(String query, String userId, String tenantId) {
-        String debugId = "TEXT-QUERY-" + System.currentTimeMillis();
+    protected String doProcessTextQuery(String maskedQuery, String userId, String tenantId, String debugId) {
         logger.info("🔍 OPENAI-TEXT [{}]: Processing text query | 📏 {} chars | 👤 User: {} | 🏢 Tenant: {}",
-                   debugId, query != null ? query.length() : 0, userId != null ? userId : "unknown", tenantId != null ? tenantId : "unknown");
+                   debugId, maskedQuery != null ? maskedQuery.length() : 0,
+                   userId != null ? userId : "unknown", tenantId != null ? tenantId : "unknown");
 
         try {
-            // Validate tenant ID using centralized method
-            validateTenantId(tenantId, "text-query");
-
-            // Input validation
-            if (query == null || query.trim().isEmpty()) {
-                logger.warn("⚠️ OPENAI-TEXT [{}]: Empty query provided", debugId);
-                return "Empty query provided";
-            }
-
             if (!isClientAvailable) {
                 logger.warn("⚠️ OPENAI-TEXT [{}]: OpenAI client not available", debugId);
                 return "OpenAI client not available";
             }
 
-            // Call OpenAI API with default user/tenant for simple text queries
-            String response = callOpenAIAPI(query, "text-query", debugId, userId, tenantId);
+            // Call OpenAI API - query is already masked by template method
+            String maskedResponse = callOpenAIAPI(maskedQuery, "text-query", debugId, userId, tenantId);
 
             logger.info("✅ OPENAI-TEXT [{}]: Successfully processed text query | 📏 Response: {} chars",
-                       debugId, response != null ? response.length() : 0);
-            return response;
+                       debugId, maskedResponse != null ? maskedResponse.length() : 0);
+
+            // Return masked response - template method will unmask it
+            return maskedResponse;
 
         } catch (Exception e) {
             logger.error("🚨 OPENAI-TEXT [{}]: Error processing text query: {}", debugId, e.getMessage(), e);
-            return "Error processing query: " + e.getMessage();
+            throw new RuntimeException("Error processing query: " + e.getMessage(), e);
         }
     }
 

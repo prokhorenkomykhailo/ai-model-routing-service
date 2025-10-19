@@ -28,6 +28,12 @@ public class MaskRequest {
     private String text;
 
     /**
+     * Tenant ID for token vault isolation (optional for service-to-service calls)
+     */
+    @JsonProperty("tenant_id")
+    private String tenantId;
+
+    /**
      * Specific entity types to detect (optional)
      * Examples: EMAIL, PERSON, PHONE_NUMBER, etc.
      */

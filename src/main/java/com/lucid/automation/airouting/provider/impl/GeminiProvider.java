@@ -4,7 +4,6 @@ import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.message.AIMessage;
 import com.lucid.automation.airouting.exception.TokenQuotaExhaustedException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.genai.Client;
 import com.google.genai.types.CountTokensResponse;
 import com.google.genai.types.GenerateContentResponse;
@@ -16,13 +15,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Component("geminiProvider")
 public class GeminiProvider extends AIProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(GeminiProvider.class);
-    private static final String MESSAGE_PLACEHOLDER = "##messages##";
 
     @Value("${ai.providers.gemini.api-key:}")
     private String apiKey;
@@ -41,12 +38,10 @@ public class GeminiProvider extends AIProvider {
     private String defaultTenantSchema;
 
     private final Client geminiClient;
-    private final ObjectMapper objectMapper;
     private double lastConfidence = 0.0;
     private final boolean isClientAvailable;
 
-    public GeminiProvider(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
+    public GeminiProvider() {
         // Try to initialize the client, but handle gracefully if API key is not available
         Client tempClient = null;
         boolean clientAvailable = false;
@@ -70,19 +65,11 @@ public class GeminiProvider extends AIProvider {
     }
 
     @Override
-    public Map<String, Object> enrichConversation(AIMessage request) {
-        String debugId = "ENRICH-CONV-" + System.currentTimeMillis();
+    protected Map<String, Object> doEnrichConversation(
+            AIMessage request, String tenantId, String deemergeUserId, String deemergeUserName, String debugId) {
+
         logger.info("GEMINI-ENRICH [{}]: Starting conversation enrichment", debugId);
         List<SlackMessage> messages = request.getMessages();
-        Map<String, Object> context = request.getContext();
-
-        // Extract user and tenant information from context
-        String deemergeUserName = (String) context.get("deemergeUserName");
-        String deemergeUserId = (String) context.get("deemergeUserId");
-        String tenantId = (String) context.get("tenantId");
-
-        // Validate tenant ID using centralized method
-        validateTenantId(tenantId, "conversation-enrichment");
 
         // Use default values if not provided
         if (deemergeUserId == null || deemergeUserId.trim().isEmpty()) {
@@ -101,12 +88,12 @@ public class GeminiProvider extends AIProvider {
             long uniqueChannels = messages.stream().map(SlackMessage::getChannelId).distinct().count();
             logger.info("📈 GEMINI-ENRICH [{}]: Stats | 🏷️ {} unique users, 📺 {} channels",
                        debugId, uniqueUsers, uniqueChannels);
-        }        try {
+        }
+
+        try {
             // Input validation
             if (messages == null || messages.isEmpty()) {
                 logger.warn("⚠️ GEMINI-ENRICH [{}]: No messages provided, returning default enrichment", debugId);
-
-                // return getDefaultConversationEnrichment();
                 return Map.of(
                     "response", "No messages provided for enrichment",
                     "request", messages
@@ -129,7 +116,13 @@ public class GeminiProvider extends AIProvider {
             logger.info("📝 GEMINI-ENRICH [{}]: Built enrichment prompt | 📏 {} characters",
                        debugId, prompt != null ? prompt.length() : 0);
 
-            String response = callGeminiAPI(prompt, "conversation-enrichment", debugId, deemergeUserId, tenantId);
+            // Mask PII before sending to Gemini
+            String maskedPrompt = maskPII(prompt, tenantId, debugId);
+
+            String maskedResponse = callGeminiAPI(maskedPrompt, "conversation-enrichment", debugId, deemergeUserId, tenantId);
+
+            // Unmask PII before returning to user
+            String response = unmaskPII(maskedResponse, tenantId, debugId);
 
             logger.info("✅ GEMINI-ENRICH [{}]: Successfully enriched conversation | 📏 Response: {} chars",
                        debugId, response != null ? response.length() : 0);
@@ -174,31 +167,27 @@ public class GeminiProvider extends AIProvider {
     }
 
     @Override
-    public String processTextQuery(String query, String userId, String tenantId) {
-        String debugId = "TEXT-QUERY-" + System.currentTimeMillis();
-        logger.info("GEMINI-TEXT [{}]: Processing text query: {}", debugId, query != null ? query.substring(0, Math.min(query.length(), 100)) + "..." : "null");
+    protected String doProcessTextQuery(String maskedQuery, String userId, String tenantId, String debugId) {
+        logger.info("GEMINI-TEXT [{}]: Processing text query: {}", debugId,
+                   maskedQuery != null ? maskedQuery.substring(0, Math.min(maskedQuery.length(), 100)) + "..." : "null");
 
         try {
-            // Input validation
-            if (query == null || query.trim().isEmpty()) {
-                logger.warn("GEMINI-TEXT [{}]: Empty query provided", debugId);
-                return "Empty query provided";
-            }
-
             if (!isClientAvailable) {
                 logger.warn("GEMINI-TEXT [{}]: Gemini client not available", debugId);
                 return "Gemini client not available";
             }
 
-            // Call Gemini API with provided user/tenant context
-            String response = callGeminiAPI(query, "text-query", debugId, userId, tenantId);
+            // Call Gemini API - query is already masked by template method
+            String maskedResponse = callGeminiAPI(maskedQuery, "text-query", debugId, userId, tenantId);
 
             logger.info("GEMINI-TEXT [{}]: Successfully processed text query", debugId);
-            return response;
+
+            // Return masked response - template method will unmask it
+            return maskedResponse;
 
         } catch (Exception e) {
             logger.error("GEMINI-TEXT [{}]: Error processing text query: {}", debugId, e.getMessage(), e);
-            return "Error processing query: " + e.getMessage();
+            throw new RuntimeException("Error processing query: " + e.getMessage(), e);
         }
     }
 
