@@ -11,6 +11,7 @@ import com.lucid.automation.airouting.dto.anonymization.MaskRequest;
 import com.lucid.automation.airouting.dto.anonymization.MaskResponse;
 import com.lucid.automation.airouting.dto.anonymization.UnmaskRequest;
 import com.lucid.automation.airouting.dto.anonymization.UnmaskResponse;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -192,12 +193,14 @@ public abstract class AIProvider {
     /**
      * Mask PII in text before sending to LLM provider.
      * This method provides centralized PII protection across all AI providers.
+     * Protected by circuit breaker to prevent cascading failures if anonymization service is down.
      *
      * @param text The text to mask
      * @param tenantId The tenant ID for token vault isolation
      * @param debugId Request ID for logging correlation
      * @return Masked text with PII replaced by placeholders, or original text if masking fails/disabled
      */
+    @CircuitBreaker(name = "anonymizationService", fallbackMethod = "maskPIIFallback")
     protected String maskPII(String text, String tenantId, String debugId) {
         // Skip masking if feature is disabled or client not available
         if (!anonymizationEnabled || anonymizationClient == null) {
@@ -224,20 +227,38 @@ public abstract class AIProvider {
         } catch (Exception e) {
             logger.error("❌ {}: [{}] PII masking failed: {} | Falling back to original text",
                         getProviderId(), debugId, e.getMessage());
-            // Fail-open pattern: return original text to avoid blocking LLM calls
-            return text;
+            // Fail-open pattern: re-throw to trigger circuit breaker
+            throw e;
         }
+    }
+
+    /**
+     * Fallback method for maskPII when circuit breaker is open or masking fails.
+     * Returns original text to allow LLM processing to continue (fail-open pattern).
+     *
+     * @param text The original text
+     * @param tenantId The tenant ID
+     * @param debugId Request ID for logging
+     * @param ex The exception that triggered the fallback
+     * @return Original text (fail-open pattern)
+     */
+    protected String maskPIIFallback(String text, String tenantId, String debugId, Exception ex) {
+        logger.warn("⚠️ {}: [{}] Circuit breaker OPEN or masking failed - using fallback | Tenant: {} | Error: {}",
+                   getProviderId(), debugId, tenantId, ex.getMessage());
+        return text;
     }
 
     /**
      * Unmask PII in LLM response before returning to user.
      * This method provides centralized PII restoration across all AI providers.
+     * Protected by circuit breaker to handle anonymization service failures gracefully.
      *
      * @param text The text to unmask
      * @param tenantId The tenant ID for token vault access
      * @param debugId Request ID for logging correlation
-     * @return Unmasked text with placeholders replaced by original PII, or original text if unmasking fails/disabled
+     * @return Unmasked text with placeholders replaced by original PII, or masked text if unmasking fails/disabled
      */
+    @CircuitBreaker(name = "anonymizationService", fallbackMethod = "unmaskPIIFallback")
     protected String unmaskPII(String text, String tenantId, String debugId) {
         // Skip unmasking if feature is disabled or client not available
         if (!anonymizationEnabled || anonymizationClient == null) {
@@ -264,10 +285,25 @@ public abstract class AIProvider {
         } catch (Exception e) {
             logger.error("❌ {}: [{}] PII unmasking failed: {} | Returning masked text",
                         getProviderId(), debugId, e.getMessage());
-            // Fail-open pattern: return masked text to avoid breaking responses
-            // Note: This means PII will remain masked in the response if unmasking fails
-            return text;
+            // Fail-open pattern: re-throw to trigger circuit breaker
+            throw e;
         }
+    }
+
+    /**
+     * Fallback method for unmaskPII when circuit breaker is open or unmasking fails.
+     * Returns masked text to allow responses to continue (graceful degradation).
+     *
+     * @param text The masked text
+     * @param tenantId The tenant ID
+     * @param debugId Request ID for logging
+     * @param ex The exception that triggered the fallback
+     * @return Masked text (graceful degradation - placeholders remain)
+     */
+    protected String unmaskPIIFallback(String text, String tenantId, String debugId, Exception ex) {
+        logger.warn("⚠️ {}: [{}] Circuit breaker OPEN or unmasking failed - returning masked text | Tenant: {} | Error: {}",
+                   getProviderId(), debugId, tenantId, ex.getMessage());
+        return text;
     }
 
     /**

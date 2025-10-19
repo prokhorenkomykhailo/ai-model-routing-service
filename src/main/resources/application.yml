@@ -281,6 +281,22 @@ resilience4j:
           - java.net.ConnectException
           - java.net.SocketTimeoutException
           - org.springframework.web.client.ResourceAccessException
+      # Anonymization service circuit breaker config - stricter than AI providers
+      anonymization-service:
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        eventConsumerBufferSize: 10
+        recordExceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - java.net.ConnectException
+          - java.net.SocketTimeoutException
+          - org.springframework.web.client.ResourceAccessException
+          - feign.FeignException
     instances:
       geminiProvider:
         baseConfig: ai-provider
@@ -292,6 +308,12 @@ resilience4j:
         baseConfig: ai-provider
         failureRateThreshold: 30
         waitDurationInOpenState: 15s
+      # Circuit breaker instance for anonymization service
+      anonymizationService:
+        baseConfig: anonymization-service
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
   retry:
     configs:
       ai-provider:
