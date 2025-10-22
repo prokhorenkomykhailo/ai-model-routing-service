@@ -42,4 +42,22 @@ public interface MessageRepository extends CrudRepository<Message, String> {
      */
     List<Message> findByWorkspaceIdAndIsProcessedOrderByMessageTsAsc(String workspaceId, Boolean isProcessed);
 
+    /**
+     * Find all messages by tenant ID (for aggregation)
+     * NOTE: Use with caution - can return large result sets
+     *
+     * @param tenantId The tenant ID
+     * @return List of all messages for the tenant
+     */
+    List<Message> findAllByTenantId(String tenantId);
+
+    /**
+     * Count messages by tenant ID
+     * Uses Redis secondary index on tenantId
+     *
+     * @param tenantId The tenant ID
+     * @return Count of messages for the tenant
+     */
+    long countByTenantId(String tenantId);
+
 }

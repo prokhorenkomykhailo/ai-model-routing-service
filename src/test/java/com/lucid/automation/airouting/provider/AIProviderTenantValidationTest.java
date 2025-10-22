@@ -126,12 +126,13 @@ class AIProviderTenantValidationTest {
     private static class TestAIProvider extends AIProvider {
 
         @Override
-        public Map<String, Object> enrichConversation(AIMessage messages) {
+        protected Map<String, Object> doEnrichConversation(
+                AIMessage messages, String tenantId, String deemergeUserId, String deemergeUserName, String debugId) {
             return Map.of("test", "result");
         }
 
         @Override
-        public String processTextQuery(String query, String userId, String tenantId) {
+        protected String doProcessTextQuery(String maskedQuery, String userId, String tenantId, String debugId) {
             return "test response";
         }
 

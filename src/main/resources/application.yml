@@ -343,3 +343,9 @@ resilience4j:
         baseConfig: ai-provider
         timeoutDuration: 45s
 
+# Statistics configuration
+statistics:
+  max-messages: 50000
+  max-breakdown-items: 100
+  retention-window-days: 7
+

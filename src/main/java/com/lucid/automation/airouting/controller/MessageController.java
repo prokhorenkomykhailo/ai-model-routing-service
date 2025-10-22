@@ -4,6 +4,7 @@ import com.lucid.automation.airouting.audit.Audit;
 import com.lucid.automation.airouting.dto.*;
 import com.lucid.automation.airouting.model.Message;
 import com.lucid.automation.airouting.service.MessageService;
+import com.lucid.automation.airouting.service.MessageStatisticsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -29,9 +30,11 @@ public class MessageController {
     private static final Logger logger = LoggerFactory.getLogger(MessageController.class);
 
     private final MessageService messageService;
+    private final MessageStatisticsService statisticsService;
 
-    public MessageController(MessageService messageService) {
+    public MessageController(MessageService messageService, MessageStatisticsService statisticsService) {
         this.messageService = messageService;
+        this.statisticsService = statisticsService;
     }
 
     @GetMapping("/{id}")
@@ -139,6 +142,56 @@ public class MessageController {
 
         } catch (Exception e) {
             logger.error("Error searching messages", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @GetMapping("/statistics")
+    @Audit(action = "AI_MESSAGES_STATISTICS", description = "User requested message statistics")
+    @Operation(summary = "Get tenant message statistics",
+               description = "Returns aggregated metrics for tenant messages in Redis")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Statistics generated successfully"),
+        @ApiResponse(responseCode = "400", description = "Missing required tenantId parameter"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    public ResponseEntity<MessageStatisticsDTO> getMessageStatistics(
+            @Parameter(description = "Tenant ID (required)")
+            @RequestParam(required = true) String tenantId,
+
+            @Parameter(description = "Start timestamp (epoch millis, optional)")
+            @RequestParam(required = false) Long from,
+
+            @Parameter(description = "End timestamp (epoch millis, optional)")
+            @RequestParam(required = false) Long to,
+
+            @Parameter(description = "Include detailed breakdowns (default: true)")
+            @RequestParam(required = false, defaultValue = "true") Boolean includeBreakdowns) {
+
+        long startTime = System.currentTimeMillis();
+
+        try {
+            MessageStatisticsRequestDTO request = MessageStatisticsRequestDTO.builder()
+                .tenantId(tenantId)
+                .from(from)
+                .to(to)
+                .includeBreakdowns(includeBreakdowns)
+                .build();
+
+            MessageStatisticsDTO statistics = statisticsService.generateStatistics(request);
+
+            long duration = System.currentTimeMillis() - startTime;
+            logger.info("✅ [STATISTICS] Generated for tenant {} | Messages: {} | Duration: {}ms",
+                tenantId, statistics.getTotals().getMessageCount(), duration);
+
+            return ResponseEntity.ok(statistics);
+
+        } catch (IllegalArgumentException e) {
+            logger.warn("⚠️ [STATISTICS] Invalid request: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
+        } catch (Exception e) {
+            logger.error("❌ [STATISTICS] Failed for tenant {}: {}", tenantId, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
