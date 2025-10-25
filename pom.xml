@@ -14,7 +14,7 @@
 
     <groupId>com.lucid.automation</groupId>
     <artifactId>lucid-ai-routing-service</artifactId>
-    <version>1.2.6</version>
+    <version>1.2.7</version>
     <packaging>jar</packaging>
     <name>Lucid AI Routing Service</name>
     <description>AI model routing and orchestration service for Lucid platform</description>

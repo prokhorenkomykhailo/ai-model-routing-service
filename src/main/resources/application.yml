@@ -85,6 +85,20 @@ kafka:
     ai-token-consumption: ${KAFKA_TOPIC_TOKEN_CONSUMPTION:ai-token-consumption}
     ingestion-progress: ${KAFKA_TOPIC_INGESTION_PROGRESS:ingestion-progress}
   reset-offsets-on-startup: false
+  # SCRUM-345: Kafka Message Resilience Configuration
+  retry:
+    enabled: ${KAFKA_RETRY_ENABLED:true}
+    initial-backoff-ms: ${KAFKA_RETRY_INITIAL_BACKOFF_MS:1000}           # 1 second
+    backoff-multiplier: ${KAFKA_RETRY_BACKOFF_MULTIPLIER:2.0}             # Exponential: 1s→2s→4s→8s→16s
+    max-backoff-ms: ${KAFKA_RETRY_MAX_BACKOFF_MS:31000}                   # 31 seconds (reasonable limit)
+    max-attempts: ${KAFKA_RETRY_MAX_ATTEMPTS:5}                           # 5 total attempts
+    dlq-enabled: ${KAFKA_RETRY_DLQ_ENABLED:true}
+    dlq-retention-days: ${KAFKA_RETRY_DLQ_RETENTION_DAYS:30}             # 30 days
+    dlq-topic-suffix: ${KAFKA_RETRY_DLQ_TOPIC_SUFFIX:-dlq}
+    metrics-enabled: ${KAFKA_RETRY_METRICS_ENABLED:true}
+    auditing-enabled: ${KAFKA_RETRY_AUDITING_ENABLED:true}
+    pause-resume-enabled: ${KAFKA_RETRY_PAUSE_RESUME_ENABLED:true}       # For long-running AI processing
+    pause-resume-timeout-ms: ${KAFKA_RETRY_PAUSE_RESUME_TIMEOUT_MS:60000} # 1 minute timeout
 
 
 eureka:

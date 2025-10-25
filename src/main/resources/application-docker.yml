@@ -110,7 +110,7 @@ lucid:
 anonymization:
   service:
     url: ${ANONYMIZATION_SERVICE_URL:http://anonymization-service:8089}
-    enabled: ${ANONYMIZATION_ENABLED:true}
+    enabled: ${ANONYMIZATION_ENABLED:false}
     timeout: ${ANONYMIZATION_TIMEOUT:5000}
     retry:
       max-attempts: ${ANONYMIZATION_RETRY_MAX_ATTEMPTS:3}

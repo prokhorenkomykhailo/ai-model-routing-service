@@ -4,26 +4,35 @@ import com.lucid.automation.common.dto.messaging.IngestionEventDTO;
 import com.lucid.automation.airouting.pipeline.ingestion.IngestionPipelineOrchestrator;
 import com.lucid.automation.airouting.pipeline.ProcessingResult;
 import com.lucid.automation.airouting.util.TimestampUtil;
+import com.lucid.automation.airouting.config.EnhancedErrorHandler;
+import com.lucid.automation.airouting.config.KafkaRetryProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Service;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Consumer service for processing ingestion messages from Kafka
  * Now uses the pipeline architecture for modular processing.
+ * Implements intelligent retry/DLQ strategy with exponential backoff.
  *
- * @author AI Assistant
+ * @author vudu
  */
 @Service
 public class IngestionConsumer {
 
     private static final Logger logger = LoggerFactory.getLogger(IngestionConsumer.class);
+    private static final DateTimeFormatter ISO_FORMATTER = DateTimeFormatter.ISO_DATE_TIME;
 
     // Add counters for statistics
     private final AtomicLong totalMessagesProcessed = new AtomicLong(0);
@@ -32,11 +41,24 @@ public class IngestionConsumer {
     private final AtomicLong newMessages = new AtomicLong(0);
     private final AtomicLong duplicateMessages = new AtomicLong(0);
 
-    private final IngestionPipelineOrchestrator pipelineOrchestrator;
+    // New metrics for retry/DLQ tracking
+    private final AtomicLong retriedIngestion = new AtomicLong(0);
+    private final AtomicLong dlqIngestion = new AtomicLong(0);
 
-    public IngestionConsumer(IngestionPipelineOrchestrator pipelineOrchestrator) {
+    private final IngestionPipelineOrchestrator pipelineOrchestrator;
+    private final EnhancedErrorHandler enhancedErrorHandler;
+    private final KafkaRetryProperties kafkaRetryProperties;
+    private final KafkaTemplate<String, Map<String, Object>> kafkaTemplate;
+
+    public IngestionConsumer(IngestionPipelineOrchestrator pipelineOrchestrator,
+                            EnhancedErrorHandler enhancedErrorHandler,
+                            KafkaRetryProperties kafkaRetryProperties,
+                            KafkaTemplate<String, Map<String, Object>> kafkaTemplate) {
         this.pipelineOrchestrator = pipelineOrchestrator;
-        logger.info("IngestionConsumer initialized with pipeline architecture");
+        this.enhancedErrorHandler = enhancedErrorHandler;
+        this.kafkaRetryProperties = kafkaRetryProperties;
+        this.kafkaTemplate = kafkaTemplate;
+        logger.info("✅ [INIT] IngestionConsumer initialized with enhanced retry/DLQ strategy");
     }
 
     @KafkaListener(
@@ -86,7 +108,7 @@ public class IngestionConsumer {
 
             if (processingResult.isSuccess()) {
                 successfulMessages.incrementAndGet();
-                newMessages.incrementAndGet(); // Assume new if processed successfully
+                newMessages.incrementAndGet();
                 logger.info("✅ [INGESTION-SUCCESS] Message processed in {}ms: {} | 📊 RUNNING TOTALS - Processed: {} | Success: {} | Failed: {} | New: {} | Duplicates: {}",
                     processingTime,
                     ingestionEventDto.getMessage().getTs(),
@@ -97,17 +119,8 @@ public class IngestionConsumer {
                     duplicateMessages.get());
                 acknowledgment.acknowledge();
             } else {
-                failedMessages.incrementAndGet();
-                logger.error("❌ [INGESTION-FAILED] Message processing failed after {}ms: {} | Error: {} | 📊 RUNNING TOTALS - Processed: {} | Success: {} | Failed: {} | New: {} | Duplicates: {}",
-                    processingTime,
-                    ingestionEventDto.getMessage().getTs(),
-                    processingResult.getErrorMessage(),
-                    totalMessagesProcessed.get(),
-                    successfulMessages.get(),
-                    failedMessages.get(),
-                    newMessages.get(),
-                    duplicateMessages.get());
-                throw new RuntimeException("Pipeline processing failed: " + processingResult.getErrorMessage());
+                // Pipeline failed - treat as retryable for transient failures
+                handlePipelineFailure(ingestionEventDto, processingResult, acknowledgment, processingTime);
             }
 
         } catch (Exception e) {
@@ -123,11 +136,17 @@ public class IngestionConsumer {
                 newMessages.get(),
                 duplicateMessages.get());
 
-            if (isRetryableException(e)) {
-                logger.info("Retryable exception - not acknowledging message");
+            // Classify error and decide retry strategy
+            if (enhancedErrorHandler.isRetryableException(e)) {
+                // Retryable: NO ACK issued - Kafka session timeout triggers rebalance
+                retriedIngestion.incrementAndGet();
+                logger.info("🔄 [RETRY-STRATEGY] Retryable exception - NOT acknowledging message (will be retried via rebalance)");
                 throw e;
             } else {
-                logger.info("Non-retryable exception - acknowledging message");
+                // Non-retryable: ACK + DLQ dispatch
+                dlqIngestion.incrementAndGet();
+                logger.info("🚫 [DLQ-STRATEGY] Non-retryable exception - acknowledging and sending to DLQ");
+                sendToDLQ(ingestionEventDto, e, 0, processingTime);
                 acknowledgment.acknowledge();
             }
         }
@@ -143,7 +162,7 @@ public class IngestionConsumer {
             if (!parsed.isValid()) {
                 logger.warn("❌ [TIMESTAMP-INVALID] Invalid timestamp format: '{}' - Error: {} - continuing with processing",
                     tsStr, parsed.getErrorMessage());
-                return; // Continue processing even with invalid timestamp
+                return;
             }
 
             // Check if timestamp is too far in the future (24 hours threshold)
@@ -163,33 +182,77 @@ public class IngestionConsumer {
         }
     }
 
-    private boolean isRetryableException(Exception exception) {
-        if (exception.getMessage() != null) {
-            String msg = exception.getMessage().toLowerCase();
-            if (msg.contains("connection") || msg.contains("timeout") ||
-                msg.contains("network") || msg.contains("redis") ||
-                msg.contains("unable to connect") || msg.contains("connection refused")) {
-                return true;
-            }
+    /**
+     * Handles pipeline processing failures with intelligent retry/DLQ classification.
+     *
+     * @param ingestionEventDto the ingestion event
+     * @param result the pipeline processing result
+     * @param acknowledgment Kafka acknowledgment
+     * @param processingTime processing duration in ms
+     */
+    private void handlePipelineFailure(IngestionEventDTO ingestionEventDto, ProcessingResult result,
+                                      Acknowledgment acknowledgment, long processingTime) {
+        failedMessages.incrementAndGet();
+
+        String errorMsg = result.getErrorMessage();
+        logger.error("❌ [INGESTION-FAILED] Message processing failed after {}ms: {} | Error: {} | 📊 RUNNING TOTALS - Processed: {} | Success: {} | Failed: {} | New: {} | Duplicates: {}",
+            processingTime,
+            ingestionEventDto.getMessage().getTs(),
+            errorMsg,
+            totalMessagesProcessed.get(),
+            successfulMessages.get(),
+            failedMessages.get(),
+            newMessages.get(),
+            duplicateMessages.get());
+
+        // Treat as retryable for transient pipeline failures
+        RuntimeException pipelineException = new RuntimeException("Pipeline processing failed: " + errorMsg);
+        if (enhancedErrorHandler.isRetryableException(pipelineException)) {
+            retriedIngestion.incrementAndGet();
+            logger.info("🔄 [PIPELINE-RETRY] Pipeline failure classified as retryable - NOT acknowledging");
+            throw pipelineException;
+        } else {
+            dlqIngestion.incrementAndGet();
+            logger.info("🚫 [PIPELINE-DLQ] Pipeline failure classified as non-retryable - DLQ dispatch");
+            sendToDLQ(ingestionEventDto, pipelineException, 0, processingTime);
+            acknowledgment.acknowledge();
+        }
+    }
+
+    /**
+     * Sends a failed message to the DLQ topic for audit and manual intervention.
+     * Creates a structured error message with full context.
+     *
+     * @param ingestionEventDto the original ingestion event
+     * @param exception the exception that caused the failure
+     * @param retryAttempts number of retry attempts made
+     * @param processingTime processing duration in ms
+     */
+    private void sendToDLQ(IngestionEventDTO ingestionEventDto, Exception exception,
+                          int retryAttempts, long processingTime) {
+        if (!kafkaRetryProperties.isDlqEnabled()) {
+            logger.warn("⚠️ [DLQ-DISABLED] DLQ is disabled - skipping DLQ dispatch");
+            return;
         }
 
-        String className = exception.getClass().getSimpleName().toLowerCase();
-        if (className.contains("connection") || className.contains("timeout") ||
-            className.contains("redis") || className.contains("jedis")) {
-            return true;
-        }
+        try {
+            String dlqTopic = "lucid-ingestion-messages" + kafkaRetryProperties.getDlqTopicSuffix();
 
-        if (exception instanceof IllegalArgumentException ||
-            exception instanceof ClassCastException ||
-            exception instanceof NullPointerException) {
-            return false;
-        }
+            Map<String, Object> dlqMessage = new HashMap<>();
+            dlqMessage.put("originalTopic", "lucid-ingestion-messages");
+            dlqMessage.put("originalValue", ingestionEventDto);
+            dlqMessage.put("errorType", exception.getClass().getSimpleName());
+            dlqMessage.put("errorMessage", exception.getMessage());
+            dlqMessage.put("failedAt", LocalDateTime.now().format(ISO_FORMATTER));
+            dlqMessage.put("retryAttempts", retryAttempts);
+            dlqMessage.put("processingTimeMs", processingTime);
 
-        if (className.contains("serialization") || className.contains("json") ||
-            className.contains("parse") || className.contains("mapping")) {
-            return false;
-        }
+            kafkaTemplate.send(dlqTopic, dlqMessage);
+            logger.info("✅ [DLQ-SENT] Failed message sent to DLQ topic: {} | ErrorType: {} | Attempts: {}",
+                dlqTopic, exception.getClass().getSimpleName(), retryAttempts);
 
-        return true;
+        } catch (Exception e) {
+            logger.error("❌ [DLQ-ERROR] Failed to send message to DLQ: {}", e.getMessage(), e);
+        }
     }
 }

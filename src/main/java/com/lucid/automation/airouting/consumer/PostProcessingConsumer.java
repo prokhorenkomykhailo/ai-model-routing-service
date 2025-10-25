@@ -8,6 +8,8 @@ import com.lucid.automation.airouting.pipeline.config.PipelineConfiguration;
 import com.lucid.automation.airouting.pipeline.postprocessing.PostProcessingContext;
 import com.lucid.automation.airouting.pipeline.postprocessing.step.PipelineStep;
 import com.lucid.automation.airouting.service.SlidingWindowService;
+import com.lucid.automation.airouting.config.EnhancedErrorHandler;
+import com.lucid.automation.airouting.config.KafkaRetryProperties;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
@@ -25,9 +27,15 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Consumer service for post-processing AI responses from Kafka using pipeline architecture.
- * This replaces the monolithic PostProcessingConsumer with a modular, pipeline-based approach.
  *
- * @author AI Assistant
+ * SCRUM-345: Enhanced with exponential backoff retry strategy:
+ * - Retryable errors (connection, timeout): NO ACK → Kafka retries with exponential backoff
+ * - Non-retryable errors (validation, deserialization): ACK → sent to DLQ
+ * - Success: ACK → message processed successfully
+ *
+ * This ensures every message in ai-enrich topic is processed successfully or logged in DLQ.
+ *
+ * @author vudu (SCRUM-345 enhancement)
  */
 @Service
 public class PostProcessingConsumer {
@@ -38,6 +46,8 @@ public class PostProcessingConsumer {
     private final AtomicLong totalPostProcessingRequests = new AtomicLong(0);
     private final AtomicLong successfulPostProcessing = new AtomicLong(0);
     private final AtomicLong failedPostProcessing = new AtomicLong(0);
+    private final AtomicLong retriedPostProcessing = new AtomicLong(0);
+    private final AtomicLong dlqPostProcessing = new AtomicLong(0);
     private final AtomicLong totalPostProcessingTime = new AtomicLong(0);
 
     private final KafkaTemplate<String, Object> kafkaTemplate;
@@ -45,35 +55,57 @@ public class PostProcessingConsumer {
     private final PostProcessingPipelineFactory pipelineFactory;
     private final PipelineConfiguration pipelineConfiguration;
     private final SlidingWindowService slidingWindowService;
+    private final EnhancedErrorHandler enhancedErrorHandler;
+    private final KafkaRetryProperties kafkaRetryProperties;
 
     @Value("${kafka.topics.ai-responses:ai.responses.queue}")
     private String aiResponsesTopic;
+
+    @Value("${kafka.topics.pre-ai-responses:pre.ai.responses.queue}")
+    private String preAiResponsesTopic;
 
     public PostProcessingConsumer(
             KafkaTemplate<String, Object> kafkaTemplate,
             PostProcessingPipelineOrchestrator pipelineOrchestrator,
             PostProcessingPipelineFactory pipelineFactory,
             PipelineConfiguration pipelineConfiguration,
-            SlidingWindowService slidingWindowService) {
+            SlidingWindowService slidingWindowService,
+            EnhancedErrorHandler enhancedErrorHandler,
+            KafkaRetryProperties kafkaRetryProperties) {
         this.kafkaTemplate = kafkaTemplate;
         this.pipelineOrchestrator = pipelineOrchestrator;
         this.pipelineFactory = pipelineFactory;
         this.pipelineConfiguration = pipelineConfiguration;
         this.slidingWindowService = slidingWindowService;
+        this.enhancedErrorHandler = enhancedErrorHandler;
+        this.kafkaRetryProperties = kafkaRetryProperties;
 
-        logger.info("🚀 === POST-PROCESSING CONSUMER INITIALIZED ===");
+        logger.info("🚀 === POST-PROCESSING CONSUMER INITIALIZED (SCRUM-345 ENHANCED) ===");
         logger.info("🎯 PostProcessingConsumer initialized with pipeline architecture");
         logger.info("📤 Final output topic: {}", aiResponsesTopic);
         logger.info("⚙️ Pipeline orchestrator: {}", pipelineOrchestrator.getClass().getSimpleName());
         logger.info("✅ Pipeline enabled: {}", pipelineConfiguration.isEnabled());
         logger.info("🔄 Continue on failure: {}", pipelineConfiguration.isContinueOnFailure());
         logger.info("⏱️ Max execution time: {}ms", pipelineConfiguration.getMaxExecutionTimeMs());
-        logger.info("🚀 ============================================");
+        logger.info("🔄 Retry enabled: {}", kafkaRetryProperties.isEnabled());
+        logger.info("� Max retries: {} | Initial backoff: {}ms | Multiplier: {} | Max backoff: {}ms",
+            kafkaRetryProperties.getMaxAttempts(),
+            kafkaRetryProperties.getInitialBackoffMs(),
+            kafkaRetryProperties.getBackoffMultiplier(),
+            kafkaRetryProperties.getMaxBackoffMs());
+        logger.info("❌ DLQ enabled: {} | Retention: {} days",
+            kafkaRetryProperties.isDlqEnabled(),
+            kafkaRetryProperties.getDlqRetentionDays());
+        logger.info("�🚀 ============================================================");
     }
 
     /**
-     * Consume pre-AI responses for further processing using pipeline architecture
-     * Handles both direct payload and ConsumerRecord objects
+     * Consume pre-AI responses for further processing using pipeline architecture.
+     *
+     * SCRUM-345: Implements intelligent retry/DLQ logic:
+     * - Success: ACK message
+     * - Retryable error: NO ACK → exponential backoff retry
+     * - Non-retryable error: ACK + send to DLQ
      */
     @KafkaListener(topics = "${kafka.topics.pre-ai-responses:pre.ai.responses.queue}",
                    containerFactory = "genericObjectListenerContainerFactory")
@@ -97,29 +129,16 @@ public class PostProcessingConsumer {
                     payload != null ? payload.getClass().getSimpleName() : "null");
         }
 
-        if (payload == null) {
-            failedPostProcessing.incrementAndGet();
-            long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
-            totalPostProcessingTime.addAndGet(postProcessingTime);
-            logger.error("❌ [POST-PROCESSING-NULL] Received NULL payload from topic: {} | 📊 TOTALS - Requests: {} | Success: {} | Failed: {} | Avg Time: {}ms",
-                topic, totalPostProcessingRequests.get(), successfulPostProcessing.get(), failedPostProcessing.get(),
-                totalPostProcessingRequests.get() > 0 ? totalPostProcessingTime.get() / totalPostProcessingRequests.get() : 0);
-            acknowledgment.acknowledge();
-            return;
-        }
-
         PostProcessingContext context = null;
         try {
-            // Validate that the payload is a Map
+            // Validate payload
+            if (payload == null) {
+                handleNullPayload(record, acknowledgment, postProcessingStartTime);
+                return;
+            }
+
             if (!(payload instanceof Map<?, ?>)) {
-                failedPostProcessing.incrementAndGet();
-                long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
-                totalPostProcessingTime.addAndGet(postProcessingTime);
-                logger.error("❌ [POST-PROCESSING-INVALID] Invalid pre-AI response format: expected Map, got {} | 📊 TOTALS - Requests: {} | Success: {} | Failed: {} | Avg Time: {}ms",
-                           payload.getClass().getSimpleName(), totalPostProcessingRequests.get(),
-                           successfulPostProcessing.get(), failedPostProcessing.get(),
-                           totalPostProcessingRequests.get() > 0 ? totalPostProcessingTime.get() / totalPostProcessingRequests.get() : 0);
-                acknowledgment.acknowledge();
+                handleInvalidPayload(record, payload, acknowledgment, postProcessingStartTime);
                 return;
             }
 
@@ -148,47 +167,180 @@ public class PostProcessingConsumer {
                     long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
                     totalPostProcessingTime.addAndGet(postProcessingTime);
 
-                    logger.info("✅ [POST-PROCESSING-SUCCESS] Successfully processed and forwarded pre-AI response in {}ms | Key: {} | 📊 TOTALS - Requests: {} | Success: {} | Failed: {} | Avg Time: {}ms",
+                    logger.info("✅ [POST-PROCESSING-SUCCESS] Successfully processed pre-AI response in {}ms | Key: {} | 📊 Requests: {} | Success: {} | Retried: {} | DLQ: {}",
                         postProcessingTime, record.key(), totalPostProcessingRequests.get(),
-                        successfulPostProcessing.get(), failedPostProcessing.get(),
-                        totalPostProcessingRequests.get() > 0 ? totalPostProcessingTime.get() / totalPostProcessingRequests.get() : 0);
+                        successfulPostProcessing.get(), retriedPostProcessing.get(), dlqPostProcessing.get());
+
+                    // ✅ ACK only after successful processing
+                    acknowledgment.acknowledge();
                 } else {
-                    failedPostProcessing.incrementAndGet();
-                    long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
-                    totalPostProcessingTime.addAndGet(postProcessingTime);
-                    logger.error("❌ [POST-PROCESSING-NULL-RESPONSE] Pipeline succeeded but enrichment response is null | 📊 TOTALS - Requests: {} | Success: {} | Failed: {} | Avg Time: {}ms",
-                        totalPostProcessingRequests.get(), successfulPostProcessing.get(), failedPostProcessing.get(),
-                        totalPostProcessingRequests.get() > 0 ? totalPostProcessingTime.get() / totalPostProcessingRequests.get() : 0);
+                    handlePipelineNullResponse(context, record, acknowledgment, postProcessingStartTime);
                 }
             } else {
-                failedPostProcessing.incrementAndGet();
-                long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
-                totalPostProcessingTime.addAndGet(postProcessingTime);
-                logger.error("❌ [POST-PROCESSING-PIPELINE-FAILED] Pipeline execution failed after {}ms: {} | 📊 TOTALS - Requests: {} | Success: {} | Failed: {} | Avg Time: {}ms",
-                    postProcessingTime, pipelineResult.getErrorMessage(), totalPostProcessingRequests.get(),
-                    successfulPostProcessing.get(), failedPostProcessing.get(),
-                    totalPostProcessingRequests.get() > 0 ? totalPostProcessingTime.get() / totalPostProcessingRequests.get() : 0);
-                // Send error response if needed
-                sendErrorResponse(context, pipelineResult.getErrorMessage());
+                // Pipeline failed - check if error is retryable
+                handlePipelineFailure(pipelineResult, context, record, acknowledgment, postProcessingStartTime);
             }
-
-            acknowledgment.acknowledge();
 
         } catch (Exception e) {
-            failedPostProcessing.incrementAndGet();
-            long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
-            totalPostProcessingTime.addAndGet(postProcessingTime);
-            logger.error("❌ [POST-PROCESSING-EXCEPTION] Failed to process pre-AI response from topic: {} after {}ms, error: {} | 📊 TOTALS - Requests: {} | Success: {} | Failed: {} | Avg Time: {}ms",
-                topic, postProcessingTime, e.getMessage(), totalPostProcessingRequests.get(),
-                successfulPostProcessing.get(), failedPostProcessing.get(),
-                totalPostProcessingRequests.get() > 0 ? totalPostProcessingTime.get() / totalPostProcessingRequests.get() : 0, e);
+            // SCRUM-345: Check if exception is retryable
+            boolean retryable = enhancedErrorHandler.isRetryableException(e);
 
-            // Send error response if context is available
-            if (context != null) {
-                sendErrorResponse(context, "Unexpected error: " + e.getMessage());
+            if (retryable) {
+                // ❌ DO NOT ACK - let Kafka rebalance and retry with exponential backoff
+                retriedPostProcessing.incrementAndGet();
+                long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+                logger.error("🔄 [RETRY-SCHEDULED] Retryable error during post-processing after {}ms, NO ACK | Exception: {} | 📊 Requests: {} | Success: {} | Retried: {} | DLQ: {}",
+                    postProcessingTime, e.getClass().getSimpleName(),
+                    totalPostProcessingRequests.get(), successfulPostProcessing.get(),
+                    retriedPostProcessing.get(), dlqPostProcessing.get(), e);
+                // DO NOT call acknowledgment.acknowledge() - let it timeout and retry
+            } else {
+                // Non-retryable: ACK and send to DLQ
+                dlqPostProcessing.incrementAndGet();
+                long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+                logger.error("❌ [DLQ-DISPATCH] Non-retryable error during post-processing after {}ms | Exception: {} | 📊 Requests: {} | Success: {} | Retried: {} | DLQ: {}",
+                    postProcessingTime, e.getClass().getSimpleName(),
+                    totalPostProcessingRequests.get(), successfulPostProcessing.get(),
+                    retriedPostProcessing.get(), dlqPostProcessing.get(), e);
+
+                try {
+                    // Send to DLQ if enabled
+                    if (kafkaRetryProperties.isDlqEnabled()) {
+                        sendToDLQ(record, e);
+                    }
+                    // ACK after sending to DLQ
+                    acknowledgment.acknowledge();
+                } catch (Exception dlqError) {
+                    logger.error("❌ [DLQ-ERROR] Failed to send to DLQ: {}", dlqError.getMessage());
+                    // Still acknowledge to prevent infinite retry loop
+                    acknowledgment.acknowledge();
+                }
             }
+        }
+    }
 
-            acknowledgment.acknowledge(); // Acknowledge to avoid reprocessing
+    /**
+     * Handle null payload error
+     */
+    private void handleNullPayload(ConsumerRecord<String, Object> record,
+                                   Acknowledgment acknowledgment,
+                                   long postProcessingStartTime) {
+        failedPostProcessing.incrementAndGet();
+        long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+        totalPostProcessingTime.addAndGet(postProcessingTime);
+        logger.error("❌ [POST-PROCESSING-NULL] Received NULL payload from topic: {} | 📊 Requests: {} | Success: {} | Failed: {} | Retried: {} | DLQ: {} | Time: {}ms",
+            record.topic(), totalPostProcessingRequests.get(), successfulPostProcessing.get(),
+            failedPostProcessing.get(), retriedPostProcessing.get(), dlqPostProcessing.get(), postProcessingTime);
+
+        // Null payload is non-retryable validation error
+        dlqPostProcessing.incrementAndGet();
+        try {
+            if (kafkaRetryProperties.isDlqEnabled()) {
+                sendToDLQ(record, new IllegalArgumentException("Null payload"));
+            }
+            acknowledgment.acknowledge();
+        } catch (Exception e) {
+            logger.error("❌ [DLQ-ERROR] Failed to send null payload to DLQ: {}", e.getMessage());
+            acknowledgment.acknowledge();
+        }
+    }
+
+    /**
+     * Handle invalid payload error
+     */
+    private void handleInvalidPayload(ConsumerRecord<String, Object> record,
+                                      Object payload,
+                                      Acknowledgment acknowledgment,
+                                      long postProcessingStartTime) {
+        failedPostProcessing.incrementAndGet();
+        dlqPostProcessing.incrementAndGet();
+        long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+        totalPostProcessingTime.addAndGet(postProcessingTime);
+        logger.error("❌ [POST-PROCESSING-INVALID] Invalid pre-AI response format: expected Map, got {} | 📊 Requests: {} | Success: {} | Failed: {} | Retried: {} | DLQ: {} | Time: {}ms",
+            payload.getClass().getSimpleName(), totalPostProcessingRequests.get(),
+            successfulPostProcessing.get(), failedPostProcessing.get(),
+            retriedPostProcessing.get(), dlqPostProcessing.get(), postProcessingTime);
+
+        // Invalid format is non-retryable
+        try {
+            if (kafkaRetryProperties.isDlqEnabled()) {
+                sendToDLQ(record, new IllegalArgumentException("Invalid payload format, expected Map"));
+            }
+            acknowledgment.acknowledge();
+        } catch (Exception e) {
+            logger.error("❌ [DLQ-ERROR] Failed to send invalid payload to DLQ: {}", e.getMessage());
+            acknowledgment.acknowledge();
+        }
+    }
+
+    /**
+     * Handle pipeline null response error
+     */
+    private void handlePipelineNullResponse(PostProcessingContext context,
+                                            ConsumerRecord<String, Object> record,
+                                            Acknowledgment acknowledgment,
+                                            long postProcessingStartTime) {
+        failedPostProcessing.incrementAndGet();
+        dlqPostProcessing.incrementAndGet();
+        long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+        totalPostProcessingTime.addAndGet(postProcessingTime);
+        logger.error("❌ [POST-PROCESSING-NULL-RESPONSE] Pipeline succeeded but enrichment response is null | 📊 Requests: {} | Success: {} | Failed: {} | Retried: {} | DLQ: {} | Time: {}ms",
+            totalPostProcessingRequests.get(), successfulPostProcessing.get(),
+            failedPostProcessing.get(), retriedPostProcessing.get(), dlqPostProcessing.get(), postProcessingTime);
+
+        // Null response is non-retryable
+        try {
+            sendErrorResponse(context, "Pipeline succeeded but response is null");
+            if (kafkaRetryProperties.isDlqEnabled()) {
+                sendToDLQ(record, new RuntimeException("Pipeline null response"));
+            }
+            acknowledgment.acknowledge();
+        } catch (Exception e) {
+            logger.error("❌ [DLQ-ERROR] Failed to send null response to DLQ: {}", e.getMessage());
+            acknowledgment.acknowledge();
+        }
+    }
+
+    /**
+     * Handle pipeline failure with retry logic
+     */
+    private void handlePipelineFailure(PostProcessingPipelineResult pipelineResult,
+                                       PostProcessingContext context,
+                                       ConsumerRecord<String, Object> record,
+                                       Acknowledgment acknowledgment,
+                                       long postProcessingStartTime) {
+        failedPostProcessing.incrementAndGet();
+        long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+
+        // Check if the pipeline failure is due to a retryable error
+        Exception pipelineException = new RuntimeException("Pipeline failed: " + pipelineResult.getErrorMessage());
+        boolean retryable = enhancedErrorHandler.isRetryableException(pipelineException);
+
+        if (retryable) {
+            // ❌ DO NOT ACK - let Kafka retry
+            retriedPostProcessing.incrementAndGet();
+            logger.error("🔄 [RETRY-SCHEDULED] Retryable pipeline failure after {}ms: {}, NO ACK | 📊 Requests: {} | Success: {} | Retried: {} | DLQ: {}",
+                postProcessingTime, pipelineResult.getErrorMessage(),
+                totalPostProcessingRequests.get(), successfulPostProcessing.get(),
+                retriedPostProcessing.get(), dlqPostProcessing.get());
+        } else {
+            // Non-retryable: ACK and send to DLQ
+            dlqPostProcessing.incrementAndGet();
+            logger.error("❌ [DLQ-DISPATCH] Non-retryable pipeline failure after {}ms: {} | 📊 Requests: {} | Success: {} | Retried: {} | DLQ: {}",
+                postProcessingTime, pipelineResult.getErrorMessage(),
+                totalPostProcessingRequests.get(), successfulPostProcessing.get(),
+                retriedPostProcessing.get(), dlqPostProcessing.get());
+
+            try {
+                sendErrorResponse(context, pipelineResult.getErrorMessage());
+                if (kafkaRetryProperties.isDlqEnabled()) {
+                    sendToDLQ(record, pipelineException);
+                }
+                acknowledgment.acknowledge();
+            } catch (Exception e) {
+                logger.error("❌ [DLQ-ERROR] Failed to send pipeline failure to DLQ: {}", e.getMessage());
+                acknowledgment.acknowledge();
+            }
         }
     }
 
@@ -440,5 +592,36 @@ public class PostProcessingConsumer {
             List.of(), // Empty messages list
             lightweightMetadata
         );
+    }
+
+    /**
+     * Send message to Dead Letter Queue for non-retryable errors.
+     * SCRUM-345: DLQ topic = original topic + "-dlq" suffix
+     *
+     * @param record the ConsumerRecord that failed
+     * @param error the exception that caused the failure
+     */
+    private void sendToDLQ(ConsumerRecord<String, Object> record, Exception error) {
+        try {
+            String dlqTopic = record.topic() + kafkaRetryProperties.getDlqTopicSuffix();
+
+            // Create DLQ message with error context
+            Map<String, Object> dlqMessage = new java.util.HashMap<>();
+            dlqMessage.put("originalTopic", record.topic());
+            dlqMessage.put("originalPartition", record.partition());
+            dlqMessage.put("originalOffset", record.offset());
+            dlqMessage.put("originalKey", record.key());
+            dlqMessage.put("originalValue", record.value());
+            dlqMessage.put("errorType", error.getClass().getSimpleName());
+            dlqMessage.put("errorMessage", error.getMessage());
+            dlqMessage.put("failedAt", LocalDateTime.now());
+            dlqMessage.put("retryAttempts", 0); // Will be incremented by DLQ consumer
+
+            kafkaTemplate.send(dlqTopic, dlqMessage).get();
+            logger.info("📤 [DLQ] Successfully sent message to DLQ topic: {} (from: {})", dlqTopic, record.topic());
+        } catch (Exception dlqError) {
+            logger.error("❌ [DLQ-SEND-ERROR] Failed to send message to DLQ: {}", dlqError.getMessage(), dlqError);
+            throw new RuntimeException("Failed to send message to DLQ", dlqError);
+        }
     }
 }
