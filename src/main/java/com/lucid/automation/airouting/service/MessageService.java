@@ -336,29 +336,33 @@ public class MessageService {
         logger.debug("Getting active messages for tenantId: {} with pagination", tenantId);
 
         try {
-            // Use the repository method that filters active messages
-            List<Message> messages = messageRepository.findActiveMessagesByTenantId(tenantId, pageable);
+            // Get ALL active messages first (no pagination yet) to calculate total count
+            List<Message> allActiveMessages = messageRepository.findAllByTenantId(tenantId).stream()
+                    .filter(msg -> msg.getIsDeleted() == null || !msg.getIsDeleted())
+                    .toList();
 
-            // Sort messages by ingestedAt in descending order
-            messages.sort((m1, m2) -> {
-                if (m1.getIngestedAt() == null && m2.getIngestedAt() == null) return 0;
-                if (m1.getIngestedAt() == null) return 1;
-                if (m2.getIngestedAt() == null) return -1;
-                return m2.getIngestedAt().compareTo(m1.getIngestedAt());
-            });
+            // Sort by ingestedAt descending
+            List<Message> sortedMessages = allActiveMessages.stream()
+                    .sorted((m1, m2) -> {
+                        if (m1.getIngestedAt() == null && m2.getIngestedAt() == null) return 0;
+                        if (m1.getIngestedAt() == null) return 1;
+                        if (m2.getIngestedAt() == null) return -1;
+                        return m2.getIngestedAt().compareTo(m1.getIngestedAt());
+                    })
+                    .toList();
 
             // Apply pagination manually
             int start = (int) pageable.getOffset();
-            int end = Math.min(start + pageable.getPageSize(), messages.size());
+            int end = Math.min(start + pageable.getPageSize(), sortedMessages.size());
 
-            if (start >= messages.size()) {
+            if (start >= sortedMessages.size()) {
                 return Page.empty(pageable);
             }
 
-            List<Message> pagedMessages = messages.subList(start, end);
+            List<Message> pagedMessages = sortedMessages.subList(start, end);
 
             return new org.springframework.data.domain.PageImpl<>(
-                pagedMessages, pageable, messages.size());
+                pagedMessages, pageable, sortedMessages.size());
 
         } catch (Exception e) {
             logger.error("Error retrieving messages for tenantId: {}", tenantId, e);

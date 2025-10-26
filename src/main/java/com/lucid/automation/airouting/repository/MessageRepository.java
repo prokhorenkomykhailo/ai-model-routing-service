@@ -52,7 +52,12 @@ public interface MessageRepository extends CrudRepository<Message, String> {
      * @return List of active messages
      */
     default List<Message> findActiveMessagesByTenantIdAndDeemergeUserId(String tenantId, String deemergeUserId) {
-        return findByTenantIdAndDeemergeUserIdAndIsDeleted(tenantId, deemergeUserId, false);
+        // Get all messages and filter out soft-deleted ones (isDeleted=true)
+        // This keeps both isDeleted=false and isDeleted=null messages
+        List<Message> allMessages = findByTenantIdAndDeemergeUserId(tenantId, deemergeUserId);
+        return allMessages.stream()
+                .filter(msg -> msg.getIsDeleted() == null || !msg.getIsDeleted())
+                .toList();
     }
 
     /**
@@ -85,7 +90,18 @@ public interface MessageRepository extends CrudRepository<Message, String> {
      * @return List of active unprocessed messages ordered by messageTs
      */
     default List<Message> findActiveUnprocessedMessagesByWorkspace(String workspaceId) {
-        return findByWorkspaceIdAndIsProcessedAndIsDeletedOrderByMessageTsAsc(workspaceId, false, false);
+        // Get all unprocessed messages and filter out soft-deleted ones (isDeleted=true)
+        // This keeps both isDeleted=false and isDeleted=null messages
+        List<Message> allMessages = findByWorkspaceIdAndIsProcessedOrderByMessageTsAsc(workspaceId, false);
+        return allMessages.stream()
+                .filter(msg -> msg.getIsDeleted() == null || !msg.getIsDeleted())
+                .sorted((m1, m2) -> {
+                    if (m1.getMessageTs() == null && m2.getMessageTs() == null) return 0;
+                    if (m1.getMessageTs() == null) return 1;
+                    if (m2.getMessageTs() == null) return -1;
+                    return m1.getMessageTs().compareTo(m2.getMessageTs());
+                })
+                .toList();
     }
 
     /**
@@ -122,13 +138,31 @@ public interface MessageRepository extends CrudRepository<Message, String> {
     /**
      * Find messages by tenant ID where isDeleted is false or null
      * This is the primary query for retrieving active (non-deleted) messages
+     * Note: Due to Redis secondary index limitations, this fetches ALL messages for the tenant
+     * and then filters. For large datasets, consider using a separate index or data structure.
      *
      * @param tenantId The tenant ID
      * @param pageable Pagination information
      * @return List of active messages
      */
     default List<Message> findActiveMessagesByTenantId(String tenantId, Pageable pageable) {
-        return findByTenantIdAndIsDeleted(tenantId, false, pageable);
+        // Fetch ALL messages for tenant (without pagination)
+        List<Message> allMessages = findAllByTenantId(tenantId);
+
+        // Filter to keep only non-deleted (isDeleted==null or isDeleted==false)
+        List<Message> activeMessages = allMessages.stream()
+                .filter(msg -> msg.getIsDeleted() == null || !msg.getIsDeleted())
+                .toList();
+
+        // Apply manual pagination
+        int start = (int) pageable.getOffset();
+        int end = Math.min(start + pageable.getPageSize(), activeMessages.size());
+
+        if (start >= activeMessages.size()) {
+            return List.of();
+        }
+
+        return activeMessages.subList(start, end);
     }
 
     /**

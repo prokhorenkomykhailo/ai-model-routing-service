@@ -443,11 +443,14 @@ public class SlidingWindowService {
             enrichMessagesWithUserData(messages);
 
             // Sort messages chronologically by messageTs (oldest first, newest last)
-            messages.sort(Comparator.comparing(Message::getMessageTs));
+            // NOTE: Create a new mutable list because repository returns immutable list from .toList()
+            List<Message> sortedMessages = messages.stream()
+                    .sorted(Comparator.comparing(Message::getMessageTs))
+                    .collect(Collectors.toCollection(ArrayList::new));
 
-            logger.info("⏰ Messages Sorted: {} messages arranged chronologically (oldest to newest) ⏳", messages.size());
+            logger.info("⏰ Messages Sorted: {} messages arranged chronologically (oldest to newest) ⏳", sortedMessages.size());
 
-            return messages;
+            return sortedMessages;
 
         } catch (Exception e) {
             logger.error("💥 Load Failed: Error loading messages for deemergeUserId: {} 😭", deemergeUserId, e);
