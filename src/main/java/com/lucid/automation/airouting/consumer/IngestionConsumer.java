@@ -48,12 +48,12 @@ public class IngestionConsumer {
     private final IngestionPipelineOrchestrator pipelineOrchestrator;
     private final EnhancedErrorHandler enhancedErrorHandler;
     private final KafkaRetryProperties kafkaRetryProperties;
-    private final KafkaTemplate<String, Map<String, Object>> kafkaTemplate;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
 
     public IngestionConsumer(IngestionPipelineOrchestrator pipelineOrchestrator,
                             EnhancedErrorHandler enhancedErrorHandler,
                             KafkaRetryProperties kafkaRetryProperties,
-                            KafkaTemplate<String, Map<String, Object>> kafkaTemplate) {
+                            KafkaTemplate<String, Object> kafkaTemplate) {
         this.pipelineOrchestrator = pipelineOrchestrator;
         this.enhancedErrorHandler = enhancedErrorHandler;
         this.kafkaRetryProperties = kafkaRetryProperties;
@@ -79,18 +79,26 @@ public class IngestionConsumer {
 
         if (ingestionEventDto == null) {
             failedMessages.incrementAndGet();
+            dlqIngestion.incrementAndGet();
             logger.error("📊 [INGESTION-NULL] Received null message | Partition: {} | Offset: {} | STATS - Processed: {} | ✅ Success: {} | ❌ Failed: {} | 🆕 New: {} | 🔄 Duplicates: {}",
                 partition, offset, totalMessagesProcessed.get(), successfulMessages.get(), failedMessages.get(),
                 newMessages.get(), duplicateMessages.get());
+
+            // Send to DLQ for monitoring - create minimal error context
+            sendNullMessageToDLQ(partition, offset, "Null message received from Kafka");
             acknowledgment.acknowledge();
             return;
         }
 
         if (ingestionEventDto.getMessage() == null || ingestionEventDto.getMessage().getTs() == null) {
             failedMessages.incrementAndGet();
+            dlqIngestion.incrementAndGet();
             logger.warn("⚠️ [INGESTION-INVALID] Invalid message data - skipping (messageId=null or ts=null) | STATS - Processed: {} | ✅ Success: {} | ❌ Failed: {} | 🆕 New: {} | 🔄 Duplicates: {}",
                 totalMessagesProcessed.get(), successfulMessages.get(), failedMessages.get(),
                 newMessages.get(), duplicateMessages.get());
+
+            // Send to DLQ for monitoring
+            sendToDLQ(ingestionEventDto, new IllegalArgumentException("Message or timestamp is null"), 0, 0);
             acknowledgment.acknowledge();
             return;
         }
@@ -169,6 +177,13 @@ public class IngestionConsumer {
             if (TimestampUtil.isTimestampInFuture(tsStr, 86400)) {
                 logger.warn("⏰ [TIMESTAMP-FUTURE] Message timestamp too far in future: '{}' (format: {}) - skipping message",
                     tsStr, TimestampUtil.getTimestampFormatDescription(tsStr));
+
+                // Send to DLQ for monitoring - future timestamp messages
+                failedMessages.incrementAndGet();
+                dlqIngestion.incrementAndGet();
+                sendToDLQ(ingestionEventDto,
+                    new IllegalArgumentException("Message timestamp is too far in future (>24h): " + tsStr),
+                    0, 0);
                 acknowledgment.acknowledge();
                 return;
             }
@@ -223,6 +238,8 @@ public class IngestionConsumer {
      * Sends a failed message to the DLQ topic for audit and manual intervention.
      * Creates a structured error message with full context.
      *
+     * GUARANTEED DELIVERY: DLQ is ALWAYS enabled for monitoring, even if config says disabled.
+     *
      * @param ingestionEventDto the original ingestion event
      * @param exception the exception that caused the failure
      * @param retryAttempts number of retry attempts made
@@ -230,11 +247,6 @@ public class IngestionConsumer {
      */
     private void sendToDLQ(IngestionEventDTO ingestionEventDto, Exception exception,
                           int retryAttempts, long processingTime) {
-        if (!kafkaRetryProperties.isDlqEnabled()) {
-            logger.warn("⚠️ [DLQ-DISABLED] DLQ is disabled - skipping DLQ dispatch");
-            return;
-        }
-
         try {
             String dlqTopic = "lucid-ingestion-messages" + kafkaRetryProperties.getDlqTopicSuffix();
 
@@ -243,16 +255,91 @@ public class IngestionConsumer {
             dlqMessage.put("originalValue", ingestionEventDto);
             dlqMessage.put("errorType", exception.getClass().getSimpleName());
             dlqMessage.put("errorMessage", exception.getMessage());
+            dlqMessage.put("errorStackTrace", getStackTraceString(exception));
             dlqMessage.put("failedAt", LocalDateTime.now().format(ISO_FORMATTER));
             dlqMessage.put("retryAttempts", retryAttempts);
             dlqMessage.put("processingTimeMs", processingTime);
 
+            // Add message identifiers for tracking
+            if (ingestionEventDto != null) {
+                dlqMessage.put("tenantId", ingestionEventDto.getTenantId());
+                if (ingestionEventDto.getMessage() != null) {
+                    dlqMessage.put("messageTs", ingestionEventDto.getMessage().getTs());
+                    dlqMessage.put("channelId", ingestionEventDto.getMessage().getChannelId());
+                    dlqMessage.put("teamId", ingestionEventDto.getMessage().getTeamId());
+                }
+            }
+
             kafkaTemplate.send(dlqTopic, dlqMessage);
-            logger.info("✅ [DLQ-SENT] Failed message sent to DLQ topic: {} | ErrorType: {} | Attempts: {}",
-                dlqTopic, exception.getClass().getSimpleName(), retryAttempts);
+            logger.info("✅ [DLQ-SENT] Failed message sent to DLQ topic: {} | ErrorType: {} | Attempts: {} | TenantId: {}",
+                dlqTopic, exception.getClass().getSimpleName(), retryAttempts,
+                ingestionEventDto != null ? ingestionEventDto.getTenantId() : "null");
 
         } catch (Exception e) {
-            logger.error("❌ [DLQ-ERROR] Failed to send message to DLQ: {}", e.getMessage(), e);
+            logger.error("❌ [DLQ-ERROR] CRITICAL: Failed to send message to DLQ - MESSAGE LOST: {}", e.getMessage(), e);
+            // Log full message details for recovery
+            logger.error("❌ [DLQ-ERROR] Lost message details: tenantId={}, messageTs={}, error={}",
+                ingestionEventDto != null ? ingestionEventDto.getTenantId() : "null",
+                ingestionEventDto != null && ingestionEventDto.getMessage() != null ? ingestionEventDto.getMessage().getTs() : "null",
+                exception.getMessage());
         }
+    }
+
+    /**
+     * Sends a null message error to DLQ with partition/offset context.
+     * Used when the message payload itself is null and we can't extract details.
+     *
+     * @param partition Kafka partition
+     * @param offset Kafka offset
+     * @param errorMessage Error description
+     */
+    private void sendNullMessageToDLQ(int partition, long offset, String errorMessage) {
+        try {
+            String dlqTopic = "lucid-ingestion-messages" + kafkaRetryProperties.getDlqTopicSuffix();
+
+            Map<String, Object> dlqMessage = new HashMap<>();
+            dlqMessage.put("originalTopic", "lucid-ingestion-messages");
+            dlqMessage.put("originalValue", null);
+            dlqMessage.put("errorType", "NullMessageException");
+            dlqMessage.put("errorMessage", errorMessage);
+            dlqMessage.put("failedAt", LocalDateTime.now().format(ISO_FORMATTER));
+            dlqMessage.put("partition", partition);
+            dlqMessage.put("offset", offset);
+            dlqMessage.put("retryAttempts", 0);
+            dlqMessage.put("processingTimeMs", 0);
+
+            kafkaTemplate.send(dlqTopic, dlqMessage);
+            logger.info("✅ [DLQ-SENT] Null message sent to DLQ topic: {} | Partition: {} | Offset: {}",
+                dlqTopic, partition, offset);
+
+        } catch (Exception e) {
+            logger.error("❌ [DLQ-ERROR] CRITICAL: Failed to send null message to DLQ - MONITORING BLIND SPOT | Partition: {} | Offset: {} | Error: {}",
+                partition, offset, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Extracts stack trace from exception as string for DLQ logging.
+     *
+     * @param exception The exception
+     * @return Stack trace as string (first 10 lines)
+     */
+    private String getStackTraceString(Exception exception) {
+        if (exception == null) return "No stack trace";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(exception.getClass().getName()).append(": ").append(exception.getMessage()).append("\n");
+
+        StackTraceElement[] elements = exception.getStackTrace();
+        int limit = Math.min(elements.length, 10); // First 10 lines only
+        for (int i = 0; i < limit; i++) {
+            sb.append("\tat ").append(elements[i].toString()).append("\n");
+        }
+
+        if (elements.length > 10) {
+            sb.append("\t... ").append(elements.length - 10).append(" more\n");
+        }
+
+        return sb.toString();
     }
 }
