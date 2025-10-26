@@ -78,6 +78,9 @@ ai:
   enrichment:
     enabled: ${AI_ENRICHMENT_ENABLED:true}
     timeout-ms: ${AI_ENRICHMENT_TIMEOUT:30000}
+    scheduler:
+      max-message-age-days: ${AI_ENRICHMENT_MAX_MESSAGE_AGE_DAYS:90}  # Filter out messages older than 90 days
+      min-recent-messages: ${AI_ENRICHMENT_MIN_RECENT_MESSAGES:1}      # Skip processing if no recent messages
     
 # Sliding Window Configuration for Docker
 sliding:

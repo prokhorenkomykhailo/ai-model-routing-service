@@ -53,7 +53,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     private static final String BATCH_CONVERSATION_ID_SEPARATOR = ":batch_";
 
     // Message processing thresholds to prevent processing old messages
-    private static final int DEFAULT_MAX_MESSAGE_AGE_DAYS = 30; // Don't process messages older than 30 days
+    private static final int DEFAULT_MAX_MESSAGE_AGE_DAYS = 90; // Don't process messages older than 90 days
     private static final int DEFAULT_MIN_RECENT_MESSAGES = 1;   // Skip processing if no recent messages
 
     // Add scheduler-level counters
