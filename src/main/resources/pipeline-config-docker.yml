@@ -8,7 +8,7 @@ pipeline:
   continue-on-failure: ${PIPELINE_CONTINUE_ON_FAILURE:true}
   max-execution-time-ms: ${PIPELINE_MAX_EXECUTION_TIME:30000}
   custom-steps: ${PIPELINE_CUSTOM_STEPS:}  # Comma-separated list for CUSTOM type
-  
+
   # Step-specific configurations for Docker
   steps:
     # Context validation step
@@ -16,14 +16,14 @@ pipeline:
       enabled: ${PIPELINE_CONTEXT_VALIDATION_ENABLED:true}
       timeout-ms: ${PIPELINE_CONTEXT_VALIDATION_TIMEOUT:5000}
       strict-mode: ${PIPELINE_CONTEXT_STRICT_MODE:false}
-      
+
     # Tenant mapping step
     tenant-mapping:
       enabled: ${PIPELINE_TENANT_MAPPING_ENABLED:true}
       timeout-ms: ${PIPELINE_TENANT_MAPPING_TIMEOUT:5000}
       cache-ttl-seconds: ${PIPELINE_TENANT_CACHE_TTL:300}
       cache-enabled: ${PIPELINE_TENANT_CACHE_ENABLED:true}
-      
+
     # User enrichment step
     user-enrichment:
       enabled: ${PIPELINE_USER_ENRICHMENT_ENABLED:true}
@@ -32,14 +32,14 @@ pipeline:
       retry-attempts: ${PIPELINE_USER_RETRY_ATTEMPTS:3}
       retry-delay-ms: ${PIPELINE_USER_RETRY_DELAY:1000}
       include-profile-images: ${PIPELINE_USER_INCLUDE_IMAGES:true}
-      
+
     # Channel enrichment step
     channel-enrichment:
       enabled: ${PIPELINE_CHANNEL_ENRICHMENT_ENABLED:true}
       timeout-ms: ${PIPELINE_CHANNEL_ENRICHMENT_TIMEOUT:8000}
       include-member-count: ${PIPELINE_CHANNEL_INCLUDE_MEMBERS:true}
       include-channel-stats: ${PIPELINE_CHANNEL_INCLUDE_STATS:false}
-      
+
     # Topic enrichment step
     topic-enrichment:
       enabled: ${PIPELINE_TOPIC_ENRICHMENT_ENABLED:true}
@@ -48,7 +48,7 @@ pipeline:
       ai-provider: ${PIPELINE_TOPIC_AI_PROVIDER:gemini}
       confidence-threshold: ${PIPELINE_TOPIC_CONFIDENCE_THRESHOLD:0.7}
       max-topics: ${PIPELINE_TOPIC_MAX_TOPICS:5}
-      
+
     # Sentiment analysis step
     sentiment-analysis:
       enabled: ${PIPELINE_SENTIMENT_ANALYSIS_ENABLED:true}
@@ -56,7 +56,7 @@ pipeline:
       provider: ${PIPELINE_SENTIMENT_PROVIDER:gemini}
       include-confidence: ${PIPELINE_SENTIMENT_INCLUDE_CONFIDENCE:true}
       batch-processing: ${PIPELINE_SENTIMENT_BATCH_PROCESSING:false}
-      
+
     # Response formatting step
     response-formatting:
       enabled: ${PIPELINE_RESPONSE_FORMATTING_ENABLED:true}
@@ -64,7 +64,7 @@ pipeline:
       include-metadata: ${PIPELINE_INCLUDE_METADATA:true}
       include-processing-stats: ${PIPELINE_INCLUDE_PROCESSING_STATS:true}
       compact-format: ${PIPELINE_COMPACT_FORMAT:false}
-      
+
     # Audit logging step
     audit-logging:
       enabled: ${PIPELINE_AUDIT_LOGGING_ENABLED:true}
@@ -81,7 +81,7 @@ ai:
     scheduler:
       max-message-age-days: ${AI_ENRICHMENT_MAX_MESSAGE_AGE_DAYS:90}  # Filter out messages older than 90 days
       min-recent-messages: ${AI_ENRICHMENT_MIN_RECENT_MESSAGES:1}      # Skip processing if no recent messages
-    
+
 # Sliding Window Configuration for Docker
 sliding:
   window:
