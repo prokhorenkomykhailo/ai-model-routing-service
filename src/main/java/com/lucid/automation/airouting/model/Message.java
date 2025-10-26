@@ -299,6 +299,43 @@ public class Message implements Serializable {
     @Indexed
     private Boolean isProcessed;
 
+    // ==================== Soft Delete Fields ====================
+
+    /**
+     * Soft delete flag - marks message as deleted without removing from Redis
+     * When true, the message should be excluded from default queries
+     */
+    @Indexed
+    private Boolean isDeleted;
+
+    /**
+     * Timestamp when message was marked as deleted (epoch milliseconds)
+     * Used for audit trail and retention policy calculations
+     */
+    private Long deletedAt;
+
+    /**
+     * Reason for deletion (e.g., MANUAL, CLEANUP, EXPIRED, ADMIN)
+     * Provides context for why the message was soft-deleted
+     */
+    private String deletionReason;
+
+    /**
+     * User or admin ID who triggered the deletion
+     * Used for audit trail and compliance tracking
+     */
+    private String deletedBy;
+
+    /**
+     * Calculated expiry timestamp for hard delete (deletedAt + retention period)
+     * Messages with retentionExpiry < currentTime are eligible for physical deletion
+     * Indexed for efficient cleanup job queries
+     */
+    @Indexed
+    private Long retentionExpiry;
+
+    // ==================== End Soft Delete Fields ====================
+
     /**
      * Update composite indexes when core fields change
      * This method should be called after setting tenantId, workspaceId, channelId, or threadTs

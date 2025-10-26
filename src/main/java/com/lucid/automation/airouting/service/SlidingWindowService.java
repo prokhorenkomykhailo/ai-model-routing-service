@@ -35,6 +35,7 @@ public class SlidingWindowService {
     private static final Logger logger = LoggerFactory.getLogger(SlidingWindowService.class);
 
     private final MessageRepository messageRepository;
+    private final MessageService messageService;
     private final UserRepository userRepository;
     private final WorkspaceRepository workspaceRepository;
 
@@ -56,8 +57,12 @@ public class SlidingWindowService {
     @Value("${sliding.window.max.wait.hours:4}")
     private int maxWaitHours;
 
-    public SlidingWindowService(MessageRepository messageRepository, UserRepository userRepository, WorkspaceRepository workspaceRepository) {
+    public SlidingWindowService(MessageRepository messageRepository, 
+                                MessageService messageService,
+                                UserRepository userRepository, 
+                                WorkspaceRepository workspaceRepository) {
         this.messageRepository = messageRepository;
+        this.messageService = messageService;
         this.userRepository = userRepository;
         this.workspaceRepository = workspaceRepository;
     }
@@ -694,11 +699,13 @@ public class SlidingWindowService {
 
     /**
      * Clean up messages from a processed batch, keeping only the overlap messages.
-     * This method deletes messages that are not part of the overlap for the next batch.
+     * This method soft deletes messages that are not part of the overlap for the next batch.
+     * Messages are marked as deleted and retained for 30 days before permanent removal.
      *
      * @param batchMessages The messages from the processed batch
      * @param overlapSize Number of latest messages to keep for overlap
      * @param batchNumber The batch number being processed (for logging)
+     * @author vudu
      */
     private void cleanupBatchMessages(List<Message> batchMessages, int overlapSize, int batchNumber) {
         if (batchMessages == null || batchMessages.isEmpty()) {
@@ -706,29 +713,42 @@ public class SlidingWindowService {
             return;
         }
 
-        int totalMessages = batchMessages.size();
-        int messagesToKeep = Math.min(overlapSize, totalMessages);
-        int messagesToDelete = totalMessages - messagesToKeep;
+        // Filter out already-deleted messages
+        List<Message> activeMessages = batchMessages.stream()
+                .filter(m -> !Boolean.TRUE.equals(m.getIsDeleted()))
+                .collect(Collectors.toList());
+
+        int totalActiveMessages = activeMessages.size();
+        int messagesToKeep = Math.min(overlapSize, totalActiveMessages);
+        int messagesToDelete = totalActiveMessages - messagesToKeep;
 
         if (messagesToDelete <= 0) {
-            logger.debug("🔄 Keeping All: Batch {}: No messages to delete. Total: {}, Keeping: {} for overlap (all precious! 💎)",
-                       batchNumber, totalMessages, messagesToKeep);
+            logger.debug("🔄 Keeping All: Batch {}: No active messages to delete. Total: {}, Keeping: {} for overlap (all precious! 💎)",
+                       batchNumber, totalActiveMessages, messagesToKeep);
             return;
         }
 
         try {
             // Messages are already sorted chronologically (oldest first) by loadMessagesForWorkspace
-            // Get IDs of oldest messages to delete, keeping newest for overlap
-            List<String> messageIdsToDelete = batchMessages.stream()
-                    .limit(messagesToDelete) // take only the oldest messages to delete
-                    .map(Message::getId)
+            // Get oldest messages to soft delete, keeping newest for overlap
+            List<Message> messagesForDeletion = activeMessages.stream()
+                    .limit(messagesToDelete)
                     .collect(Collectors.toList());
 
-            // Delete messages from Redis
-            messageRepository.deleteAllById(messageIdsToDelete);
+            // Soft delete messages one by one
+            int deletedCount = 0;
+            for (Message message : messagesForDeletion) {
+                try {
+                    messageService.softDeleteById(message.getId(), "SYSTEM", "BATCH_CLEANUP");
+                    deletedCount++;
+                } catch (Exception e) {
+                    logger.error("❌ [SOFT-DELETE] Failed to soft delete message {} during batch cleanup: {}", 
+                               message.getId(), e.getMessage());
+                }
+            }
 
-            logger.info("🗑️ Cleanup Complete: Batch {}: Cleaned up {} processed messages, keeping {} for overlap (tidying up! 🧽)",
-                       batchNumber, messagesToDelete, messagesToKeep);
+            logger.info("✅ [SOFT-DELETE] Cleanup Complete: Batch {}: Soft deleted {} processed messages, keeping {} for overlap (tidying up! 🧽)",
+                       batchNumber, deletedCount, messagesToKeep);
 
         } catch (Exception e) {
             logger.error("💥 Cleanup Failed: Error cleaning up batch {} messages: {} 😰", batchNumber, e.getMessage(), e);
@@ -739,10 +759,12 @@ public class SlidingWindowService {
     /**
      * Manually clean up all processed messages for a workspace, keeping only the most recent messages.
      * This can be used for maintenance or when you want to clean up old processed messages.
+     * Messages are soft deleted and retained for 30 days before permanent removal.
      *
-     * @param workspaceId The workspace ID to clean up
+     * @param workspace The workspace to clean up
      * @param keepRecentCount Number of most recent messages to keep (0 to delete all)
      * @return Number of messages deleted
+     * @author vudu
      */
     public int cleanupWorkspace(Workspace workspace, int keepRecentCount) {
         keepRecentCount = Math.max(0, keepRecentCount); // Ensure non-negative
@@ -760,27 +782,39 @@ public class SlidingWindowService {
                 return 0;
             }
 
-            int totalMessages = allMessages.size();
-            if (totalMessages <= keepRecentCount) {
-                logger.info("💎 Keeping All: Workspace {} has {} messages, keeping all (requested to keep {}) - all precious! 💰",
-                           workspaceId, totalMessages, keepRecentCount);
+            // Filter out already-deleted messages
+            List<Message> activeMessages = allMessages.stream()
+                    .filter(m -> !Boolean.TRUE.equals(m.getIsDeleted()))
+                    .collect(Collectors.toList());
+
+            int totalActiveMessages = activeMessages.size();
+            if (totalActiveMessages <= keepRecentCount) {
+                logger.info("💎 Keeping All: Workspace {} has {} active messages, keeping all (requested to keep {}) - all precious! 💰",
+                           workspaceId, totalActiveMessages, keepRecentCount);
                 return 0;
             }
 
             // Messages are already sorted (oldest first), reverse to get newest first
-            Collections.reverse(allMessages);
+            Collections.reverse(activeMessages);
 
-            // Get messages to delete (skip the first keepRecentCount messages)
-            List<String> messageIdsToDelete = allMessages.stream()
+            // Get messages to soft delete (skip the first keepRecentCount messages)
+            List<Message> messagesToDelete = activeMessages.stream()
                     .skip(keepRecentCount)
-                    .map(Message::getId)
                     .collect(Collectors.toList());
 
-            // Delete messages from Redis
-            messageRepository.deleteAllById(messageIdsToDelete);
+            // Soft delete messages one by one
+            int deletedCount = 0;
+            for (Message message : messagesToDelete) {
+                try {
+                    messageService.softDeleteById(message.getId(), "SYSTEM", "SLIDING_WINDOW_CLEANUP");
+                    deletedCount++;
+                } catch (Exception e) {
+                    logger.error("❌ [SOFT-DELETE] Failed to soft delete message {} during workspace cleanup: {}", 
+                               message.getId(), e.getMessage());
+                }
+            }
 
-            int deletedCount = messageIdsToDelete.size();
-            logger.info("🗑️ Cleanup Success: Deleted {} old messages, kept {} recent ones (workspace is now tidy! 🧹)",
+            logger.info("✅ [SOFT-DELETE] Cleanup Success: Soft deleted {} old messages, kept {} recent ones (workspace is now tidy! 🧹)",
                        deletedCount, keepRecentCount);
             return deletedCount;
 

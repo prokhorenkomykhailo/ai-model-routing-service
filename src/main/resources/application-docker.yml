@@ -123,3 +123,12 @@ data-storage-service:
 # auth service configuration
 auth-service:
   url: ${AUTH_SERVICE_URL:http://localhost:8088}
+
+# Message retention cleanup configuration
+message:
+  retention:
+    cleanup:
+      enabled: ${MESSAGE_RETENTION_CLEANUP_ENABLED:true}  # Enable automatic cleanup of expired messages
+      cron: ${MESSAGE_RETENTION_CLEANUP_CRON:0 0 3 * * ?}  # Daily at 3 AM
+      batch-size: ${MESSAGE_RETENTION_CLEANUP_BATCH_SIZE:100}  # Process 100 messages per batch
+      job-name: message-retention-cleanup

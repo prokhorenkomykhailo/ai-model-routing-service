@@ -363,3 +363,13 @@ statistics:
   max-breakdown-items: 100
   retention-window-days: 7
 
+# Message retention cleanup configuration
+# Controls automatic deletion of soft-deleted messages after 30-day retention period
+message:
+  retention:
+    cleanup:
+      enabled: false  # Disabled by default, enabled in docker profile
+      cron: "0 0 3 * * ?"  # Daily at 3 AM
+      batch-size: 100  # Process 100 messages per batch
+      job-name: message-retention-cleanup
+

@@ -149,6 +149,116 @@ public class MessageService {
         }
     }
 
+    // ==================== Soft Delete Methods ====================
+
+    /**
+     * Soft delete a message by marking it as deleted without removing from Redis
+     * The message will be excluded from default queries but retained for audit/recovery
+     *
+     * @param id The message ID
+     * @param deletedBy User or admin ID who triggered the deletion
+     * @param reason Deletion reason (e.g., MANUAL, CLEANUP, EXPIRED, ADMIN)
+     * @author vudu
+     */
+    public void softDeleteById(String id, String deletedBy, String reason) {
+        if (id == null) {
+            logger.warn("⚠️ [SOFT-DELETE] Cannot delete message with null ID");
+            return;
+        }
+
+        try {
+            Optional<Message> messageOpt = messageRepository.findById(id);
+            if (messageOpt.isEmpty()) {
+                logger.warn("⚠️ [SOFT-DELETE] Message not found: {}", id);
+                return;
+            }
+
+            Message message = messageOpt.get();
+
+            // Mark as deleted
+            message.setIsDeleted(true);
+            message.setDeletedAt(System.currentTimeMillis());
+            message.setDeletionReason(reason != null ? reason : "MANUAL");
+            message.setDeletedBy(deletedBy != null ? deletedBy : "SYSTEM");
+
+            // Calculate retention expiry (30 days from deletion)
+            long retentionDays = 30;
+            long retentionExpiryTimestamp = message.getDeletedAt() + (retentionDays * 24 * 60 * 60 * 1000L);
+            message.setRetentionExpiry(retentionExpiryTimestamp);
+
+            messageRepository.save(message);
+
+            logger.info("✅ [SOFT-DELETE] Message marked deleted | ID: {} | By: {} | Reason: {} | ExpiresAt: {}",
+                    id, message.getDeletedBy(), message.getDeletionReason(),
+                    Instant.ofEpochMilli(message.getRetentionExpiry()));
+        } catch (Exception e) {
+            logger.error("❌ [SOFT-DELETE] Failed to soft delete message {}: {}", id, e.getMessage());
+            throw e;
+        }
+    }
+
+    /**
+     * Hard delete an expired message (physical removal from Redis)
+     * This method should ONLY be called by the retention cleanup job
+     *
+     * @param id The message ID
+     * @author vudu
+     */
+    public void hardDeleteExpired(String id) {
+        if (id == null) {
+            logger.warn("⚠️ [HARD-DELETE] Cannot delete message with null ID");
+            return;
+        }
+
+        try {
+            messageRepository.deleteById(id);
+            logger.info("🗑️ [HARD-DELETE] Expired message physically removed from Redis: {}", id);
+        } catch (Exception e) {
+            logger.error("❌ [HARD-DELETE] Failed to hard delete expired message {}: {}", id, e.getMessage());
+            throw e;
+        }
+    }
+
+    /**
+     * Restore a soft-deleted message (undelete)
+     * Used by admin endpoints to recover accidentally deleted messages
+     *
+     * @param id The message ID
+     * @author vudu
+     */
+    public void restoreDeletedMessage(String id) {
+        if (id == null) {
+            logger.warn("⚠️ [RESTORE] Cannot restore message with null ID");
+            return;
+        }
+
+        try {
+            Optional<Message> messageOpt = messageRepository.findById(id);
+            if (messageOpt.isEmpty()) {
+                logger.warn("⚠️ [RESTORE] Message not found: {}", id);
+                return;
+            }
+
+            Message message = messageOpt.get();
+
+            // Clear deletion fields
+            message.setIsDeleted(false);
+            message.setDeletedAt(null);
+            message.setDeletionReason(null);
+            message.setDeletedBy(null);
+            message.setRetentionExpiry(null);
+
+            messageRepository.save(message);
+
+            logger.info("✅ [RESTORE] Message restored: {}", id);
+        } catch (Exception e) {
+            logger.error("❌ [RESTORE] Failed to restore message {}: {}", id, e.getMessage());
+            throw e;
+        }
+    }
+
+    // ==================== End Soft Delete Methods ====================
+
     /**
      * Deletes all messages from the repository
      */
@@ -166,13 +276,14 @@ public class MessageService {
 
 
     /**
-     * Gets all messages with pagination
+     * Gets all messages with pagination (excludes soft-deleted messages by default).
      *
      * @param pageable The pagination information
-     * @return Page of messages
+     * @return Page of active (non-deleted) messages
+     * @author vudu
      */
     public Page<Message> findAllMessages(Pageable pageable) {
-        logger.debug("Getting all messages with pagination: page={}, size={}",
+        logger.debug("Getting all active messages with pagination: page={}, size={}",
                     pageable.getPageNumber(), pageable.getPageSize());
 
         try {
@@ -180,6 +291,11 @@ public class MessageService {
             Iterable<Message> allMessages = messageRepository.findAll();
             List<Message> messageList = new ArrayList<>();
             allMessages.forEach(messageList::add);
+
+            // Filter out soft-deleted messages
+            messageList = messageList.stream()
+                    .filter(m -> !Boolean.TRUE.equals(m.getIsDeleted()))
+                    .collect(java.util.stream.Collectors.toList());
 
             // Sort messages by ingestedAt in descending order (most recent first)
             messageList.sort((m1, m2) -> {
@@ -203,23 +319,25 @@ public class MessageService {
                 pagedMessages, pageable, messageList.size());
 
         } catch (Exception e) {
-            logger.error("Error retrieving all messages", e);
+            logger.error("Error retrieving all active messages", e);
             return Page.empty(pageable);
         }
     }
 
     /**
-     * Gets messages by tenant ID with pagination
+     * Gets messages by tenant ID with pagination (excludes soft-deleted messages by default).
      *
      * @param tenantId The tenant ID
      * @param pageable The pagination information
-     * @return Page of messages
+     * @return Page of active (non-deleted) messages for the tenant
+     * @author vudu
      */
     public Page<Message> findMessagesByTenantId(String tenantId, Pageable pageable) {
-        logger.debug("Getting messages for tenantId: {} with pagination", tenantId);
+        logger.debug("Getting active messages for tenantId: {} with pagination", tenantId);
 
         try {
-            List<Message> messages = messageRepository.findByTenantId(tenantId, pageable);
+            // Use the repository method that filters active messages
+            List<Message> messages = messageRepository.findActiveMessagesByTenantId(tenantId, pageable);
 
             // Sort messages by ingestedAt in descending order
             messages.sort((m1, m2) -> {
@@ -373,5 +491,155 @@ public class MessageService {
         message.setImage192(user.getImage192());
         message.setImage512(user.getImage512());
         message.setImage1024(user.getImage1024());
+    }
+
+    // ============================================================================
+    // ADMIN METHODS FOR SOFT-DELETED MESSAGES
+    // ============================================================================
+
+    /**
+     * Gets all soft-deleted messages with pagination (admin only).
+     * Returns messages where isDeleted=true.
+     *
+     * @param pageable The pagination information
+     * @return Page of soft-deleted messages
+     * @author vudu
+     */
+    public Page<Message> findDeletedMessages(Pageable pageable) {
+        logger.debug("🔍 [ADMIN] Getting deleted messages with pagination: page={}, size={}",
+                    pageable.getPageNumber(), pageable.getPageSize());
+
+        try {
+            // Get all messages from repository
+            Iterable<Message> allMessages = messageRepository.findAll();
+            List<Message> messageList = new ArrayList<>();
+            allMessages.forEach(messageList::add);
+
+            // Filter only soft-deleted messages
+            messageList = messageList.stream()
+                    .filter(m -> Boolean.TRUE.equals(m.getIsDeleted()))
+                    .collect(java.util.stream.Collectors.toList());
+
+            // Sort by deletedAt in descending order (most recently deleted first)
+            messageList.sort((m1, m2) -> {
+                if (m1.getDeletedAt() == null && m2.getDeletedAt() == null) return 0;
+                if (m1.getDeletedAt() == null) return 1;
+                if (m2.getDeletedAt() == null) return -1;
+                return m2.getDeletedAt().compareTo(m1.getDeletedAt());
+            });
+
+            // Apply pagination manually
+            int start = (int) pageable.getOffset();
+            int end = Math.min(start + pageable.getPageSize(), messageList.size());
+
+            if (start >= messageList.size()) {
+                return Page.empty(pageable);
+            }
+
+            List<Message> pagedMessages = messageList.subList(start, end);
+
+            logger.info("✅ [ADMIN] Found {} deleted messages (page {}/{})",
+                       messageList.size(), pageable.getPageNumber() + 1,
+                       (int) Math.ceil((double) messageList.size() / pageable.getPageSize()));
+
+            return new org.springframework.data.domain.PageImpl<>(
+                pagedMessages, pageable, messageList.size());
+
+        } catch (Exception e) {
+            logger.error("❌ [ADMIN] Error retrieving deleted messages: {}", e.getMessage(), e);
+            return Page.empty(pageable);
+        }
+    }
+
+    /**
+     * Gets soft-deleted messages for a specific tenant with pagination (admin only).
+     *
+     * @param tenantId The tenant ID
+     * @param pageable The pagination information
+     * @return Page of soft-deleted messages for the tenant
+     * @author vudu
+     */
+    public Page<Message> findDeletedMessagesByTenantId(String tenantId, Pageable pageable) {
+        logger.debug("🔍 [ADMIN] Getting deleted messages for tenantId: {} with pagination", tenantId);
+
+        try {
+            // Use the repository method that filters deleted messages by tenant
+            List<Message> messages = messageRepository.findDeletedMessagesByTenantId(tenantId, pageable);
+
+            // Sort by deletedAt in descending order
+            messages.sort((m1, m2) -> {
+                if (m1.getDeletedAt() == null && m2.getDeletedAt() == null) return 0;
+                if (m1.getDeletedAt() == null) return 1;
+                if (m2.getDeletedAt() == null) return -1;
+                return m2.getDeletedAt().compareTo(m1.getDeletedAt());
+            });
+
+            // Apply pagination manually
+            int start = (int) pageable.getOffset();
+            int end = Math.min(start + pageable.getPageSize(), messages.size());
+
+            if (start >= messages.size()) {
+                return Page.empty(pageable);
+            }
+
+            List<Message> pagedMessages = messages.subList(start, end);
+
+            logger.info("✅ [ADMIN] Found {} deleted messages for tenant {} (page {}/{})",
+                       messages.size(), tenantId, pageable.getPageNumber() + 1,
+                       (int) Math.ceil((double) messages.size() / pageable.getPageSize()));
+
+            return new org.springframework.data.domain.PageImpl<>(
+                pagedMessages, pageable, messages.size());
+
+        } catch (Exception e) {
+            logger.error("❌ [ADMIN] Error retrieving deleted messages for tenant {}: {}",
+                        tenantId, e.getMessage(), e);
+            return Page.empty(pageable);
+        }
+    }
+
+    /**
+     * Gets deletion statistics including counts of deleted vs active messages.
+     *
+     * @return Map containing statistics
+     * @author vudu
+     */
+    public Map<String, Object> getDeletionStatistics() {
+        logger.debug("📊 [ADMIN] Generating deletion statistics");
+
+        try {
+            long activeCount = messageRepository.countByIsDeleted(false);
+            long deletedCount = messageRepository.countByIsDeleted(true);
+            long totalCount = activeCount + deletedCount;
+
+            // Calculate oldest deletion
+            List<Message> deletedMessages = messageRepository.findDeletedMessagesByTenantId(null,
+                    org.springframework.data.domain.PageRequest.of(0, 1));
+            Long oldestDeletionTime = null;
+            if (!deletedMessages.isEmpty()) {
+                oldestDeletionTime = deletedMessages.stream()
+                        .map(Message::getDeletedAt)
+                        .filter(java.util.Objects::nonNull)
+                        .min(Long::compareTo)
+                        .orElse(null);
+            }
+
+            Map<String, Object> stats = new HashMap<>();
+            stats.put("totalMessages", totalCount);
+            stats.put("activeMessages", activeCount);
+            stats.put("deletedMessages", deletedCount);
+            stats.put("deletionRate", totalCount > 0 ? (double) deletedCount / totalCount * 100 : 0.0);
+            stats.put("oldestDeletionTimestamp", oldestDeletionTime);
+            stats.put("timestamp", System.currentTimeMillis());
+
+            logger.info("📊 [ADMIN] Deletion stats - Total: {} | Active: {} | Deleted: {} | Rate: {:.2f}%",
+                       totalCount, activeCount, deletedCount, stats.get("deletionRate"));
+
+            return stats;
+
+        } catch (Exception e) {
+            logger.error("❌ [ADMIN] Error generating deletion statistics: {}", e.getMessage(), e);
+            return Map.of("error", e.getMessage());
+        }
     }
 }

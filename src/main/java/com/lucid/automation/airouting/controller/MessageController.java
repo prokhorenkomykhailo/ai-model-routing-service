@@ -5,6 +5,7 @@ import com.lucid.automation.airouting.dto.*;
 import com.lucid.automation.airouting.model.Message;
 import com.lucid.automation.airouting.service.MessageService;
 import com.lucid.automation.airouting.service.MessageStatisticsService;
+import com.lucid.automation.common.dto.response.APIResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -20,6 +21,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
 import java.util.Optional;
 
 @RestController
@@ -62,25 +64,37 @@ public class MessageController {
 
     @DeleteMapping("/{id}")
     @Audit(action = "AI_MESSAGE_DELETE", description = "User deleted message")
-    @Operation(summary = "Delete message", description = "Deletes a message by its ID")
+    @Operation(summary = "Delete message", description = "Soft deletes a message by its ID. The message will be marked as deleted and retained for 30 days before permanent removal.")
     @ApiResponses(value = {
-        @ApiResponse(responseCode = "204", description = "Message deleted successfully"),
+        @ApiResponse(responseCode = "200", description = "Message marked as deleted successfully"),
         @ApiResponse(responseCode = "404", description = "Message not found")
     })
-    public ResponseEntity<Void> deleteMessage(@Parameter(description = "Message ID") @PathVariable String id) {
-        logger.info("Deleting message with ID: {}", id);
+    public ResponseEntity<APIResponse<Void>> deleteMessage(
+            @Parameter(description = "Message ID") @PathVariable String id,
+            @RequestHeader(value = "X-User-ID", required = false) String userId) {
+        logger.info("🗑️ [SOFT-DELETE] Soft deleting message with ID: {} by user: {}", id, userId);
 
         try {
             Optional<Message> existingMessage = messageService.findById(id);
 
             if (existingMessage.isEmpty()) {
-                logger.warn("Message not found with ID: {}", id);
-                return ResponseEntity.notFound().build();
+                logger.warn("⚠️ [SOFT-DELETE] Message not found with ID: {}", id);
+                return ResponseEntity.status(404)
+                        .body(APIResponse.<Void>builder()
+                                .success(false)
+                                .message("Message not found")
+                                .build());
             }
 
-            messageService.deleteById(id);
-            logger.info("Successfully deleted message with ID: {}", id);
-            return ResponseEntity.noContent().build();
+            // Use "UNKNOWN" if userId not provided
+            String deletedBy = (userId != null && !userId.isBlank()) ? userId : "UNKNOWN";
+            messageService.softDeleteById(id, deletedBy, "MANUAL");
+            
+            logger.info("✅ [SOFT-DELETE] Message marked as deleted with ID: {} by user: {}. Will be removed after 30 days.", id, deletedBy);
+            return ResponseEntity.ok(APIResponse.<Void>builder()
+                    .success(true)
+                    .message("Message marked as deleted. It will be permanently removed after 30 days.")
+                    .build());
 
         } catch (Exception e) {
             logger.error("Error deleting message with ID: {}", id, e);
@@ -239,5 +253,177 @@ public class MessageController {
 
         logger.debug("Returning all messages with pagination");
         return messageService.findAllMessages(pageable);
+    }
+
+    // ============================================================================
+    // ADMIN ENDPOINTS FOR SOFT-DELETED MESSAGES
+    // ============================================================================
+
+    @GetMapping("/deleted")
+    @Audit(action = "AI_MESSAGES_DELETED_LIST", description = "Admin viewed deleted messages")
+    @Operation(summary = "List deleted messages (Admin)", 
+               description = "Retrieves all soft-deleted messages with pagination. Messages are retained for 30 days before permanent deletion.")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Deleted messages retrieved successfully"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Admin access required")
+    })
+    public ResponseEntity<Page<MessageResponseDTO>> getDeletedMessages(
+            @Parameter(description = "Tenant ID (optional filter)") @RequestParam(required = false) String tenantId,
+            @Parameter(description = "Page number (0-based)") @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "Page size") @RequestParam(defaultValue = "20") int size) {
+
+        logger.info("🔍 [ADMIN] Request to view deleted messages - tenantId: {}, page: {}, size: {}", 
+                   tenantId, page, size);
+
+        try {
+            Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "deletedAt"));
+            
+            Page<Message> deletedMessages;
+            if (tenantId != null && !tenantId.isBlank()) {
+                deletedMessages = messageService.findDeletedMessagesByTenantId(tenantId, pageable);
+            } else {
+                deletedMessages = messageService.findDeletedMessages(pageable);
+            }
+
+            // Convert to response DTOs
+            Page<MessageResponseDTO> responsePage = deletedMessages.map(this::convertToResponseDTO);
+
+            logger.info("✅ [ADMIN] Retrieved {} deleted messages (page {}/{})",
+                       deletedMessages.getTotalElements(), page + 1, deletedMessages.getTotalPages());
+
+            return ResponseEntity.ok(responsePage);
+
+        } catch (Exception e) {
+            logger.error("❌ [ADMIN] Error retrieving deleted messages: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @GetMapping("/deleted/{id}")
+    @Audit(action = "AI_MESSAGE_DELETED_GET", description = "Admin viewed specific deleted message")
+    @Operation(summary = "Get specific deleted message (Admin)", 
+               description = "Retrieves a specific soft-deleted message by ID")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Deleted message found"),
+        @ApiResponse(responseCode = "404", description = "Message not found or not deleted"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Admin access required")
+    })
+    public ResponseEntity<MessageResponseDTO> getDeletedMessageById(
+            @Parameter(description = "Message ID") @PathVariable String id) {
+
+        logger.info("🔍 [ADMIN] Request to view deleted message: {}", id);
+
+        try {
+            Optional<Message> message = messageService.findById(id);
+
+            if (message.isEmpty()) {
+                logger.warn("⚠️ [ADMIN] Message not found: {}", id);
+                return ResponseEntity.notFound().build();
+            }
+
+            Message msg = message.get();
+            if (!Boolean.TRUE.equals(msg.getIsDeleted())) {
+                logger.warn("⚠️ [ADMIN] Message {} exists but is not deleted", id);
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            }
+
+            MessageResponseDTO responseDto = convertToResponseDTO(msg);
+            logger.info("✅ [ADMIN] Retrieved deleted message: {} | Deleted by: {} | Reason: {}",
+                       id, msg.getDeletedBy(), msg.getDeletionReason());
+
+            return ResponseEntity.ok(responseDto);
+
+        } catch (Exception e) {
+            logger.error("❌ [ADMIN] Error retrieving deleted message {}: {}", id, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @PostMapping("/{id}/restore")
+    @Audit(action = "AI_MESSAGE_RESTORE", description = "Admin restored deleted message")
+    @Operation(summary = "Restore deleted message (Admin)", 
+               description = "Restores a soft-deleted message, making it active again")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Message restored successfully"),
+        @ApiResponse(responseCode = "404", description = "Message not found"),
+        @ApiResponse(responseCode = "400", description = "Message is not deleted"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Admin access required")
+    })
+    public ResponseEntity<APIResponse<MessageResponseDTO>> restoreDeletedMessage(
+            @Parameter(description = "Message ID") @PathVariable String id) {
+
+        logger.info("🔄 [ADMIN] Request to restore deleted message: {}", id);
+
+        try {
+            Optional<Message> existingMessage = messageService.findById(id);
+
+            if (existingMessage.isEmpty()) {
+                logger.warn("⚠️ [ADMIN] Cannot restore - message not found: {}", id);
+                return ResponseEntity.status(404)
+                        .body(APIResponse.<MessageResponseDTO>builder()
+                                .success(false)
+                                .message("Message not found")
+                                .build());
+            }
+
+            Message message = existingMessage.get();
+            if (!Boolean.TRUE.equals(message.getIsDeleted())) {
+                logger.warn("⚠️ [ADMIN] Cannot restore - message {} is not deleted", id);
+                return ResponseEntity.status(400)
+                        .body(APIResponse.<MessageResponseDTO>builder()
+                                .success(false)
+                                .message("Message is not deleted")
+                                .build());
+            }
+
+            // Restore the message
+            messageService.restoreDeletedMessage(id);
+            
+            // Fetch restored message
+            Message restoredMessage = messageService.findById(id).orElseThrow();
+            MessageResponseDTO responseDto = convertToResponseDTO(restoredMessage);
+
+            logger.info("✅ [ADMIN] Successfully restored message: {} | Was deleted by: {} | Reason: {}",
+                       id, message.getDeletedBy(), message.getDeletionReason());
+
+            return ResponseEntity.ok(APIResponse.<MessageResponseDTO>builder()
+                    .success(true)
+                    .message("Message restored successfully")
+                    .data(responseDto)
+                    .build());
+
+        } catch (Exception e) {
+            logger.error("❌ [ADMIN] Error restoring message {}: {}", id, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(APIResponse.<MessageResponseDTO>builder()
+                            .success(false)
+                            .message("Error restoring message: " + e.getMessage())
+                            .build());
+        }
+    }
+
+    @GetMapping("/deleted/stats")
+    @Audit(action = "AI_MESSAGES_DELETED_STATS", description = "Admin viewed deletion statistics")
+    @Operation(summary = "Get deletion statistics (Admin)", 
+               description = "Returns statistics about deleted vs active messages")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Statistics retrieved successfully"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Admin access required")
+    })
+    public ResponseEntity<Map<String, Object>> getDeletionStatistics() {
+        logger.info("📊 [ADMIN] Request to view deletion statistics");
+
+        try {
+            Map<String, Object> stats = messageService.getDeletionStatistics();
+
+            logger.info("✅ [ADMIN] Retrieved deletion statistics: {} total, {} active, {} deleted",
+                       stats.get("totalMessages"), stats.get("activeMessages"), stats.get("deletedMessages"));
+
+            return ResponseEntity.ok(stats);
+
+        } catch (Exception e) {
+            logger.error("❌ [ADMIN] Error retrieving deletion statistics: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
     }
 }

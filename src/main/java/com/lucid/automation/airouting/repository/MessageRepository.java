@@ -60,4 +60,61 @@ public interface MessageRepository extends CrudRepository<Message, String> {
      */
     long countByTenantId(String tenantId);
 
+    // ==================== Soft Delete Queries ====================
+
+    /**
+     * Find non-deleted messages by tenant ID with pagination
+     * Excludes messages where isDeleted=true
+     *
+     * @param tenantId The tenant ID
+     * @param isDeleted Deleted status (false or null)
+     * @param pageable Pagination information
+     * @return List of non-deleted messages
+     */
+    List<Message> findByTenantIdAndIsDeleted(String tenantId, Boolean isDeleted, Pageable pageable);
+
+    /**
+     * Find messages by tenant ID where isDeleted is false or null
+     * This is the primary query for retrieving active (non-deleted) messages
+     *
+     * @param tenantId The tenant ID
+     * @param pageable Pagination information
+     * @return List of active messages
+     */
+    default List<Message> findActiveMessagesByTenantId(String tenantId, Pageable pageable) {
+        return findByTenantIdAndIsDeleted(tenantId, false, pageable);
+    }
+
+    /**
+     * Find soft-deleted messages by tenant ID (for admin view)
+     *
+     * @param tenantId The tenant ID
+     * @param isDeleted Deleted status (true)
+     * @param pageable Pagination information
+     * @return List of deleted messages
+     */
+    default List<Message> findDeletedMessagesByTenantId(String tenantId, Pageable pageable) {
+        return findByTenantIdAndIsDeleted(tenantId, true, pageable);
+    }
+
+    /**
+     * Find expired messages eligible for hard delete
+     * Used by retention cleanup job to find messages past retention period
+     *
+     * @param isDeleted Must be true (only deleted messages)
+     * @param retentionExpiry Maximum expiry timestamp
+     * @param pageable Pagination for batch processing
+     * @return List of expired messages ready for physical deletion
+     */
+    List<Message> findByIsDeletedAndRetentionExpiryLessThan(Boolean isDeleted, Long retentionExpiry, Pageable pageable);
+
+    /**
+     * Count soft-deleted messages
+     * Used for monitoring and statistics
+     *
+     * @param isDeleted Deleted status (true)
+     * @return Count of soft-deleted messages
+     */
+    long countByIsDeleted(Boolean isDeleted);
+
 }
