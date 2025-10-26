@@ -89,7 +89,7 @@ public class MessageController {
             // Use "UNKNOWN" if userId not provided
             String deletedBy = (userId != null && !userId.isBlank()) ? userId : "UNKNOWN";
             messageService.softDeleteById(id, deletedBy, "MANUAL");
-            
+
             logger.info("✅ [SOFT-DELETE] Message marked as deleted with ID: {} by user: {}. Will be removed after 30 days.", id, deletedBy);
             return ResponseEntity.ok(APIResponse.<Void>builder()
                     .success(true)
@@ -261,7 +261,7 @@ public class MessageController {
 
     @GetMapping("/deleted")
     @Audit(action = "AI_MESSAGES_DELETED_LIST", description = "Admin viewed deleted messages")
-    @Operation(summary = "List deleted messages (Admin)", 
+    @Operation(summary = "List deleted messages (Admin)",
                description = "Retrieves all soft-deleted messages with pagination. Messages are retained for 30 days before permanent deletion.")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Deleted messages retrieved successfully"),
@@ -272,12 +272,12 @@ public class MessageController {
             @Parameter(description = "Page number (0-based)") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "Page size") @RequestParam(defaultValue = "20") int size) {
 
-        logger.info("🔍 [ADMIN] Request to view deleted messages - tenantId: {}, page: {}, size: {}", 
+        logger.info("🔍 [ADMIN] Request to view deleted messages - tenantId: {}, page: {}, size: {}",
                    tenantId, page, size);
 
         try {
             Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "deletedAt"));
-            
+
             Page<Message> deletedMessages;
             if (tenantId != null && !tenantId.isBlank()) {
                 deletedMessages = messageService.findDeletedMessagesByTenantId(tenantId, pageable);
@@ -301,7 +301,7 @@ public class MessageController {
 
     @GetMapping("/deleted/{id}")
     @Audit(action = "AI_MESSAGE_DELETED_GET", description = "Admin viewed specific deleted message")
-    @Operation(summary = "Get specific deleted message (Admin)", 
+    @Operation(summary = "Get specific deleted message (Admin)",
                description = "Retrieves a specific soft-deleted message by ID")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Deleted message found"),
@@ -341,7 +341,7 @@ public class MessageController {
 
     @PostMapping("/{id}/restore")
     @Audit(action = "AI_MESSAGE_RESTORE", description = "Admin restored deleted message")
-    @Operation(summary = "Restore deleted message (Admin)", 
+    @Operation(summary = "Restore deleted message (Admin)",
                description = "Restores a soft-deleted message, making it active again")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Message restored successfully"),
@@ -378,7 +378,7 @@ public class MessageController {
 
             // Restore the message
             messageService.restoreDeletedMessage(id);
-            
+
             // Fetch restored message
             Message restoredMessage = messageService.findById(id).orElseThrow();
             MessageResponseDTO responseDto = convertToResponseDTO(restoredMessage);
@@ -404,7 +404,7 @@ public class MessageController {
 
     @GetMapping("/deleted/stats")
     @Audit(action = "AI_MESSAGES_DELETED_STATS", description = "Admin viewed deletion statistics")
-    @Operation(summary = "Get deletion statistics (Admin)", 
+    @Operation(summary = "Get deletion statistics (Admin)",
                description = "Returns statistics about deleted vs active messages")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Statistics retrieved successfully"),

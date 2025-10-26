@@ -57,9 +57,9 @@ public class SlidingWindowService {
     @Value("${sliding.window.max.wait.hours:4}")
     private int maxWaitHours;
 
-    public SlidingWindowService(MessageRepository messageRepository, 
+    public SlidingWindowService(MessageRepository messageRepository,
                                 MessageService messageService,
-                                UserRepository userRepository, 
+                                UserRepository userRepository,
                                 WorkspaceRepository workspaceRepository) {
         this.messageRepository = messageRepository;
         this.messageService = messageService;
@@ -429,15 +429,15 @@ public class SlidingWindowService {
         try {
             logger.info("🔍 Loading Messages: Searching for messages with deemergeUserId: {} 🕵️", deemergeUserId);
 
-            // Load all messages for the workspace
-            List<Message> messages = messageRepository.findByTenantIdAndDeemergeUserId(tenantId, deemergeUserId);
+            // Load only active (non-deleted) messages for the workspace
+            List<Message> messages = messageRepository.findActiveMessagesByTenantIdAndDeemergeUserId(tenantId, deemergeUserId);
 
             if (messages.isEmpty()) {
-                logger.info("📭 No Messages Found: Zero messages for deemergeUserId: {} (workspace might be quiet today 🤫)", deemergeUserId);
+                logger.info("📭 No Messages Found: Zero active messages for deemergeUserId: {} (workspace might be quiet today 🤫)", deemergeUserId);
                 return Collections.emptyList();
             }
 
-            logger.info("🎉 Messages Loaded: Found {} messages for deemergeUserId: {} (jackpot! 💰)", messages.size(), deemergeUserId);
+            logger.info("🎉 Messages Loaded: Found {} active messages for deemergeUserId: {} (jackpot! 💰)", messages.size(), deemergeUserId);
 
             // add user information to messages
             enrichMessagesWithUserData(messages);
@@ -742,7 +742,7 @@ public class SlidingWindowService {
                     messageService.softDeleteById(message.getId(), "SYSTEM", "BATCH_CLEANUP");
                     deletedCount++;
                 } catch (Exception e) {
-                    logger.error("❌ [SOFT-DELETE] Failed to soft delete message {} during batch cleanup: {}", 
+                    logger.error("❌ [SOFT-DELETE] Failed to soft delete message {} during batch cleanup: {}",
                                message.getId(), e.getMessage());
                 }
             }
@@ -809,7 +809,7 @@ public class SlidingWindowService {
                     messageService.softDeleteById(message.getId(), "SYSTEM", "SLIDING_WINDOW_CLEANUP");
                     deletedCount++;
                 } catch (Exception e) {
-                    logger.error("❌ [SOFT-DELETE] Failed to soft delete message {} during workspace cleanup: {}", 
+                    logger.error("❌ [SOFT-DELETE] Failed to soft delete message {} during workspace cleanup: {}",
                                message.getId(), e.getMessage());
                 }
             }

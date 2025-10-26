@@ -112,7 +112,7 @@ public class MessageRetentionCleanupScheduler {
         try {
             // Find all expired messages (isDeleted=true AND retentionExpiry < currentTime)
             long currentTime = System.currentTimeMillis();
-            
+
             // Fetch expired messages in pages to avoid loading too many at once
             PageRequest pageRequest = PageRequest.of(0, batchSize);
             List<Message> expiredMessages = messageRepository.findByIsDeletedAndRetentionExpiryLessThan(true, currentTime, pageRequest);

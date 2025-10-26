@@ -40,7 +40,7 @@ class MessageRetentionCleanupSchedulerTest {
     @BeforeEach
     void setUp() {
         scheduler = new MessageRetentionCleanupScheduler(messageRepository, messageService);
-        
+
         // Set config values via reflection (only values injected via @Value)
         ReflectionTestUtils.setField(scheduler, "batchSize", 100);
         ReflectionTestUtils.setField(scheduler, "jobName", "message-retention-cleanup");
@@ -125,7 +125,7 @@ class MessageRetentionCleanupSchedulerTest {
     void shouldQueryWithCurrentTimestamp() {
         // Given
         Long before = System.currentTimeMillis();
-        
+
         when(messageRepository.findByIsDeletedAndRetentionExpiryLessThan(
                 eq(true), anyLong(), any(PageRequest.class)))
                 .thenReturn(new ArrayList<>());
@@ -151,7 +151,7 @@ class MessageRetentionCleanupSchedulerTest {
     void shouldContinueProcessingAfterSingleMessageFailure() {
         // Given
         Long expired = System.currentTimeMillis() - (35L * 24 * 60 * 60 * 1000);
-        
+
         List<Message> expiredMessages = List.of(
                 createExpiredMessage("msg-1", expired),
                 createExpiredMessage("msg-2", expired),
@@ -223,10 +223,10 @@ class MessageRetentionCleanupSchedulerTest {
         // Given
         int batchSize = 100;
         ReflectionTestUtils.setField(scheduler, "batchSize", batchSize);
-        
+
         Long expired = System.currentTimeMillis() - (35L * 24 * 60 * 60 * 1000);
         List<Message> largeExpiredList = new ArrayList<>();
-        
+
         for (int i = 0; i < batchSize; i++) {
             largeExpiredList.add(createExpiredMessage("msg-" + i, expired));
         }

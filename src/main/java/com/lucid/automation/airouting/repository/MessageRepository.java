@@ -33,6 +33,29 @@ public interface MessageRepository extends CrudRepository<Message, String> {
     List<Message> findByTenantIdAndDeemergeUserId(String tenantId, String deemergeUserId);
 
     /**
+     * Find active (non-deleted) messages by tenant ID and deemerge user ID
+     * Excludes soft-deleted messages from processing
+     *
+     * @param tenantId The tenant ID
+     * @param deemergeUserId The deemerge user ID
+     * @param isDeleted Deleted status (should be false or null)
+     * @return List of active messages
+     */
+    List<Message> findByTenantIdAndDeemergeUserIdAndIsDeleted(String tenantId, String deemergeUserId, Boolean isDeleted);
+
+    /**
+     * Find active (non-deleted) messages by tenant ID and deemerge user ID
+     * This is a convenience method that automatically filters out deleted messages
+     *
+     * @param tenantId The tenant ID
+     * @param deemergeUserId The deemerge user ID
+     * @return List of active messages
+     */
+    default List<Message> findActiveMessagesByTenantIdAndDeemergeUserId(String tenantId, String deemergeUserId) {
+        return findByTenantIdAndDeemergeUserIdAndIsDeleted(tenantId, deemergeUserId, false);
+    }
+
+    /**
      * Find unprocessed messages by workspace ID ordered by message timestamp
      * Used by token-based sliding window processing
      *
@@ -41,6 +64,29 @@ public interface MessageRepository extends CrudRepository<Message, String> {
      * @return List of messages ordered by messageTs ascending
      */
     List<Message> findByWorkspaceIdAndIsProcessedOrderByMessageTsAsc(String workspaceId, Boolean isProcessed);
+
+    /**
+     * Find active (non-deleted) unprocessed messages by workspace ID
+     * Excludes soft-deleted messages from processing pipeline
+     *
+     * @param workspaceId The workspace ID
+     * @param isProcessed Processing status flag (typically false)
+     * @param isDeleted Deleted status (should be false or null)
+     * @return List of active messages ordered by messageTs ascending
+     */
+    List<Message> findByWorkspaceIdAndIsProcessedAndIsDeletedOrderByMessageTsAsc(
+            String workspaceId, Boolean isProcessed, Boolean isDeleted);
+
+    /**
+     * Find active unprocessed messages for workspace
+     * Convenience method that automatically filters out deleted messages
+     *
+     * @param workspaceId The workspace ID
+     * @return List of active unprocessed messages ordered by messageTs
+     */
+    default List<Message> findActiveUnprocessedMessagesByWorkspace(String workspaceId) {
+        return findByWorkspaceIdAndIsProcessedAndIsDeletedOrderByMessageTsAsc(workspaceId, false, false);
+    }
 
     /**
      * Find all messages by tenant ID (for aggregation)
