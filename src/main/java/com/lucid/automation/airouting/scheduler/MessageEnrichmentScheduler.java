@@ -161,6 +161,23 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                 return;
             }
 
+            // NEW: Global message availability check (SCRUM-393)
+            log.info("🔍 [PRE-CHECK] Verifying message availability across {} workspaces before enrichment cycle #{}",
+                workspaces.size(), totalSchedulerRuns.get());
+
+            long totalUnprocessedMessages = calculateTotalUnprocessedMessages(workspaces);
+
+            if (totalUnprocessedMessages == 0) {
+                long checkTime = System.currentTimeMillis() - schedulerStartTime;
+                log.info("⏭️ [SKIP-CYCLE] No unprocessed messages found across {} workspaces - skipping enrichment cycle #{} (check completed in {}ms)",
+                    workspaces.size(), totalSchedulerRuns.get(), checkTime);
+                log.info("🏁 === SCHEDULER EXECUTION #{} COMPLETED (SKIPPED) ===", totalSchedulerRuns.get());
+                return; // Early exit without processing
+            }
+
+            log.info("✅ [PRE-CHECK] Found {} unprocessed messages across {} workspaces - proceeding with enrichment cycle #{}",
+                totalUnprocessedMessages, workspaces.size(), totalSchedulerRuns.get());
+
             log.info("🏢 Processing {} workspaces for message enrichment", workspaces.size());
             processAllWorkspaces(workspaces);
 
@@ -175,6 +192,41 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         }
 
         log.info("🏁 === SCHEDULER EXECUTION #{} COMPLETED ===", totalSchedulerRuns.get());
+    }
+
+    /**
+     * Calculate total unprocessed messages across all workspaces.
+     * This is used for the pre-check validation (SCRUM-393) to determine if enrichment cycle should run.
+     * Uses SlidingWindowService's shouldProcessWorkspace to determine if any workspace has messages.
+     *
+     * @param workspaces List of workspaces to check
+     * @return Total count of unprocessed messages across all workspaces (>0 if any unprocessed messages exist)
+     */
+    private long calculateTotalUnprocessedMessages(final List<Workspace> workspaces) {
+        // Check if ANY workspace has unprocessed messages that should be processed
+        // This leverages the existing SlidingWindowService.shouldProcessWorkspace logic
+        // which already checks for unprocessed message counts, time thresholds, etc.
+        return workspaces.stream()
+            .filter(workspace -> {
+                try {
+                    // SlidingWindowService.shouldProcessWorkspace already checks:
+                    // - Invalid tenant ID (skips)
+                    // - Unprocessed message count (must be > 0)
+                    // - Time thresholds (must meet criteria)
+                    SlidingWindowService.ProcessingDecision decision = slidingWindowService.shouldProcessWorkspace(workspace);
+                    if (decision.shouldProcess()) {
+                        log.debug("🔍 [PRE-CHECK] Workspace {} should be processed - has unprocessed messages",
+                            workspace.getName());
+                        return true;
+                    }
+                    return false;
+                } catch (Exception e) {
+                    log.warn("⚠️ [PRE-CHECK] Error checking workspace {}: {}",
+                        workspace.getName(), e.getMessage());
+                    return false; // Treat errors as no messages
+                }
+            })
+            .count(); // Count of workspaces that have unprocessed messages
     }
 
     /**
