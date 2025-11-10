@@ -128,7 +128,7 @@ public class ChannelService {
 
         try {
             var message = ingestionEventDto.getMessage();
-            String channelId = message.getChannelId();
+            String channelId = resolveChannelId(ingestionEventDto);
 
             // Check if channel already exists
             Optional<Channel> existingChannel = findByChannelId(channelId);
@@ -149,22 +149,81 @@ public class ChannelService {
         }
     }
 
+    /**
+     * Resolve channelId with Gmail fallback logic.
+     * For Gmail messages without channelId, use clientMsgId as fallback.
+     *
+     * @param dto The ingestion event DTO
+     * @return Resolved channelId, or null if unavailable
+     * @author vudu
+     */
+    private String resolveChannelId(IngestionEventDTO dto) {
+        if (dto == null || dto.getMessage() == null) {
+            return null;
+        }
+
+        var message = dto.getMessage();
+        String channelId = message.getChannelId();
+
+        // If channelId exists and is not empty, use it
+        if (channelId != null && !channelId.trim().isEmpty()) {
+            return channelId.trim();
+        }
+
+        // Gmail fallback: use clientMsgId if channelId is missing
+        String sourceType = dto.getSourceType();
+        String messageSource = message.getSource();
+
+        if (isGmailMessage(sourceType, messageSource)) {
+            String clientMsgId = message.getClientMsgId();
+            if (clientMsgId != null && !clientMsgId.trim().isEmpty()) {
+                logger.info("📧 [GMAIL-FALLBACK] Using clientMsgId as channelId for Gmail message | " +
+                        "clientMsgId={} | sourceType={} | messageSource={}",
+                        clientMsgId, sourceType, messageSource);
+                return clientMsgId.trim();
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Check if the message is from Gmail platform.
+     *
+     * @param sourceType Event-level source type
+     * @param messageSource Message-level source
+     * @return true if Gmail message
+     */
+    private boolean isGmailMessage(String sourceType, String messageSource) {
+        return ("GMAIL".equalsIgnoreCase(sourceType) || "Gmail".equalsIgnoreCase(messageSource));
+    }
+
     private boolean isInvalidIngestionEvent(IngestionEventDTO dto) {
-        return dto == null ||
-               dto.getMessage() == null ||
-               dto.getMessage().getChannelId() == null ||
-               dto.getMessage().getChannelId().trim().isEmpty();
+        if (dto == null || dto.getMessage() == null) {
+            return true;
+        }
+
+        // Use resolveChannelId to apply Gmail fallback logic
+        String resolvedChannelId = resolveChannelId(dto);
+        return resolvedChannelId == null || resolvedChannelId.trim().isEmpty();
     }
 
     private Channel createChannelFromEvent(IngestionEventDTO dto) {
         var message = dto.getMessage();
+        String channelId = resolveChannelId(dto);
+
+        // Determine channel source based on sourceType or message.source
+        String channelSrc = "slack"; // Default
+        if (isGmailMessage(dto.getSourceType(), message.getSource())) {
+            channelSrc = "gmail";
+        }
 
         return Channel.builder()
-            .channelId(message.getChannelId())
-            .channelSrc("slack") // Default to slack, can be parameterized later
+            .channelId(channelId)
+            .channelSrc(channelSrc)
             .channelName(message.getChannelName())
             .tenantId(dto.getTenantId())
-            .workspaceId(message.getTeamId())
+            .workspaceId(message.getTeamId() != null ? message.getTeamId() : message.getWorkspaceId())
             .topic(message.getTopic())
             .purpose(message.getPurpose())
             .isPrivate(false) // Default value, can be enhanced later
