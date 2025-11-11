@@ -28,10 +28,15 @@ public class WorkspaceService {
     }
 
     /**
-     * Create or update workspace from message data
-     *
+     * Create or update workspace from message data.
+     * 
+     * Supports both Slack and Gmail messages:
+     * - Slack: Uses teamId from message
+     * - Gmail: Falls back to workspaceId (email domain) when teamId is null
+     * 
      * @param ingestionEventDto The ingestion event DTO containing message data
-     * @return The created or updated workspace
+     * @return The created or updated workspace, or null if required fields are missing
+     * @author vudu
      */
     public Workspace createOrUpdateWorkspace(IngestionEventDTO ingestionEventDto) {
         if (ingestionEventDto.getTenantId() == null || ingestionEventDto.getMessage() == null) {
@@ -51,10 +56,16 @@ public class WorkspaceService {
             return null;
         }
 
+        // Get workspace identifier: prioritize teamId (Slack), fallback to workspaceId (Gmail)
         String teamId = ingestionEventDto.getMessage().getTeamId();
         if (teamId == null || teamId.trim().isEmpty()) {
-            logger.warn("Cannot create/update workspace: missing teamId in message data");
-            return null;
+            // For Gmail messages: use workspaceId (email domain) as workspace identifier
+            teamId = ingestionEventDto.getMessage().getBestWorkspaceId();
+            if (teamId == null || teamId.trim().isEmpty()) {
+                logger.warn("Cannot create/update workspace: missing both teamId and workspaceId in message data");
+                return null;
+            }
+            logger.debug("Using workspaceId as teamId for non-Slack message: {}", teamId);
         }
 
         try {
@@ -64,6 +75,8 @@ public class WorkspaceService {
 
             // Save and return
             Workspace savedWorkspace = workspaceRepository.save(workspace);
+            logger.debug("✅ Workspace saved: {} | teamId={} | source={} | tenant={}", 
+                        savedWorkspace.getName(), teamId, ingestionEventDto.getMessage().getSource(), tenantId);
             return savedWorkspace;
 
         } catch (Exception e) {
