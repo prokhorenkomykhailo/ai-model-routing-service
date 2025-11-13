@@ -58,8 +58,17 @@ public class KafkaProducerConfig {
         configProps.put(ProducerConfig.ACKS_CONFIG, "all");
         configProps.put(ProducerConfig.RETRIES_CONFIG, 3);
         configProps.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);
-        configProps.put(ProducerConfig.LINGER_MS_CONFIG, 1);
-        configProps.put(ProducerConfig.BUFFER_MEMORY_CONFIG, 33554432);
+        configProps.put(ProducerConfig.LINGER_MS_CONFIG, 10);
+        configProps.put(ProducerConfig.BUFFER_MEMORY_CONFIG, 67108864); // 64 MB buffer
+        configProps.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+        
+        // CRITICAL: Large message support - handles AI enrichment responses up to 10 MB
+        configProps.put(ProducerConfig.MAX_REQUEST_SIZE_CONFIG, 10485760); // 10 MB max request size
+        configProps.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "gzip"); // Compress large payloads
+        
+        // Timeout settings for large message transmission
+        configProps.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, 60000); // 60 seconds
+        configProps.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, 120000); // 120 seconds
 
         return new DefaultKafkaProducerFactory<>(configProps);
     }

@@ -214,6 +214,16 @@ public class KafkaConfig {
         configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
         configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
 
+        // CRITICAL: Large message support for AI enrichment responses (up to 10 MB)
+        configProps.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, 10485760); // 10 MB per partition
+        configProps.put(ConsumerConfig.FETCH_MAX_BYTES_CONFIG, 10485760); // 10 MB total fetch size
+
+        // Timeout settings for large message processing
+        configProps.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 900000); // 15 minutes (AI processing)
+        configProps.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 300000); // 5 minutes
+        configProps.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 90000); // 1.5 minutes
+        configProps.put(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG, 40000); // 40 seconds
+
         // Security configuration
         if (!"PLAINTEXT".equals(securityProtocol)) {
             configProps.put("security.protocol", securityProtocol);
