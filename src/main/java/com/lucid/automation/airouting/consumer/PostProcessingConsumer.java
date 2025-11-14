@@ -119,7 +119,7 @@ public class PostProcessingConsumer {
 
         logger.info("📋 [POST-PROCESSING] Received pre-AI response | Topic: {} | Partition: {} | Offset: {} | Key: {}",
             topic, record.partition(), record.offset(), record.key());
-        logger.debug("🔍 [POST-PROCESSING-DEBUG] Method entry | Thread: {} | Acknowledgment: {}", 
+        logger.debug("🔍 [POST-PROCESSING-DEBUG] Method entry | Thread: {} | Acknowledgment: {}",
             Thread.currentThread().getName(), acknowledgment != null ? "provided" : "NULL");
 
         // Extract the actual payload from ConsumerRecord if needed
@@ -176,21 +176,21 @@ public class PostProcessingConsumer {
                     // ✅ ACK only after successful processing
                     try {
                         if (acknowledgment != null) {
-                            logger.info("🔔 [ACK] About to acknowledge message | Offset: {} | Topic: {} | Partition: {}", 
+                            logger.info("🔔 [ACK] About to acknowledge message | Offset: {} | Topic: {} | Partition: {}",
                                 record.offset(), record.topic(), record.partition());
                             acknowledgment.acknowledge();
-                            logger.info("✅ [ACK-SUCCESS] Message acknowledged successfully | Offset: {} | Consumer should advance to offset {}", 
+                            logger.info("✅ [ACK-SUCCESS] Message acknowledged successfully | Offset: {} | Consumer should advance to offset {}",
                                 record.offset(), record.offset() + 1);
                         } else {
-                            logger.error("❌ [ACK-NULL] Cannot acknowledge - Acknowledgment parameter is NULL | Offset: {}", 
+                            logger.error("❌ [ACK-NULL] Cannot acknowledge - Acknowledgment parameter is NULL | Offset: {}",
                                 record.offset());
                         }
                     } catch (Exception ackException) {
-                        logger.error("❌ [ACK-ERROR] Failed to acknowledge message | Offset: {} | Error: {}", 
+                        logger.error("❌ [ACK-ERROR] Failed to acknowledge message | Offset: {} | Error: {}",
                             record.offset(), ackException.getMessage(), ackException);
                         throw ackException;
                     }
-                    
+
                     logger.info("🏁 [POST-PROCESSING-COMPLETE] Method execution finished for offset {}", record.offset());
                 } else {
                     handlePipelineNullResponse(context, record, acknowledgment, postProcessingStartTime);
