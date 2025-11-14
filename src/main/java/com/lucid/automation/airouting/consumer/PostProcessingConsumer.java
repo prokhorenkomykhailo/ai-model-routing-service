@@ -119,6 +119,8 @@ public class PostProcessingConsumer {
 
         logger.info("📋 [POST-PROCESSING] Received pre-AI response | Topic: {} | Partition: {} | Offset: {} | Key: {}",
             topic, record.partition(), record.offset(), record.key());
+        logger.debug("🔍 [POST-PROCESSING-DEBUG] Method entry | Thread: {} | Acknowledgment: {}", 
+            Thread.currentThread().getName(), acknowledgment != null ? "provided" : "NULL");
 
         // Extract the actual payload from ConsumerRecord if needed
         Object payload = messageResponse;
@@ -172,7 +174,24 @@ public class PostProcessingConsumer {
                         successfulPostProcessing.get(), retriedPostProcessing.get(), dlqPostProcessing.get());
 
                     // ✅ ACK only after successful processing
-                    acknowledgment.acknowledge();
+                    try {
+                        if (acknowledgment != null) {
+                            logger.info("🔔 [ACK] About to acknowledge message | Offset: {} | Topic: {} | Partition: {}", 
+                                record.offset(), record.topic(), record.partition());
+                            acknowledgment.acknowledge();
+                            logger.info("✅ [ACK-SUCCESS] Message acknowledged successfully | Offset: {} | Consumer should advance to offset {}", 
+                                record.offset(), record.offset() + 1);
+                        } else {
+                            logger.error("❌ [ACK-NULL] Cannot acknowledge - Acknowledgment parameter is NULL | Offset: {}", 
+                                record.offset());
+                        }
+                    } catch (Exception ackException) {
+                        logger.error("❌ [ACK-ERROR] Failed to acknowledge message | Offset: {} | Error: {}", 
+                            record.offset(), ackException.getMessage(), ackException);
+                        throw ackException;
+                    }
+                    
+                    logger.info("🏁 [POST-PROCESSING-COMPLETE] Method execution finished for offset {}", record.offset());
                 } else {
                     handlePipelineNullResponse(context, record, acknowledgment, postProcessingStartTime);
                 }
@@ -209,11 +228,15 @@ public class PostProcessingConsumer {
                         sendToDLQ(record, e);
                     }
                     // ACK after sending to DLQ
-                    acknowledgment.acknowledge();
+                    if (acknowledgment != null) {
+                        acknowledgment.acknowledge();
+                    }
                 } catch (Exception dlqError) {
                     logger.error("❌ [DLQ-ERROR] Failed to send to DLQ: {}", dlqError.getMessage());
                     // Still acknowledge to prevent infinite retry loop
-                    acknowledgment.acknowledge();
+                    if (acknowledgment != null) {
+                        acknowledgment.acknowledge();
+                    }
                 }
             }
         }
@@ -238,10 +261,14 @@ public class PostProcessingConsumer {
             if (kafkaRetryProperties.isDlqEnabled()) {
                 sendToDLQ(record, new IllegalArgumentException("Null payload"));
             }
-            acknowledgment.acknowledge();
+            if (acknowledgment != null) {
+                acknowledgment.acknowledge();
+            }
         } catch (Exception e) {
             logger.error("❌ [DLQ-ERROR] Failed to send null payload to DLQ: {}", e.getMessage());
-            acknowledgment.acknowledge();
+            if (acknowledgment != null) {
+                acknowledgment.acknowledge();
+            }
         }
     }
 
@@ -266,10 +293,14 @@ public class PostProcessingConsumer {
             if (kafkaRetryProperties.isDlqEnabled()) {
                 sendToDLQ(record, new IllegalArgumentException("Invalid payload format, expected Map"));
             }
-            acknowledgment.acknowledge();
+            if (acknowledgment != null) {
+                acknowledgment.acknowledge();
+            }
         } catch (Exception e) {
             logger.error("❌ [DLQ-ERROR] Failed to send invalid payload to DLQ: {}", e.getMessage());
-            acknowledgment.acknowledge();
+            if (acknowledgment != null) {
+                acknowledgment.acknowledge();
+            }
         }
     }
 
@@ -294,10 +325,14 @@ public class PostProcessingConsumer {
             if (kafkaRetryProperties.isDlqEnabled()) {
                 sendToDLQ(record, new RuntimeException("Pipeline null response"));
             }
-            acknowledgment.acknowledge();
+            if (acknowledgment != null) {
+                acknowledgment.acknowledge();
+            }
         } catch (Exception e) {
             logger.error("❌ [DLQ-ERROR] Failed to send null response to DLQ: {}", e.getMessage());
-            acknowledgment.acknowledge();
+            if (acknowledgment != null) {
+                acknowledgment.acknowledge();
+            }
         }
     }
 
@@ -336,10 +371,14 @@ public class PostProcessingConsumer {
                 if (kafkaRetryProperties.isDlqEnabled()) {
                     sendToDLQ(record, pipelineException);
                 }
-                acknowledgment.acknowledge();
+                if (acknowledgment != null) {
+                    acknowledgment.acknowledge();
+                }
             } catch (Exception e) {
                 logger.error("❌ [DLQ-ERROR] Failed to send pipeline failure to DLQ: {}", e.getMessage());
-                acknowledgment.acknowledge();
+                if (acknowledgment != null) {
+                    acknowledgment.acknowledge();
+                }
             }
         }
     }

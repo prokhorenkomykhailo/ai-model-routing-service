@@ -19,14 +19,14 @@ import java.util.Map;
 
 /**
  * Kafka producer configuration for AI routing service
- * 
+ *
  * CRITICAL: Must disable Spring Boot auto-configuration for Kafka producer
  * to ensure our 10MB max.request.size is applied.
  */
 @Configuration
 @Data
 public class KafkaProducerConfig {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(KafkaProducerConfig.class);
 
     @Value("${spring.kafka.bootstrap-servers}")
@@ -43,7 +43,7 @@ public class KafkaProducerConfig {
 
     /**
      * Producer factory for Kafka messages
-     * 
+     *
      * @Primary annotation ensures this bean takes precedence over Spring Boot's auto-configured producer
      */
     @Bean
@@ -93,7 +93,7 @@ public class KafkaProducerConfig {
 
     /**
      * Kafka template for sending messages
-     * 
+     *
      * @Primary annotation ensures this bean takes precedence over Spring Boot's auto-configured template
      */
     @Bean

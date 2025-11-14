@@ -1,5 +1,5 @@
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
-COPY target/lucid-ai-routing-service-1.2.22.jar app.jar
+COPY target/lucid-ai-routing-service-1.2.23.jar app.jar
 EXPOSE 8083
 ENTRYPOINT ["java", "-jar", "app.jar"]

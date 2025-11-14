@@ -29,11 +29,11 @@ public class WorkspaceService {
 
     /**
      * Create or update workspace from message data.
-     * 
+     *
      * Supports both Slack and Gmail messages:
      * - Slack: Uses teamId from message
      * - Gmail: Falls back to workspaceId (email domain) when teamId is null
-     * 
+     *
      * @param ingestionEventDto The ingestion event DTO containing message data
      * @return The created or updated workspace, or null if required fields are missing
      * @author vudu
@@ -75,7 +75,7 @@ public class WorkspaceService {
 
             // Save and return
             Workspace savedWorkspace = workspaceRepository.save(workspace);
-            logger.debug("✅ Workspace saved: {} | teamId={} | source={} | tenant={}", 
+            logger.debug("✅ Workspace saved: {} | teamId={} | source={} | tenant={}",
                         savedWorkspace.getName(), teamId, ingestionEventDto.getMessage().getSource(), tenantId);
             return savedWorkspace;
 
