@@ -437,16 +437,23 @@ public class PostProcessingConsumer {
     }
 
     /**
-     * Send processed message to the final ai-responses topic synchronously
+     * Send processed message to the final ai-responses topic synchronously with timeout
      */
     private void sendToFinalAiResponsesTopic(Object parsedAiResponse) {
         try {
-            // Send synchronously and wait for confirmation
-            kafkaTemplate.send(aiResponsesTopic, parsedAiResponse).get();
-            logger.info("✅ Successfully forwarded message to final ai-responses topic: {}", aiResponsesTopic);
+            logger.info("📤 [FORWARD] Attempting to send enrichment response to topic: {}", aiResponsesTopic);
+
+            // Send synchronously with 30-second timeout to prevent indefinite blocking
+            kafkaTemplate.send(aiResponsesTopic, parsedAiResponse)
+                .get(30, java.util.concurrent.TimeUnit.SECONDS);
+
+            logger.info("✅ [FORWARD-SUCCESS] Successfully forwarded message to final ai-responses topic: {}", aiResponsesTopic);
+        } catch (java.util.concurrent.TimeoutException e) {
+            logger.error("⏱️ [FORWARD-TIMEOUT] Timeout after 30s sending to topic: {}", aiResponsesTopic, e);
+            throw new RuntimeException("Timeout sending message to final ai-responses topic after 30s", e);
         } catch (Exception e) {
-            logger.error("❌ Failed to send message to final ai-responses topic: {}, error: {}",
-                        aiResponsesTopic, e.getMessage(), e);
+            logger.error("❌ [FORWARD-ERROR] Failed to send message to final ai-responses topic: {}, error type: {}, message: {}",
+                        aiResponsesTopic, e.getClass().getSimpleName(), e.getMessage(), e);
             throw new RuntimeException("Failed to send message to final ai-responses topic", e);
         }
     }
