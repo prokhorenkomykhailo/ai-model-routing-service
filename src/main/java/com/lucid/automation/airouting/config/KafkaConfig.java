@@ -58,6 +58,27 @@ public class KafkaConfig {
         configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
         configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
 
+        // CRITICAL: Timeout configurations to prevent consumer group eviction
+        // Max Poll Interval: Time consumer can spend processing before being kicked out
+        configProps.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 1800000);  // 30 minutes (same as AI enrichment)
+
+        // Session Timeout: How long consumer can be silent before being considered dead
+        configProps.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 300000);    // 5 minutes
+
+        // Heartbeat Interval: Must be < session_timeout/3 (Kafka requirement)
+        configProps.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 90000);  // 1.5 minutes
+
+        // OPTIMIZATION: Batch size for processing
+        configProps.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 50);          // Process 50 records at a time
+
+        logger.info("=== INGESTION CONSUMER CONFIG ===");
+        logger.info("Using group ID: {}", groupId);
+        logger.info("MAX_POLL_INTERVAL: 30m (prevents consumer group eviction)");
+        logger.info("SESSION_TIMEOUT: 5m (balanced stability)");
+        logger.info("HEARTBEAT_INTERVAL: 1.5m (< session_timeout/3)");
+        logger.info("MAX_POLL_RECORDS: 50 (batch processing)");
+        logger.info("=================================");
+
         // Add security configuration if needed
         if (!"PLAINTEXT".equals(securityProtocol)) {
             configProps.put("security.protocol", securityProtocol);
@@ -86,6 +107,20 @@ public class KafkaConfig {
         configProps.put(JsonDeserializer.REMOVE_TYPE_INFO_HEADERS, true);
 
         return new DefaultKafkaConsumerFactory<>(configProps);
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, IngestionEventDTO> kafkaListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, IngestionEventDTO> factory =
+            new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(consumerFactory());
+        factory.setCommonErrorHandler(defaultErrorHandler());
+
+        // Configure manual acknowledgment mode
+        factory.getContainerProperties().setAckMode(AckMode.MANUAL_IMMEDIATE);
+
+        logger.info("✅ Created kafkaListenerContainerFactory for IngestionEventDTO with manual acknowledgment");
+        return factory;
     }
 
     @Bean
