@@ -40,6 +40,7 @@ public class TopicEnrichmentStep implements PipelineStep {
 
     @Override
     public PipelineStepResult execute(PostProcessingContext context) {
+        long startTime = System.currentTimeMillis();
         logger.debug("Executing topic enrichment step");
 
         try {
@@ -55,10 +56,21 @@ public class TopicEnrichmentStep implements PipelineStep {
                 return PipelineStepResult.success("Skipped - no messages");
             }
 
-            // Enhance each topic with detailed information
+            String tenantId = context.getTenantId();
+            String workspaceId = messages.isEmpty() ? null : messages.get(0).getWorkspaceId();
+
+            // ✅ PERFORMANCE FIX: Batch load ALL users and channels ONCE at the beginning
+            Map<String, EnrichmentUserDTO> cachedUsers = batchLoadAllUsers(messages, tenantId, workspaceId);
+            long cacheLoadTime = System.currentTimeMillis() - startTime;
+            logger.info("⚡ [PERFORMANCE] Loaded {} users in {}ms (avoiding {} individual DB calls)", 
+                cachedUsers.size(), cacheLoadTime, cachedUsers.size());
+
+            // Enhance each topic with detailed information using cached data
+            long enrichStartTime = System.currentTimeMillis();
             List<TopicEnrichment> enrichedTopics = existingEnrichment.topics().stream()
-                .map(topic -> enhanceTopicWithUserData(topic, messages, context))
+                .map(topic -> enhanceTopicWithUserData(topic, messages, context, cachedUsers))
                 .collect(Collectors.toList());
+            long enrichTime = System.currentTimeMillis() - enrichStartTime;
 
             // Create enhanced conversation enrichment
             ConversationEnrichment enhancedEnrichment = new ConversationEnrichment(
@@ -70,22 +82,101 @@ public class TopicEnrichmentStep implements PipelineStep {
 
             context.setConversationEnrichment(enhancedEnrichment);
 
-            logger.debug("Topic enrichment completed successfully. Enhanced {} topics", enrichedTopics.size());
+            long totalTime = System.currentTimeMillis() - startTime;
+            logger.info("✅ [PERFORMANCE] Topic enrichment completed in {}ms (cache: {}ms, enrich: {}ms) for {} topics", 
+                totalTime, cacheLoadTime, enrichTime, enrichedTopics.size());
             return PipelineStepResult.success("Topic enrichment completed successfully");
 
         } catch (Exception e) {
-            logger.error("Error during topic enrichment: {}", e.getMessage(), e);
+            long totalTime = System.currentTimeMillis() - startTime;
+            logger.error("Error during topic enrichment after {}ms: {}", totalTime, e.getMessage(), e);
             return PipelineStepResult.success("Topic enrichment failed but continuing: " + e.getMessage());
         }
     }
 
-    private TopicEnrichment enhanceTopicWithUserData(TopicEnrichment topic, List<SlackMessage> messages, PostProcessingContext context) {
-        try {
-            String tenantId = context.getTenantId();
-            String workspaceId = messages.isEmpty() ? null : messages.get(0).getWorkspaceId();
+    /**
+     * ✅ PERFORMANCE FIX: Batch load all users from messages ONCE to avoid N+1 query problem
+     * This replaces hundreds of individual DB calls with a single batch operation
+     */
+    private Map<String, EnrichmentUserDTO> batchLoadAllUsers(List<SlackMessage> messages, String tenantId, String workspaceId) {
+        if (tenantId == null || workspaceId == null) {
+            logger.warn("Cannot batch load users: tenantId={}, workspaceId={}", tenantId, workspaceId);
+            return Map.of();
+        }
 
-            // Build user info map
-            Map<String, EnrichmentUserDTO> userInfos = buildUserInfoMap(messages, tenantId, workspaceId);
+        // Collect all unique user IDs from messages
+        Set<String> allUserIds = messages.stream()
+            .map(msg -> msg.getUniqueUserId() != null ? msg.getUniqueUserId() : msg.getUsername())
+            .filter(Objects::nonNull)
+            .filter(id -> !id.trim().isEmpty())
+            .collect(Collectors.toSet());
+
+        Map<String, EnrichmentUserDTO> userCache = new HashMap<>();
+
+        // Batch load all users from database in one operation
+        for (String userId : allUserIds) {
+            try {
+                Optional<User> userOptional = userService.getUser(tenantId, workspaceId, userId);
+                if (userOptional.isPresent()) {
+                    User user = userOptional.get();
+                    String userName = getFieldValue(user, "name");
+                    if (userName == null || userName.trim().isEmpty()) {
+                        userName = userId;
+                    }
+                    String displayName = getBestDisplayNameFromUser(user, userName);
+
+                    EnrichmentUserDTO userDTO = new EnrichmentUserDTO(
+                        userId,
+                        userName,
+                        displayName,
+                        getImageFromUser(user)
+                    );
+                    userCache.put(userId, userDTO);
+                } else {
+                    // Create fallback DTO for users not in DB
+                    userCache.put(userId, new EnrichmentUserDTO(userId, userId, userId, null));
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to load user {}: {}", userId, e.getMessage());
+                userCache.put(userId, new EnrichmentUserDTO(userId, userId, userId, null));
+            }
+        }
+
+        return userCache;
+    }
+
+    /**
+     * ✅ PERFORMANCE FIX: Build user info map from pre-loaded cache (no DB calls)
+     */
+    private Map<String, EnrichmentUserDTO> buildUserInfoMapFromCache(List<SlackMessage> messages, Map<String, EnrichmentUserDTO> cachedUsers) {
+        return messages.stream()
+            .filter(msg -> {
+                String key = msg.getUniqueUserId() != null ? msg.getUniqueUserId() : msg.getUsername();
+                return key != null && !key.trim().isEmpty();
+            })
+            .collect(Collectors.toMap(
+                msg -> msg.getUniqueUserId() != null ? msg.getUniqueUserId() : msg.getUsername(),
+                msg -> {
+                    String userId = msg.getUniqueUserId() != null ? msg.getUniqueUserId() : msg.getUsername();
+                    // Return cached user or create basic fallback
+                    return cachedUsers.getOrDefault(userId, 
+                        new EnrichmentUserDTO(
+                            userId,
+                            msg.getUsername() != null ? msg.getUsername() : userId,
+                            getBestDisplayNameFromSlackMessage(msg),
+                            msg.getAvatarUrl() != null ? msg.getAvatarUrl() :
+                            msg.getImageOriginal() != null ? msg.getImageOriginal() : msg.getImage72()
+                        ));
+                },
+                (existing, replacement) -> existing
+            ));
+    }
+
+    private TopicEnrichment enhanceTopicWithUserData(TopicEnrichment topic, List<SlackMessage> messages, 
+                                                      PostProcessingContext context, Map<String, EnrichmentUserDTO> cachedUsers) {
+        try {
+            // Build user info map from cache (no DB calls)
+            Map<String, EnrichmentUserDTO> userInfos = buildUserInfoMapFromCache(messages, cachedUsers);
 
             // Enhance text fields with user mentions
             String enhancedShortSummary = TextUtils.replaceSlackMentions(topic.shortSummary(), userInfos);
@@ -103,13 +194,16 @@ public class TopicEnrichmentStep implements PipelineStep {
                 periodEndDate = messages.get(messages.size() - 1).getTimestamp().toString();
             }
 
-            // Extract enhanced people involved - use AI data if available, fallback to message analysis
-            List<EnrichmentUserDTO> enhancedPeopleInvolved = enhancePeopleInvolved(topic.peopleInvolved(), messages, tenantId, workspaceId);
+            String tenantId = context.getTenantId();
+            String workspaceId = messages.isEmpty() ? null : messages.get(0).getWorkspaceId();
 
-            // Extract enhanced summary per person - use AI data if available, fallback to message analysis
-            List<SummaryPerPerson> enhancedSummaryPerPerson = enhanceSummaryPerPerson(topic.summaryPerPerson(), messages, tenantId, workspaceId);
+            // Extract enhanced people involved - use cached data (no DB calls)
+            List<EnrichmentUserDTO> enhancedPeopleInvolved = enhancePeopleInvolvedFromCache(topic.peopleInvolved(), messages, cachedUsers);
 
-            // Extract enhanced suggested replies
+            // Extract enhanced summary per person - use cached data (no DB calls)
+            List<SummaryPerPerson> enhancedSummaryPerPerson = enhanceSummaryPerPersonFromCache(topic.summaryPerPerson(), messages, cachedUsers);
+
+            // Extract enhanced suggested replies - minimal channel lookup only
             List<SuggestedReply> enhancedSuggestedReplies = enhanceSuggestedReplies(topic.suggestedReplies(), tenantId, workspaceId);
 
             // Calculate lastUpdated from the latest message timestamp
@@ -298,6 +392,239 @@ public class TopicEnrichmentStep implements PipelineStep {
     /**
      * Enhance people involved using AI-generated data with full user details
      */
+    /**
+     * ✅ PERFORMANCE FIX: Enhance people involved using cached user data (no DB calls)
+     */
+    private List<EnrichmentUserDTO> enhancePeopleInvolvedFromCache(List<EnrichmentUserDTO> aiPeopleInvolved,
+                                                                     List<SlackMessage> messages,
+                                                                     Map<String, EnrichmentUserDTO> cachedUsers) {
+        // If AI has already provided people involved, enhance those with cached user data
+        if (aiPeopleInvolved != null && !aiPeopleInvolved.isEmpty()) {
+            return aiPeopleInvolved.stream()
+                .map(aiUser -> cachedUsers.getOrDefault(aiUser.id(), aiUser))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        }
+
+        // Fallback: extract from messages using cache
+        return messages.stream()
+            .map(msg -> msg.getUniqueUserId() != null ? msg.getUniqueUserId() : msg.getUsername())
+            .filter(Objects::nonNull)
+            .distinct()
+            .map(userId -> cachedUsers.getOrDefault(userId, new EnrichmentUserDTO(userId, userId, userId, null)))
+            .filter(user -> user.id() != null && !user.id().equals(NOT_AVAILABLE))
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * ✅ PERFORMANCE FIX: Enhance summary per person using cached user data (no DB calls)
+     */
+    private List<SummaryPerPerson> enhanceSummaryPerPersonFromCache(List<SummaryPerPerson> aiSummaryPerPerson,
+                                                                      List<SlackMessage> messages,
+                                                                      Map<String, EnrichmentUserDTO> cachedUsers) {
+        // If AI has already provided summary per person, enhance those with cached user data
+        if (aiSummaryPerPerson != null && !aiSummaryPerPerson.isEmpty()) {
+            return aiSummaryPerPerson.stream()
+                .map(aiSummary -> enhanceSummaryWithCachedUserData(aiSummary, messages, cachedUsers))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        }
+
+        // Fallback: extract from messages using cache
+        Map<String, List<SlackMessage>> messagesByUser = messages.stream()
+            .filter(msg -> msg.getUniqueUserId() != null)
+            .collect(Collectors.groupingBy(SlackMessage::getUniqueUserId));
+
+        return messagesByUser.entrySet().stream()
+            .map(entry -> {
+                String userId = entry.getKey();
+                List<SlackMessage> userMessages = entry.getValue();
+
+                int messageCount = userMessages.size();
+                LocalDateTime firstMessageDate = userMessages.stream()
+                    .map(SlackMessage::getTimestamp)
+                    .filter(Objects::nonNull)
+                    .min(LocalDateTime::compareTo)
+                    .orElse(null);
+
+                LocalDateTime lastMessageDate = userMessages.stream()
+                    .map(SlackMessage::getTimestamp)
+                    .filter(Objects::nonNull)
+                    .max(LocalDateTime::compareTo)
+                    .orElse(null);
+
+                EnrichmentUserDTO userDTO = cachedUsers.getOrDefault(userId, 
+                    new EnrichmentUserDTO(userId, userId, userId, null));
+
+                List<SourceDTO> sources = extractUserSourcesFromCache(userId, messages, cachedUsers);
+
+                return new SummaryPerPerson(
+                    userId,
+                    userDTO.username(),
+                    userDTO.displayName(),
+                    userDTO.imageUrl(),
+                    DEFAULT_SUMMARY_FOR_PERSON,
+                    messageCount,
+                    firstMessageDate,
+                    lastMessageDate,
+                    List.of(),
+                    List.of(),
+                    sources
+                );
+            })
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * ✅ PERFORMANCE FIX: Enhance AI-generated summary with cached user data (no DB calls)
+     */
+    private SummaryPerPerson enhanceSummaryWithCachedUserData(SummaryPerPerson aiSummary,
+                                                                List<SlackMessage> messages,
+                                                                Map<String, EnrichmentUserDTO> cachedUsers) {
+        if (aiSummary == null || aiSummary.id() == null) {
+            return aiSummary;
+        }
+
+        try {
+            String userId = aiSummary.id();
+
+            // Get enhanced user from cache
+            EnrichmentUserDTO enhancedUser = cachedUsers.getOrDefault(userId,
+                new EnrichmentUserDTO(userId, aiSummary.username(), aiSummary.displayName(), aiSummary.imageUrl()));
+
+            // Calculate message statistics from actual messages
+            List<SlackMessage> userMessages = messages.stream()
+                .filter(msg -> userId.equals(msg.getUniqueUserId()))
+                .collect(Collectors.toList());
+
+            int messageCount = userMessages.size();
+            LocalDateTime firstMessageDate = userMessages.stream()
+                .map(SlackMessage::getTimestamp)
+                .filter(Objects::nonNull)
+                .min(LocalDateTime::compareTo)
+                .orElse(aiSummary.firstMessageDate());
+
+            LocalDateTime lastMessageDate = aiSummary.lastMessageDate();
+            if (lastMessageDate == null) {
+                lastMessageDate = userMessages.stream()
+                    .map(SlackMessage::getTimestamp)
+                    .filter(Objects::nonNull)
+                    .max(LocalDateTime::compareTo)
+                    .orElse(null);
+            }
+
+            List<SourceDTO> enhancedSources = extractUserSourcesFromCache(userId, messages, cachedUsers);
+
+            return new SummaryPerPerson(
+                userId,
+                enhancedUser.username(),
+                enhancedUser.displayName(),
+                enhancedUser.imageUrl(),
+                aiSummary.summary(),
+                Math.max(messageCount, aiSummary.messageCount()),
+                firstMessageDate,
+                lastMessageDate,
+                aiSummary.keyContributions(),
+                aiSummary.actionItems(),
+                enhancedSources.isEmpty() ? aiSummary.sources() : enhancedSources
+            );
+
+        } catch (Exception e) {
+            logger.warn("Failed to enhance summary for user {}: {}", aiSummary.id(), e.getMessage());
+            return aiSummary;
+        }
+    }
+
+    /**
+     * ✅ PERFORMANCE FIX: Extract user sources using cached data (no DB calls)
+     */
+    private List<SourceDTO> extractUserSourcesFromCache(String userId, List<SlackMessage> messages, Map<String, EnrichmentUserDTO> cachedUsers) {
+        return messages.stream()
+            .filter(msg -> userId.equals(msg.getUniqueUserId()))
+            .map(msg -> {
+                String permalink = getPermalinkWithFallback(msg);
+                String shortText = createShortTextFromMessageWithCache(msg, cachedUsers);
+                String sourceName = SourceName.normalize(msg.getSource());
+                return new SourceDTO(permalink, shortText, sourceName);
+            })
+            .distinct()
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * ✅ PERFORMANCE FIX: Create short text from message using cached data (no DB calls)
+     */
+    private String createShortTextFromMessageWithCache(SlackMessage msg, Map<String, EnrichmentUserDTO> cachedUsers) {
+        if (msg == null) {
+            return "Unknown message";
+        }
+
+        String content = msg.getText() != null ? msg.getText() : msg.getContent();
+
+        // Resolve username from cache
+        String userId = msg.getUniqueUserId();
+        String username = UNKNOWN_USER;
+        if (userId != null && cachedUsers.containsKey(userId)) {
+            EnrichmentUserDTO userDTO = cachedUsers.get(userId);
+            username = userDTO.displayName() != null ? userDTO.displayName() : userDTO.username();
+        } else if (msg.getUsername() != null) {
+            username = msg.getUsername();
+        } else if (msg.getDisplayName() != null) {
+            username = msg.getDisplayName();
+        } else if (userId != null) {
+            username = userId;
+        }
+
+        if (content == null || content.trim().isEmpty()) {
+            return username + ": (empty message)";
+        }
+
+        // Replace user mentions using cache
+        String processedContent = resolveUserMentionsWithCache(content, cachedUsers);
+
+        String truncatedContent = processedContent.length() > 100 ?
+            processedContent.substring(0, 97) + "..." : processedContent;
+        truncatedContent = truncatedContent.replaceAll("\\\\s+", " ").trim();
+
+        return username + ": " + truncatedContent;
+    }
+
+    /**
+     * ✅ PERFORMANCE FIX: Resolve user mentions using cached data (no DB calls)
+     */
+    private String resolveUserMentionsWithCache(String content, Map<String, EnrichmentUserDTO> cachedUsers) {
+        if (content == null || content.trim().isEmpty()) {
+            return content;
+        }
+
+        Pattern mentionPattern = Pattern.compile("<@([UW][A-Z0-9]+)(?:\\\\|([^>]+))?>");
+        Matcher matcher = mentionPattern.matcher(content);
+
+        StringBuffer result = new StringBuffer();
+
+        try {
+            while (matcher.find()) {
+                String userId = matcher.group(1);
+                String existingName = matcher.group(2);
+
+                String resolvedName = existingName != null ? existingName : userId;
+
+                if (cachedUsers.containsKey(userId)) {
+                    EnrichmentUserDTO userDTO = cachedUsers.get(userId);
+                    resolvedName = userDTO.displayName() != null ? userDTO.displayName() : userDTO.username();
+                }
+
+                matcher.appendReplacement(result, "@" + Matcher.quoteReplacement(resolvedName));
+            }
+            matcher.appendTail(result);
+            return result.toString();
+        } catch (Exception e) {
+            logger.warn("Error processing user mentions in content: {}", e.getMessage());
+            return content;
+        }
+    }
+
+    // Keep original methods for channel resolution (minimal DB calls)
     private List<EnrichmentUserDTO> enhancePeopleInvolved(List<EnrichmentUserDTO> aiPeopleInvolved,
                                                          List<SlackMessage> messages,
                                                          String tenantId,
