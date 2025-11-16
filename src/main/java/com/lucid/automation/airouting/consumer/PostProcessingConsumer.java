@@ -469,6 +469,10 @@ public class PostProcessingConsumer {
             // Use SlidingWindowService to mark the original messages as processed
             slidingWindowService.markMessagesAsProcessedByIds(originalMessageIds, tenantId, deemergeUserId);
 
+            // Clean up marked messages after successful processing
+            // This cleanup was moved here from SlidingWindowService to prevent premature deletion
+            slidingWindowService.cleanupMessagesByIds(originalMessageIds, tenantId, deemergeUserId);
+
         } catch (Exception e) {
             logger.error("❌ [MESSAGE-PROCESSING] Failed to mark original messages as processed: {}", e.getMessage(), e);
             // Don't throw - this is a status update issue, not a critical pipeline failure

@@ -663,9 +663,9 @@ public class SlidingWindowService {
                     logger.info("✅ Batch {} Success: Sent {} messages for AI processing ({} were new, {} were already processed) 🤖",
                                batchNumber, currentBatch.size(), unprocessedInBatch, processedInBatch);
 
-                    // Clean up this batch after successful sending for AI processing
-                    // Keep overlap messages for next batch but don't mark as processed yet
-                    cleanupBatchMessages(currentBatch, overlapSize, batchNumber);
+                    // NOTE: Cleanup moved to PostProcessingConsumer after messages are marked as processed
+                    // This prevents premature deletion before AI processing completes (~20 minutes)
+                    // cleanupBatchMessages(currentBatch, overlapSize, batchNumber);
 
                 } catch (Exception e) {
                     logger.error("💥 Batch {} Failed: Error processing messages [{}-{}] 😱",
@@ -907,6 +907,45 @@ public class SlidingWindowService {
         } catch (Exception e) {
             logger.error("💥 Processing Update Failed: Error marking messages as processed by IDs: {} 😰", e.getMessage(), e);
             throw new RuntimeException("Failed to mark messages as processed by IDs", e);
+        }
+    }
+
+    /**
+     * Clean up messages by their IDs after successful AI processing.
+     * This method soft deletes messages that have been marked as processed.
+     * Called from PostProcessingConsumer after successful AI enrichment.
+     *
+     * @param messageIds List of message IDs to clean up
+     * @param tenantId Tenant ID for message lookup
+     * @param deemergeUserId DeemergeUserId for message lookup
+     */
+    public void cleanupMessagesByIds(List<String> messageIds, String tenantId, String deemergeUserId) {
+        if (messageIds == null || messageIds.isEmpty()) {
+            logger.debug("🧹 No Message IDs to Clean: Empty message ID list provided");
+            return;
+        }
+
+        logger.info("🧹 [MESSAGE-CLEANUP] Starting cleanup of {} messages | Tenant: {} | User: {}",
+                   messageIds.size(), tenantId, deemergeUserId);
+
+        try {
+            int deletedCount = 0;
+            for (String messageId : messageIds) {
+                try {
+                    messageService.softDeleteById(messageId, "SYSTEM", "AI_PROCESSING_COMPLETE");
+                    deletedCount++;
+                } catch (Exception e) {
+                    logger.error("❌ [MESSAGE-CLEANUP] Failed to soft delete message {}: {}", messageId, e.getMessage());
+                    // Continue with other messages
+                }
+            }
+
+            logger.info("✅ [MESSAGE-CLEANUP] Successfully cleaned up {}/{} messages after AI processing",
+                       deletedCount, messageIds.size());
+
+        } catch (Exception e) {
+            logger.error("💥 [MESSAGE-CLEANUP] Error during message cleanup: {}", e.getMessage(), e);
+            // Don't throw - cleanup failure shouldn't stop the pipeline
         }
     }
 

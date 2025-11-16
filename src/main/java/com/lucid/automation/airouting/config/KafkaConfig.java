@@ -98,7 +98,7 @@ public class KafkaConfig {
 
         // BEST PRACTICES: Optimized for AI processing workloads
         // Max Poll Interval: Time consumer can spend processing before being kicked out
-        configProps.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 900000);  // 15 minutes (AI calls can be slow)
+        configProps.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 1800000);  // 30 minutes (AI enrichment takes ~20 min)
 
         // Session Timeout: How long consumer can be silent before being considered dead
         configProps.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 300000);    // 5 minutes (reasonable for stability)
@@ -219,7 +219,7 @@ public class KafkaConfig {
         configProps.put(ConsumerConfig.FETCH_MAX_BYTES_CONFIG, 10485760); // 10 MB total fetch size
 
         // Timeout settings for large message processing
-        configProps.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 900000); // 15 minutes (AI processing)
+        configProps.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 1800000); // 30 minutes (AI enrichment takes ~20 min)
         configProps.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 300000); // 5 minutes
         configProps.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 90000); // 1.5 minutes
         configProps.put(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG, 40000); // 40 seconds
