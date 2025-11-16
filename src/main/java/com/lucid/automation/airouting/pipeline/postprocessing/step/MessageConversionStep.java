@@ -10,10 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -34,6 +31,7 @@ public class MessageConversionStep implements PipelineStep {
 
     @Override
     public PipelineStepResult execute(PostProcessingContext context) {
+        long startTime = System.currentTimeMillis();
         logger.debug("Executing message conversion step");
 
         try {
@@ -48,7 +46,15 @@ public class MessageConversionStep implements PipelineStep {
 
             List<SlackMessage> requestMessages;
             try {
-                requestMessages = convertToSlackMessages(requestMapList);
+                // ✅ PERFORMANCE FIX: Batch load all channels ONCE before processing messages
+                Map<String, String> channelCache = batchLoadAllChannels(requestMapList);
+                long cacheLoadTime = System.currentTimeMillis() - startTime;
+                logger.info("⚡ [PERFORMANCE] Loaded {} channels in {}ms (avoiding {} individual DB calls)", 
+                    channelCache.size(), cacheLoadTime, channelCache.size());
+
+                // Convert messages using cached channel data
+                requestMessages = convertToSlackMessagesWithCache(requestMapList, channelCache);
+                
                 // Log permaLink status for debugging
                 long messagesWithPermaLink = requestMessages.stream()
                     .mapToLong(msg -> msg.getPermaLink() != null && !msg.getPermaLink().trim().isEmpty() ? 1 : 0)
@@ -65,18 +71,90 @@ public class MessageConversionStep implements PipelineStep {
             String responseResult = (String) aiResultMap.get("response");
             context.setResponseResult(responseResult);
 
-            logger.debug("Message conversion completed successfully. Converted {} messages", requestMessages.size());
+            long totalTime = System.currentTimeMillis() - startTime;
+            logger.info("✅ [PERFORMANCE] Message conversion completed in {}ms. Converted {} messages", 
+                totalTime, requestMessages.size());
             return PipelineStepResult.success("Message conversion completed successfully");
 
         } catch (Exception e) {
-            logger.error("Error during message conversion: {}", e.getMessage(), e);
+            long totalTime = System.currentTimeMillis() - startTime;
+            logger.error("Error during message conversion after {}ms: {}", totalTime, e.getMessage(), e);
             return PipelineStepResult.failure("Message conversion error: " + e.getMessage(), e);
         }
     }
 
     /**
-     * Convert a list of LinkedHashMap objects to SlackMessage objects
+     * ✅ PERFORMANCE FIX: Batch load all channels from message list ONCE to avoid N+1 query problem
+     * This replaces 10-30 individual DB calls with a single batch operation
      */
+    private Map<String, String> batchLoadAllChannels(List<Map<String, Object>> requestMapList) {
+        if (requestMapList == null || requestMapList.isEmpty()) {
+            return Map.of();
+        }
+
+        // Collect all unique channel IDs from messages
+        Set<String> allChannelIds = requestMapList.stream()
+            .map(map -> (String) map.get("channelId"))
+            .filter(Objects::nonNull)
+            .filter(id -> !id.trim().isEmpty())
+            .collect(Collectors.toSet());
+
+        Map<String, String> channelCache = new HashMap<>();
+
+        // Batch load all channels from database
+        for (String channelId : allChannelIds) {
+            try {
+                Optional<Channel> channelOptional = channelService.findByChannelId(channelId.trim());
+                if (channelOptional.isPresent()) {
+                    Channel channel = channelOptional.get();
+                    channelCache.put(channelId, channel.getChannelName());
+                } else {
+                    channelCache.put(channelId, channelId); // Fallback to ID
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to load channel {}: {}", channelId, e.getMessage());
+                channelCache.put(channelId, channelId); // Fallback to ID
+            }
+        }
+
+        return channelCache;
+    }
+
+    /**
+     * ✅ PERFORMANCE FIX: Convert messages using pre-loaded channel cache (no DB calls)
+     */
+    private List<SlackMessage> convertToSlackMessagesWithCache(List<Map<String, Object>> requestMapList, 
+                                                                 Map<String, String> channelCache) {
+        if (requestMapList == null) {
+            return new ArrayList<>();
+        }
+
+        return requestMapList.stream()
+            .map(this::convertMapToSlackMessage)
+            .map(msg -> ensureChannelNameResolvedFromCache(msg, channelCache))
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * ✅ PERFORMANCE FIX: Resolve channel name from cache instead of DB
+     */
+    private SlackMessage ensureChannelNameResolvedFromCache(SlackMessage message, Map<String, String> channelCache) {
+        if ((message.getChannelName() == null || message.getChannelName().trim().isEmpty()) &&
+            message.getChannelId() != null && !message.getChannelId().trim().isEmpty()) {
+
+            String resolvedChannelName = channelCache.getOrDefault(message.getChannelId(), message.getChannelId());
+            message.setChannelName(resolvedChannelName);
+            logger.debug("Resolved channelName '{}' for channelId '{}' from cache", 
+                       resolvedChannelName, message.getChannelId());
+        }
+        return message;
+    }
+
+    /**
+     * Convert a list of LinkedHashMap objects to SlackMessage objects
+     * @deprecated Use convertToSlackMessagesWithCache for better performance
+     */
+    @Deprecated
     private List<SlackMessage> convertToSlackMessages(List<Map<String, Object>> requestMapList) {
         if (requestMapList == null) {
             return new ArrayList<>();
