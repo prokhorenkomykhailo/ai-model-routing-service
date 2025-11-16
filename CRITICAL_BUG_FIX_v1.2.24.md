@@ -1,8 +1,8 @@
 # AI Routing Service v1.2.24 - Critical Bug Fix
 
-**Date:** November 16, 2025  
-**Author:** vudu  
-**Version:** 1.2.24  
+**Date:** November 16, 2025
+**Author:** vudu
+**Version:** 1.2.24
 **Previous Version:** 1.2.23
 
 ## Critical Issues Fixed
@@ -23,7 +23,7 @@
 - Next scheduler cycle (15 min) → loads same messages again
 - **INFINITE LOOP**
 
-**Fix:** 
+**Fix:**
 ```java
 // SlidingWindowService.java line ~668
 // BEFORE:
@@ -96,7 +96,7 @@ configProps.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 1800000);  // 30 min
 1. **No more infinite reprocessing loops**
    - Messages marked as processed after AI completion
    - Same messages won't be reloaded by scheduler
-   
+
 2. **Reduced AI API costs**
    - Each message processed exactly once (unless AI fails)
    - No duplicate enrichment requests
@@ -195,6 +195,6 @@ docker compose up -d ai-routing-service
 - Agent guide: `docs/AGENTS.md`
 
 ---
-**Status:** Ready for deployment ✅  
-**Risk Level:** Low (fixes critical bug, minimal side effects)  
+**Status:** Ready for deployment ✅
+**Risk Level:** Low (fixes critical bug, minimal side effects)
 **Testing:** Required monitoring for 30+ minutes post-deployment

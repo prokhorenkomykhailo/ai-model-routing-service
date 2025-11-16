@@ -62,7 +62,7 @@ public class TopicEnrichmentStep implements PipelineStep {
             // ✅ PERFORMANCE FIX: Batch load ALL users and channels ONCE at the beginning
             Map<String, EnrichmentUserDTO> cachedUsers = batchLoadAllUsers(messages, tenantId, workspaceId);
             long cacheLoadTime = System.currentTimeMillis() - startTime;
-            logger.info("⚡ [PERFORMANCE] Loaded {} users in {}ms (avoiding {} individual DB calls)", 
+            logger.info("⚡ [PERFORMANCE] Loaded {} users in {}ms (avoiding {} individual DB calls)",
                 cachedUsers.size(), cacheLoadTime, cachedUsers.size());
 
             // Enhance each topic with detailed information using cached data
@@ -83,7 +83,7 @@ public class TopicEnrichmentStep implements PipelineStep {
             context.setConversationEnrichment(enhancedEnrichment);
 
             long totalTime = System.currentTimeMillis() - startTime;
-            logger.info("✅ [PERFORMANCE] Topic enrichment completed in {}ms (cache: {}ms, enrich: {}ms) for {} topics", 
+            logger.info("✅ [PERFORMANCE] Topic enrichment completed in {}ms (cache: {}ms, enrich: {}ms) for {} topics",
                 totalTime, cacheLoadTime, enrichTime, enrichedTopics.size());
             return PipelineStepResult.success("Topic enrichment completed successfully");
 
@@ -159,7 +159,7 @@ public class TopicEnrichmentStep implements PipelineStep {
                 msg -> {
                     String userId = msg.getUniqueUserId() != null ? msg.getUniqueUserId() : msg.getUsername();
                     // Return cached user or create basic fallback
-                    return cachedUsers.getOrDefault(userId, 
+                    return cachedUsers.getOrDefault(userId,
                         new EnrichmentUserDTO(
                             userId,
                             msg.getUsername() != null ? msg.getUsername() : userId,
@@ -172,7 +172,7 @@ public class TopicEnrichmentStep implements PipelineStep {
             ));
     }
 
-    private TopicEnrichment enhanceTopicWithUserData(TopicEnrichment topic, List<SlackMessage> messages, 
+    private TopicEnrichment enhanceTopicWithUserData(TopicEnrichment topic, List<SlackMessage> messages,
                                                       PostProcessingContext context, Map<String, EnrichmentUserDTO> cachedUsers) {
         try {
             // Build user info map from cache (no DB calls)
@@ -453,7 +453,7 @@ public class TopicEnrichmentStep implements PipelineStep {
                     .max(LocalDateTime::compareTo)
                     .orElse(null);
 
-                EnrichmentUserDTO userDTO = cachedUsers.getOrDefault(userId, 
+                EnrichmentUserDTO userDTO = cachedUsers.getOrDefault(userId,
                     new EnrichmentUserDTO(userId, userId, userId, null));
 
                 List<SourceDTO> sources = extractUserSourcesFromCache(userId, messages, cachedUsers);

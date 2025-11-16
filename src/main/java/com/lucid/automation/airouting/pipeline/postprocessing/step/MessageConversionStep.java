@@ -49,12 +49,12 @@ public class MessageConversionStep implements PipelineStep {
                 // ✅ PERFORMANCE FIX: Batch load all channels ONCE before processing messages
                 Map<String, String> channelCache = batchLoadAllChannels(requestMapList);
                 long cacheLoadTime = System.currentTimeMillis() - startTime;
-                logger.info("⚡ [PERFORMANCE] Loaded {} channels in {}ms (avoiding {} individual DB calls)", 
+                logger.info("⚡ [PERFORMANCE] Loaded {} channels in {}ms (avoiding {} individual DB calls)",
                     channelCache.size(), cacheLoadTime, channelCache.size());
 
                 // Convert messages using cached channel data
                 requestMessages = convertToSlackMessagesWithCache(requestMapList, channelCache);
-                
+
                 // Log permaLink status for debugging
                 long messagesWithPermaLink = requestMessages.stream()
                     .mapToLong(msg -> msg.getPermaLink() != null && !msg.getPermaLink().trim().isEmpty() ? 1 : 0)
@@ -72,7 +72,7 @@ public class MessageConversionStep implements PipelineStep {
             context.setResponseResult(responseResult);
 
             long totalTime = System.currentTimeMillis() - startTime;
-            logger.info("✅ [PERFORMANCE] Message conversion completed in {}ms. Converted {} messages", 
+            logger.info("✅ [PERFORMANCE] Message conversion completed in {}ms. Converted {} messages",
                 totalTime, requestMessages.size());
             return PipelineStepResult.success("Message conversion completed successfully");
 
@@ -123,7 +123,7 @@ public class MessageConversionStep implements PipelineStep {
     /**
      * ✅ PERFORMANCE FIX: Convert messages using pre-loaded channel cache (no DB calls)
      */
-    private List<SlackMessage> convertToSlackMessagesWithCache(List<Map<String, Object>> requestMapList, 
+    private List<SlackMessage> convertToSlackMessagesWithCache(List<Map<String, Object>> requestMapList,
                                                                  Map<String, String> channelCache) {
         if (requestMapList == null) {
             return new ArrayList<>();
@@ -144,7 +144,7 @@ public class MessageConversionStep implements PipelineStep {
 
             String resolvedChannelName = channelCache.getOrDefault(message.getChannelId(), message.getChannelId());
             message.setChannelName(resolvedChannelName);
-            logger.debug("Resolved channelName '{}' for channelId '{}' from cache", 
+            logger.debug("Resolved channelName '{}' for channelId '{}' from cache",
                        resolvedChannelName, message.getChannelId());
         }
         return message;
