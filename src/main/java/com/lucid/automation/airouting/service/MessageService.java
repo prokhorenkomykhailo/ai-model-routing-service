@@ -198,6 +198,78 @@ public class MessageService {
     }
 
     /**
+     * Batch soft delete messages by marking them as deleted without removing from Redis.
+     * Optimized version that uses batch operations to prevent N+1 query problem.
+     * Messages are excluded from default queries but retained for audit/recovery (30 days).
+     *
+     * @param messageIds List of message IDs to soft delete
+     * @param deletedBy User or admin ID who triggered the deletion
+     * @param reason Deletion reason (e.g., AI_PROCESSING_COMPLETE, BATCH_CLEANUP)
+     * @return Number of messages successfully soft deleted
+     * @author vudu
+     */
+    public int softDeleteByIds(List<String> messageIds, String deletedBy, String reason) {
+        if (messageIds == null || messageIds.isEmpty()) {
+            logger.debug("⚠️ [BATCH-SOFT-DELETE] No message IDs provided");
+            return 0;
+        }
+
+        long startTime = System.currentTimeMillis();
+        logger.info("🧹 [BATCH-SOFT-DELETE] Starting batch deletion of {} messages | By: {} | Reason: {}",
+                   messageIds.size(), deletedBy, reason);
+
+        try {
+            // Batch fetch all messages (1 operation instead of N)
+            List<Message> messages = new ArrayList<>();
+            messageRepository.findAllById(messageIds).forEach(messages::add);
+
+            if (messages.isEmpty()) {
+                logger.warn("⚠️ [BATCH-SOFT-DELETE] No messages found for provided IDs");
+                return 0;
+            }
+
+            long currentTime = System.currentTimeMillis();
+            long retentionDays = 30;
+            long retentionExpiryTimestamp = currentTime + (retentionDays * 24 * 60 * 60 * 1000L);
+            String effectiveDeletedBy = deletedBy != null ? deletedBy : "SYSTEM";
+            String effectiveReason = reason != null ? reason : "MANUAL";
+
+            // Batch update all messages in memory
+            int updatedCount = 0;
+            for (Message message : messages) {
+                // Skip already deleted messages
+                if (Boolean.TRUE.equals(message.getIsDeleted())) {
+                    continue;
+                }
+
+                message.setIsDeleted(true);
+                message.setDeletedAt(currentTime);
+                message.setDeletionReason(effectiveReason);
+                message.setDeletedBy(effectiveDeletedBy);
+                message.setRetentionExpiry(retentionExpiryTimestamp);
+                updatedCount++;
+            }
+
+            // Batch save all messages (1 operation instead of N)
+            messageRepository.saveAll(messages);
+
+            long duration = System.currentTimeMillis() - startTime;
+            logger.info("✅ [BATCH-SOFT-DELETE] Successfully marked {} messages as deleted in {}ms | " +
+                       "By: {} | Reason: {} | ExpiresAt: {} | Performance: {}/sec",
+                       updatedCount, duration, effectiveDeletedBy, effectiveReason,
+                       Instant.ofEpochMilli(retentionExpiryTimestamp),
+                       updatedCount > 0 ? String.format("%.1f", (updatedCount * 1000.0) / duration) : "N/A");
+
+            return updatedCount;
+
+        } catch (Exception e) {
+            long duration = System.currentTimeMillis() - startTime;
+            logger.error("❌ [BATCH-SOFT-DELETE] Failed after {}ms: {}", duration, e.getMessage(), e);
+            throw new RuntimeException("Batch soft delete failed", e);
+        }
+    }
+
+    /**
      * Hard delete an expired message (physical removal from Redis)
      * This method should ONLY be called by the retention cleanup job
      *

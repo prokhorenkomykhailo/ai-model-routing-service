@@ -734,21 +734,13 @@ public class SlidingWindowService {
         try {
             // Messages are already sorted chronologically (oldest first) by loadMessagesForWorkspace
             // Get oldest messages to soft delete, keeping newest for overlap
-            List<Message> messagesForDeletion = activeMessages.stream()
+            List<String> messageIdsForDeletion = activeMessages.stream()
                     .limit(messagesToDelete)
+                    .map(Message::getId)
                     .collect(Collectors.toList());
 
-            // Soft delete messages one by one
-            int deletedCount = 0;
-            for (Message message : messagesForDeletion) {
-                try {
-                    messageService.softDeleteById(message.getId(), "SYSTEM", "BATCH_CLEANUP");
-                    deletedCount++;
-                } catch (Exception e) {
-                    logger.error("❌ [SOFT-DELETE] Failed to soft delete message {} during batch cleanup: {}",
-                               message.getId(), e.getMessage());
-                }
-            }
+            // Use batch soft delete to prevent N+1 query problem
+            int deletedCount = messageService.softDeleteByIds(messageIdsForDeletion, "SYSTEM", "BATCH_CLEANUP");
 
             logger.info("✅ [SOFT-DELETE] Cleanup Complete: Batch {}: Soft deleted {} processed messages, keeping {} for overlap (tidying up! 🧽)",
                        batchNumber, deletedCount, messagesToKeep);
@@ -775,10 +767,10 @@ public class SlidingWindowService {
         try {
             logger.info("🧹 Workspace Cleanup: Starting cleanup for workspaceId: {}, keeping {} recent messages 🏠",
                        workspace.getId(), keepRecentCount);
-            String tenanntId = workspace.getTenantId();
+            String tenantId = workspace.getTenantId();
             String workspaceId = workspace.getId();
             String deemergeUserId = workspace.getDeemergeUserId();
-            List<Message> allMessages = loadMessagesForWorkspace(tenanntId, deemergeUserId);
+            List<Message> allMessages = loadMessagesForWorkspace(tenantId, deemergeUserId);
 
             if (allMessages.isEmpty()) {
                 logger.info("📭 Clean Workspace: No messages found for cleanup in workspaceId: {} (already spotless! ✨)", workspaceId);
@@ -800,22 +792,14 @@ public class SlidingWindowService {
             // Messages are already sorted (oldest first), reverse to get newest first
             Collections.reverse(activeMessages);
 
-            // Get messages to soft delete (skip the first keepRecentCount messages)
-            List<Message> messagesToDelete = activeMessages.stream()
+            // Get message IDs to soft delete (skip the first keepRecentCount messages)
+            List<String> messageIdsToDelete = activeMessages.stream()
                     .skip(keepRecentCount)
+                    .map(Message::getId)
                     .collect(Collectors.toList());
 
-            // Soft delete messages one by one
-            int deletedCount = 0;
-            for (Message message : messagesToDelete) {
-                try {
-                    messageService.softDeleteById(message.getId(), "SYSTEM", "SLIDING_WINDOW_CLEANUP");
-                    deletedCount++;
-                } catch (Exception e) {
-                    logger.error("❌ [SOFT-DELETE] Failed to soft delete message {} during workspace cleanup: {}",
-                               message.getId(), e.getMessage());
-                }
-            }
+            // Use batch soft delete to prevent N+1 query problem
+            int deletedCount = messageService.softDeleteByIds(messageIdsToDelete, "SYSTEM", "SLIDING_WINDOW_CLEANUP");
 
             logger.info("✅ [SOFT-DELETE] Cleanup Success: Soft deleted {} old messages, kept {} recent ones (workspace is now tidy! 🧹)",
                        deletedCount, keepRecentCount);
@@ -929,16 +913,8 @@ public class SlidingWindowService {
                    messageIds.size(), tenantId, deemergeUserId);
 
         try {
-            int deletedCount = 0;
-            for (String messageId : messageIds) {
-                try {
-                    messageService.softDeleteById(messageId, "SYSTEM", "AI_PROCESSING_COMPLETE");
-                    deletedCount++;
-                } catch (Exception e) {
-                    logger.error("❌ [MESSAGE-CLEANUP] Failed to soft delete message {}: {}", messageId, e.getMessage());
-                    // Continue with other messages
-                }
-            }
+            // Use batch soft delete to prevent N+1 query problem
+            int deletedCount = messageService.softDeleteByIds(messageIds, "SYSTEM", "AI_PROCESSING_COMPLETE");
 
             logger.info("✅ [MESSAGE-CLEANUP] Successfully cleaned up {}/{} messages after AI processing",
                        deletedCount, messageIds.size());
