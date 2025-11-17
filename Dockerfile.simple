@@ -1,5 +1,18 @@
 FROM eclipse-temurin:17-jre-alpine
+
+# Add a non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
 WORKDIR /app
-COPY target/lucid-ai-routing-service-1.2.23.jar app.jar
+
+# Copy the JAR file
+COPY target/lucid-ai-routing-service-*.jar app.jar
+
+# Change ownership
+RUN chown -R appuser:appgroup /app
+
+USER appuser
+
 EXPOSE 8083
+
 ENTRYPOINT ["java", "-jar", "app.jar"]

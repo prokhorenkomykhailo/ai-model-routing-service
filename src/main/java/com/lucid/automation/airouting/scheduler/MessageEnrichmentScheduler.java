@@ -388,6 +388,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
 
     /**
      * Filters messages to only include recent ones based on configured age threshold.
+     * Old messages are marked as processed to prevent reloading them in future cycles.
      * This prevents processing very old messages that may no longer be relevant.
      */
     private List<Message> filterRecentMessages(final List<Message> messages,
@@ -408,6 +409,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                 LocalDateTime.ofEpochSecond(cutoffEpochSeconds, 0, ZoneOffset.UTC));
 
             final List<Message> recentMessages = new ArrayList<>();
+            final List<Message> oldMessages = new ArrayList<>();
             int oldMessageCount = 0;
             int invalidTimestampCount = 0;
 
@@ -430,6 +432,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                         recentMessages.add(message);
                     } else {
                         oldMessageCount++;
+                        oldMessages.add(message);
                         log.debug("⏰ [MESSAGE-FILTER] Excluding old message {} (timestamp: {}, format: {}, {} days old)",
                             message.getId(), messageTs, TimestampUtil.getTimestampFormatDescription(messageTs),
                             (cutoffEpochSeconds - messageEpochSeconds) / 86400);
@@ -443,13 +446,27 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                 }
             }
 
+            // Mark old messages as processed to prevent reloading them
+            if (!oldMessages.isEmpty()) {
+                try {
+                    log.info("📝 [OLD-MESSAGE-CLEANUP] Marking {} old messages as processed for workspace {}",
+                           oldMessages.size(), workspaceName);
+                    slidingWindowService.markMessagesAsProcessed(oldMessages);
+                    log.info("✅ [OLD-MESSAGE-CLEANUP] Successfully marked {} old messages as processed",
+                           oldMessages.size());
+                } catch (Exception e) {
+                    log.error("❌ [OLD-MESSAGE-CLEANUP] Failed to mark old messages as processed: {}",
+                            e.getMessage(), e);
+                }
+            }
+
             // Check if we have sufficient recent messages
             if (recentMessages.size() < minRecentMessages) {
-                log.warn("⚠️ [MESSAGE-FILTER] Batch #{} for workspace {} has only {} recent messages (minimum: {}) - {} old, {} invalid timestamps",
+                log.warn("⚠️ [MESSAGE-FILTER] Batch #{} for workspace {} has only {} recent messages (minimum: {}) - {} old (marked processed), {} invalid timestamps",
                     batchNumber, workspaceName, recentMessages.size(), minRecentMessages,
                     oldMessageCount, invalidTimestampCount);
             } else {
-                log.info("✅ [MESSAGE-FILTER] Batch #{} for workspace {} filtered: {} recent, {} old (>{}d), {} invalid timestamps",
+                log.info("✅ [MESSAGE-FILTER] Batch #{} for workspace {} filtered: {} recent, {} old (>{}d, marked processed), {} invalid timestamps",
                     batchNumber, workspaceName, recentMessages.size(), oldMessageCount,
                     maxMessageAgeDays, invalidTimestampCount);
             }
