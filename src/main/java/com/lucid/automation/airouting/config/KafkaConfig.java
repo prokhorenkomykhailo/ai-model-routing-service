@@ -236,6 +236,11 @@ public class KafkaConfig {
         factory.setConsumerFactory(aiMessageConsumerFactory());
         factory.setCommonErrorHandler(defaultErrorHandler());
 
+        // CONCURRENT PROCESSING: 5 threads for parallel AI enrichment processing
+        factory.setConcurrency(5);
+        
+        logger.info("✅ [KAFKA-CONFIG] AI Message listener factory initialized | Concurrency: 5 threads");
+
         // Configure manual acknowledgment mode
         factory.getContainerProperties().setAckMode(AckMode.MANUAL_IMMEDIATE);
 

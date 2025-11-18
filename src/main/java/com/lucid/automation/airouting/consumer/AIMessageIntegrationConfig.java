@@ -13,17 +13,20 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.integration.channel.DirectChannel;
+import org.springframework.integration.channel.ExecutorChannel;
 import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.kafka.dsl.Kafka;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.kafka.support.KafkaHeaders;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessagingException;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageHeaders;
+import org.springframework.messaging.support.MessageBuilder;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -41,45 +44,61 @@ public class AIMessageIntegrationConfig {
     @Value("${kafka.topics.pre-ai-responses:pre.ai.responses.queue}")
     private String preAiResponsesTopic;
 
-    private final ConsumerFactory<String, AIMessage> aiMessageListenerContainerFactory;
+    private final ConsumerFactory<String, AIMessage> aiMessageConsumerFactory;
     private final AIProviderFactory providerFactory;
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final EnrichmentJobProgressService progressService;
 
     @Bean
     public MessageChannel aiEnrichInputChannel() {
-        return new DirectChannel();
+        // Use ExecutorChannel for concurrent processing across channels
+        return new ExecutorChannel(aiEnrichExecutor());
     }
 
     @Bean
     public MessageChannel aiEnrichTransformChannel() {
-        return new DirectChannel();
+        return new ExecutorChannel(aiEnrichExecutor());
     }
 
     @Bean
     public MessageChannel aiEnrichProcessChannel() {
-        return new DirectChannel();
+        return new ExecutorChannel(aiEnrichExecutor());
     }
 
     @Bean
     public MessageChannel aiEnrichResponseChannel() {
-        return new DirectChannel();
+        return new ExecutorChannel(aiEnrichExecutor());
+    }
+
+    @Bean
+    public java.util.concurrent.Executor aiEnrichExecutor() {
+        // Thread pool for concurrent message processing in Integration channels
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(5);
+        executor.setMaxPoolSize(10);
+        executor.setQueueCapacity(25);
+        executor.setThreadNamePrefix("ai-enrich-");
+        executor.initialize();
+        logger.info("✅ [AI-INTEGRATION] Executor initialized | Core: 5 threads | Max: 10 threads");
+        return executor;
     }
 
     @Bean
     public IntegrationFlow aiEnrichKafkaListenerFlow() {
         return IntegrationFlow
-                .from(Kafka.messageDrivenChannelAdapter(aiMessageListenerContainerFactory, aiEnrichTopic)
+                .from(Kafka.messageDrivenChannelAdapter(aiMessageConsumerFactory, aiEnrichTopic)
                         .id("aiEnrichKafkaListenerAdapter")
                         // Ensure acknowledgment header is propagated through the flow
-                        .configureListenerContainer(spec ->
-                            spec.ackMode(org.springframework.kafka.listener.ContainerProperties.AckMode.MANUAL_IMMEDIATE)
-                        ))
+                        // CONCURRENT PROCESSING: 5 concurrent Kafka consumers
+                        .configureListenerContainer(spec -> {
+                            spec.ackMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+                            spec.concurrency(5);
+                        }))
                 .channel(aiEnrichInputChannel())
                 .transform(Message.class, message -> {
                     // Transform while preserving headers including acknowledgment
                     AIMessage transformedPayload = transformAIMessage((AIMessage) message.getPayload());
-                    return org.springframework.messaging.support.MessageBuilder
+                    return MessageBuilder
                             .withPayload(transformedPayload)
                             .copyHeaders(message.getHeaders())
                             .build();
@@ -252,7 +271,7 @@ public class AIMessageIntegrationConfig {
                 "AI enrichment completed successfully using provider: " + provider.getProviderId());
 
 
-            return org.springframework.messaging.support.MessageBuilder
+            return MessageBuilder
                 .withPayload(response)
                 .copyHeaders(headers)
                 .setHeader("ai.reply.topic", aiMessage.getReplyTopic())
@@ -273,7 +292,7 @@ public class AIMessageIntegrationConfig {
 
             Map<String, Object> errorResponse = createErrorResponse(aiMessage, e.getMessage());
 
-            return org.springframework.messaging.support.MessageBuilder
+            return MessageBuilder
                 .withPayload(errorResponse)
                 .copyHeaders(headers)
                 .setHeader("ai.reply.topic", aiMessage.getReplyTopic())
