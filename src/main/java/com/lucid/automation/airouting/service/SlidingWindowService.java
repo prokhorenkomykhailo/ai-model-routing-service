@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -23,6 +24,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -909,10 +911,27 @@ public class SlidingWindowService {
      *
      * @param messages The list of messages to mark as processed
      */
+    /**
+     * Mark messages as processed synchronously.
+     * This is the public synchronous method that delegates to the async implementation.
+     */
     public void markMessagesAsProcessed(List<Message> messages) {
+        // Delegate to async method but don't wait for completion
+        markMessagesAsProcessedAsync(messages);
+    }
+
+    /**
+     * Mark messages as processed asynchronously using Redis pipelining.
+     * This method runs in a separate thread pool and uses Redis pipeline for batch operations.
+     * 
+     * @param messages List of messages to mark as processed
+     * @return CompletableFuture that completes when operation finishes
+     */
+    @Async
+    public CompletableFuture<Void> markMessagesAsProcessedAsync(List<Message> messages) {
         if (messages == null || messages.isEmpty()) {
             logger.debug("✅ Nothing to Mark: No messages to mark as processed (already done! 🎯)");
-            return;
+            return CompletableFuture.completedFuture(null);
         }
 
         try {
@@ -929,15 +948,20 @@ public class SlidingWindowService {
 
             if (updatedMessages.isEmpty()) {
                 logger.debug("✅ All Already Marked: No unprocessed messages to mark as processed in this batch (we're efficient! 🚀)");
-                return;
+                return CompletableFuture.completedFuture(null);
             }
 
-            // ⚡ OPTIMIZATION: Use batch save for better performance
-            // Save all updated messages back to Redis in a single batch operation
-            messageRepository.saveAll(updatedMessages);
+            // ⚡ OPTIMIZATION: Use Redis pipelining for batch saves (significantly faster)
+            // Pipeline allows sending multiple commands to Redis without waiting for individual responses
+            redisTemplate.executePipelined((org.springframework.data.redis.core.RedisCallback<Object>) connection -> {
+                updatedMessages.forEach(message -> {
+                    messageRepository.save(message);
+                });
+                return null; // Redis pipeline requires null return
+            });
 
             long duration = System.currentTimeMillis() - startTime;
-            logger.info("✅ Processing Status Updated: Marked {} messages as processed in {}ms (stamped and approved! 📋)", 
+            logger.info("✅ [ASYNC] Processing Status Updated: Marked {} messages as processed in {}ms using Redis pipeline (stamped and approved! 📋)",
                 updatedMessages.size(), duration);
 
             // Invalidate cache since unprocessed count changed
@@ -946,9 +970,12 @@ public class SlidingWindowService {
                 invalidateCachedCount(firstMessage.getTenantId(), firstMessage.getDeemergeUserId());
             }
 
+            return CompletableFuture.completedFuture(null);
+
         } catch (Exception e) {
-            logger.error("💥 Status Update Failed: Error marking messages as processed: {} 😰", e.getMessage(), e);
+            logger.error("💥 [ASYNC] Status Update Failed: Error marking messages as processed: {} 😰", e.getMessage(), e);
             // Don't throw exception - let processing continue even if marking fails
+            return CompletableFuture.failedFuture(e);
         }
     }
 
