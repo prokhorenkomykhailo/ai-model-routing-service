@@ -27,6 +27,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -72,6 +75,8 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     private final String defaultTenantSchema;
     private final int maxMessageAgeDays;
     private final int minRecentMessages;
+    private final int parallelThreads;
+    private final ExecutorService executorService;
 
     /**
      * Constructor with dependency and configuration injection.
@@ -84,7 +89,8 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
             @Value("${ai.enrichment.scheduler.batch-size:" + DEFAULT_BATCH_SIZE + "}") final int batchSize,
             @Value("${ai.enrichment.scheduler.default-tenant-schema:" + DEFAULT_TENANT_SCHEMA + "}") final String defaultTenantSchema,
             @Value("${ai.enrichment.scheduler.max-message-age-days:" + DEFAULT_MAX_MESSAGE_AGE_DAYS + "}") final int maxMessageAgeDays,
-            @Value("${ai.enrichment.scheduler.min-recent-messages:" + DEFAULT_MIN_RECENT_MESSAGES + "}") final int minRecentMessages) {
+            @Value("${ai.enrichment.scheduler.min-recent-messages:" + DEFAULT_MIN_RECENT_MESSAGES + "}") final int minRecentMessages,
+            @Value("${ai.enrichment.scheduler.parallel-threads:4}") final int parallelThreads) {
 
         this.aiMessageProducer = aiMessageProducer;
         this.workspaceService = workspaceService;
@@ -94,6 +100,8 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         this.defaultTenantSchema = defaultTenantSchema;
         this.maxMessageAgeDays = maxMessageAgeDays;
         this.minRecentMessages = minRecentMessages;
+        this.parallelThreads = parallelThreads;
+        this.executorService = Executors.newFixedThreadPool(parallelThreads);
     }
 
     @PostConstruct
@@ -104,6 +112,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         log.info("⚙️ [CONFIG]   - Max Message Age: {} days", maxMessageAgeDays);
         log.info("⚙️ [CONFIG]   - Min Recent Messages: {}", minRecentMessages);
         log.info("⚙️ [CONFIG]   - Default Tenant Schema: {}", defaultTenantSchema);
+        log.info("⚙️ [CONFIG]   - Parallel Threads: {} (parallel processing enabled)", parallelThreads);
 
         // Check if scheduling is enabled globally
         try {
@@ -230,51 +239,70 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
     }
 
     /**
-     * Processes all workspaces for message enrichment with individual error handling.
+     * Processes all workspaces for message enrichment with parallel execution.
+     * Uses ExecutorService to process multiple workspaces concurrently.
      */
     private void processAllWorkspaces(final List<Workspace> workspaces) {
-        int processedWorkspaces = 0;
-        int skippedWorkspaces = 0;
+        final AtomicInteger processedWorkspaces = new AtomicInteger(0);
+        final AtomicInteger skippedWorkspaces = new AtomicInteger(0);
 
-        for (final var workspace : workspaces) {
-            long workspaceStartTime = System.currentTimeMillis();
-            try {
-                // Let SlidingWindowService decide if workspace should be processed
-                // This already checks for unprocessed messages, time thresholds, etc.
-                final var results = processWorkspace(workspace);
-                final int workspaceBatches = results[0];
-                final int workspaceMessages = results[1];
+        log.info("🚀 [PARALLEL-START] Processing {} workspaces using {} parallel threads",
+            workspaces.size(), parallelThreads);
 
-                if (workspaceBatches > 0 || workspaceMessages > 0) {
-                    totalBatchesProcessed.addAndGet(workspaceBatches);
-                    totalMessagesEnriched.addAndGet(workspaceMessages);
-                    successfulWorkspaces.incrementAndGet();
-                    processedWorkspaces++;
+        long parallelStartTime = System.currentTimeMillis();
 
+        // Create futures for all workspace processing tasks
+        List<CompletableFuture<Void>> futures = workspaces.stream()
+            .map(workspace -> CompletableFuture.runAsync(() -> {
+                long workspaceStartTime = System.currentTimeMillis();
+                try {
+                    // Let SlidingWindowService decide if workspace should be processed
+                    // This already checks for unprocessed messages, time thresholds, etc.
+                    final var results = processWorkspace(workspace);
+                    final int workspaceBatches = results[0];
+                    final int workspaceMessages = results[1];
+
+                    if (workspaceBatches > 0 || workspaceMessages > 0) {
+                        totalBatchesProcessed.addAndGet(workspaceBatches);
+                        totalMessagesEnriched.addAndGet(workspaceMessages);
+                        successfulWorkspaces.incrementAndGet();
+                        processedWorkspaces.incrementAndGet();
+
+                        long workspaceTime = System.currentTimeMillis() - workspaceStartTime;
+
+                        log.info("✅ [WORKSPACE-SUCCESS] {} processed in {}ms | 📦 {} batches, 📨 {} messages | 🏢 Tenant: {} | 👤 User: {} | 📊 GLOBAL TOTALS - Batches: {} | Messages: {}",
+                            workspace.getName(), workspaceTime, workspaceBatches, workspaceMessages,
+                            workspace.getTenantId(), workspace.getDeemergeUserName(),
+                            totalBatchesProcessed.get(), totalMessagesEnriched.get());
+                    } else {
+                        skippedWorkspaces.incrementAndGet();
+                        long workspaceTime = System.currentTimeMillis() - workspaceStartTime;
+                        log.info("⏭️ [WORKSPACE-SKIPPED] {} skipped in {}ms | No new messages or doesn't meet processing criteria | 🏢 Tenant: {} | 👤 User: {}",
+                            workspace.getName(), workspaceTime, workspace.getTenantId(), workspace.getDeemergeUserName());
+                    }
+
+                } catch (Exception e) {
+                    failedWorkspaces.incrementAndGet();
                     long workspaceTime = System.currentTimeMillis() - workspaceStartTime;
-
-                    log.info("✅ [WORKSPACE-SUCCESS] {} processed in {}ms | 📦 {} batches, 📨 {} messages | 🏢 Tenant: {} | 👤 User: {} | 📊 GLOBAL TOTALS - Batches: {} | Messages: {}",
-                        workspace.getName(), workspaceTime, workspaceBatches, workspaceMessages,
-                        workspace.getTenantId(), workspace.getDeemergeUserName(),
-                        totalBatchesProcessed.get(), totalMessagesEnriched.get());
-                } else {
-                    skippedWorkspaces++;
-                    long workspaceTime = System.currentTimeMillis() - workspaceStartTime;
-                    log.info("⏭️ [WORKSPACE-SKIPPED] {} skipped in {}ms | No new messages or doesn't meet processing criteria | 🏢 Tenant: {} | 👤 User: {}",
-                        workspace.getName(), workspaceTime, workspace.getTenantId(), workspace.getDeemergeUserName());
+                    log.error("❌ [WORKSPACE-FAILED] {} failed after {}ms: {} | 📊 GLOBAL TOTALS - Success: {} | Failed: {}",
+                        workspace.getName(), workspaceTime, e.getMessage(),
+                        successfulWorkspaces.get(), failedWorkspaces.get(), e);
                 }
+            }, executorService))
+            .collect(Collectors.toList());
 
-            } catch (Exception e) {
-                failedWorkspaces.incrementAndGet();
-                long workspaceTime = System.currentTimeMillis() - workspaceStartTime;
-                log.error("❌ [WORKSPACE-FAILED] {} failed after {}ms: {} | 📊 GLOBAL TOTALS - Success: {} | Failed: {}",
-                    workspace.getName(), workspaceTime, e.getMessage(),
-                    successfulWorkspaces.get(), failedWorkspaces.get(), e);
-            }
+        // Wait for all futures to complete
+        try {
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get();
+            long parallelTime = System.currentTimeMillis() - parallelStartTime;
+            log.info("⚡ [PARALLEL-COMPLETE] All {} workspaces processed in {}ms (avg {}ms per workspace)",
+                workspaces.size(), parallelTime, parallelTime / workspaces.size());
+        } catch (Exception e) {
+            log.error("🚨 [PARALLEL-ERROR] Error waiting for parallel workspace processing: {}", e.getMessage(), e);
         }
 
         log.info("📊 [SCHEDULER-SUMMARY] Session completed: ✅ {} processed, ⏭️ {} skipped, ❌ {} failed out of 📊 {} total workspaces",
-            processedWorkspaces, skippedWorkspaces, failedWorkspaces.get() % workspaces.size(), workspaces.size());
+            processedWorkspaces.get(), skippedWorkspaces.get(), failedWorkspaces.get() % workspaces.size(), workspaces.size());
     }
 
     /**

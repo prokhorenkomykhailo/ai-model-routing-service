@@ -61,7 +61,8 @@ class MessageEnrichmentSchedulerIntegrationTest {
             1000,  // batchSize
             "public",  // defaultTenantSchema
             30,  // maxMessageAgeDays
-            5  // minRecentMessages
+            5,  // minRecentMessages
+            4  // parallelThreads
         );
     }
 

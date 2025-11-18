@@ -52,10 +52,11 @@ class MessageEnrichmentSchedulerPreCheckTest {
             workspaceService,
             slidingWindowService,
             applicationContext,
-            1000,  // batchSize
-            "public",  // defaultTenantSchema
-            30,  // maxMessageAgeDays
-            5  // minRecentMessages
+            1000,
+            "public",
+            30,
+            5,
+            4  // parallelThreads
         );
 
         // Set config values via reflection if needed

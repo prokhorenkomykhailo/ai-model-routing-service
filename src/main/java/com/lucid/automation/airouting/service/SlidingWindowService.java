@@ -11,6 +11,7 @@ import com.lucid.automation.airouting.util.TenantValidationUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -38,6 +39,7 @@ public class SlidingWindowService {
     private final MessageService messageService;
     private final UserRepository userRepository;
     private final WorkspaceRepository workspaceRepository;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     @Value("${sliding.window.default.batch.size:50}")
     private int defaultBatchSize;
@@ -57,14 +59,87 @@ public class SlidingWindowService {
     @Value("${sliding.window.max.wait.hours:4}")
     private int maxWaitHours;
 
+    @Value("${sliding.window.cache.ttl.seconds:300}")
+    private long cacheTtlSeconds; // 5 minutes default
+
+    private static final String CACHE_KEY_PREFIX = "workspace:message:count:";
+
     public SlidingWindowService(MessageRepository messageRepository,
                                 MessageService messageService,
                                 UserRepository userRepository,
-                                WorkspaceRepository workspaceRepository) {
+                                WorkspaceRepository workspaceRepository,
+                                RedisTemplate<String, Object> redisTemplate) {
         this.messageRepository = messageRepository;
         this.messageService = messageService;
         this.userRepository = userRepository;
         this.workspaceRepository = workspaceRepository;
+        this.redisTemplate = redisTemplate;
+    }
+
+    /**
+     * Get cached unprocessed message count for workspace.
+     * Uses Redis cache to avoid loading all messages just for counting.
+     * Cache expires after configured TTL (default 5 minutes).
+     *
+     * @param tenantId The tenant ID
+     * @param deemergeUserId The deemerge user ID
+     * @return Cached count or null if not in cache
+     */
+    private Long getCachedUnprocessedCount(String tenantId, String deemergeUserId) {
+        try {
+            String cacheKey = CACHE_KEY_PREFIX + tenantId + ":" + deemergeUserId;
+            Object cached = redisTemplate.opsForValue().get(cacheKey);
+            if (cached != null) {
+                long count = cached instanceof Number ? ((Number) cached).longValue() : Long.parseLong(cached.toString());
+                logger.debug("💾 [CACHE-HIT] Workspace cache hit for {}: {} unprocessed messages",
+                    deemergeUserId, count);
+                return count;
+            }
+            logger.debug("🔍 [CACHE-MISS] No cached count for workspace {}", deemergeUserId);
+            return null;
+        } catch (Exception e) {
+            logger.warn("⚠️ [CACHE-ERROR] Error reading cache for workspace {}: {}",
+                deemergeUserId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Update cached unprocessed message count for workspace.
+     * Sets cache with configured TTL (default 5 minutes).
+     *
+     * @param tenantId The tenant ID
+     * @param deemergeUserId The deemerge user ID
+     * @param count The count to cache
+     */
+    private void updateCachedUnprocessedCount(String tenantId, String deemergeUserId, long count) {
+        try {
+            String cacheKey = CACHE_KEY_PREFIX + tenantId + ":" + deemergeUserId;
+            redisTemplate.opsForValue().set(cacheKey, count, Duration.ofSeconds(cacheTtlSeconds));
+            logger.debug("💾 [CACHE-UPDATE] Cached count for workspace {}: {} messages (TTL: {}s)",
+                deemergeUserId, count, cacheTtlSeconds);
+        } catch (Exception e) {
+            logger.warn("⚠️ [CACHE-ERROR] Error updating cache for workspace {}: {}",
+                deemergeUserId, e.getMessage());
+        }
+    }
+
+    /**
+     * Invalidate cached unprocessed message count for workspace.
+     * Called when messages are marked as processed.
+     *
+     * @param tenantId The tenant ID
+     * @param deemergeUserId The deemerge user ID
+     */
+    private void invalidateCachedCount(String tenantId, String deemergeUserId) {
+        try {
+            String cacheKey = CACHE_KEY_PREFIX + tenantId + ":" + deemergeUserId;
+            redisTemplate.delete(cacheKey);
+            logger.debug("🗑️ [CACHE-INVALIDATE] Cleared cached count for workspace {}", deemergeUserId);
+        } catch (Exception e) {
+            logger.warn("⚠️ [CACHE-ERROR] Error invalidating cache for workspace {}: {}",
+                deemergeUserId, e.getMessage());
+        }
     }
 
     /**
@@ -92,11 +167,27 @@ public class SlidingWindowService {
         try {
             // Count unprocessed messages for this workspace
             String deemergeUserId = workspace.getDeemergeUserId();
-            List<Message> allMessages = loadMessagesForWorkspace(tenantId, deemergeUserId);
+            
+            // Try to get cached unprocessed count first (optimization)
+            Long cachedCount = getCachedUnprocessedCount(tenantId, deemergeUserId);
+            long unprocessedCount;
 
-            long unprocessedCount = allMessages.stream()
-                .filter(msg -> msg.getIsProcessed() == null || !msg.getIsProcessed())
-                .count();
+            if (cachedCount != null) {
+                unprocessedCount = cachedCount;
+                logger.debug("🚀 [FAST-CHECK] Using cached count for workspace [{}]: {} unprocessed messages",
+                    workspaceId, unprocessedCount);
+            } else {
+                // Cache miss - load messages and count
+                logger.debug("🔍 [SLOW-CHECK] Cache miss - loading messages for workspace [{}]", workspaceId);
+                List<Message> allMessages = loadMessagesForWorkspace(tenantId, deemergeUserId);
+
+                unprocessedCount = allMessages.stream()
+                    .filter(msg -> msg.getIsProcessed() == null || !msg.getIsProcessed())
+                    .count();
+
+                // Update cache for next check
+                updateCachedUnprocessedCount(tenantId, deemergeUserId, unprocessedCount);
+            }
 
             // Update workspace unprocessed message count
             workspace.setUnprocessedMessageCount(unprocessedCount);
@@ -845,6 +936,12 @@ public class SlidingWindowService {
 
             logger.info("✅ Processing Status Updated: Marked {} messages as processed (stamped and approved! 📋)", updatedMessages.size());
 
+            // Invalidate cache since unprocessed count changed
+            if (!updatedMessages.isEmpty()) {
+                Message firstMessage = updatedMessages.get(0);
+                invalidateCachedCount(firstMessage.getTenantId(), firstMessage.getDeemergeUserId());
+            }
+
         } catch (Exception e) {
             logger.error("💥 Status Update Failed: Error marking messages as processed: {} 😰", e.getMessage(), e);
             // Don't throw exception - let processing continue even if marking fails
@@ -887,6 +984,9 @@ public class SlidingWindowService {
 
             // Mark these messages as processed
             markMessagesAsProcessed(messages);
+
+            // Invalidate cache since unprocessed count changed
+            invalidateCachedCount(tenantId, deemergeUserId);
 
         } catch (Exception e) {
             logger.error("💥 Processing Update Failed: Error marking messages as processed by IDs: {} 😰", e.getMessage(), e);

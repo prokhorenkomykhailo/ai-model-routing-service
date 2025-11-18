@@ -126,8 +126,9 @@ ai:
       sentiment_analysis: geminiProvider
   enrichment:
     scheduler:
-      cron: "${AI_ENRICHMENT_CRON:0 */15 * * * ?}"  # Every 15 minutes by default
+      cron: "${AI_ENRICHMENT_CRON:0 */10 * * * ?}"  # Every 10 minutes by default
       enabled: "${AI_ENRICHMENT_ENABLED:true}"     # DISABLED to prevent excessive requests and rebalances
+      parallel-threads: "${AI_ENRICHMENT_PARALLEL_THREADS:4}"  # Number of parallel threads for workspace processing
 
 # Lucid Post-Processing Pipeline Configuration
 lucid:
@@ -240,6 +241,22 @@ sliding:
         percentage: ${SLIDING_WINDOW_OVERLAP_PERCENTAGE:20}
     cleanup:
       enabled: true
+    # Message processing thresholds
+    min:
+      new:
+        messages: ${SLIDING_WINDOW_MIN_NEW_MESSAGES:5}
+    max:
+      wait:
+        hours: ${SLIDING_WINDOW_MAX_WAIT_HOURS:4}
+      tokens: ${SLIDING_WINDOW_MAX_TOKENS:15000}
+    avg:
+      tokens:
+        per:
+          message: ${SLIDING_WINDOW_AVG_TOKENS_PER_MESSAGE:50}
+    # Cache configuration for unprocessed message counts
+    cache:
+      ttl:
+        seconds: ${SLIDING_WINDOW_CACHE_TTL_SECONDS:300}  # 5 minutes
     # Token-based sliding window configuration
     token:
       enabled: ${SLIDING_WINDOW_TOKEN_ENABLED:true}  # Enable token-based processing
