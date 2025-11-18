@@ -161,10 +161,6 @@ public class PostProcessingConsumer {
                     EnrichmentResponse lightweightResponse = createLightweightResponse(enrichmentResponse);
                     sendToFinalAiResponsesTopic(lightweightResponse);
 
-                    // ✅ CRITICAL: Mark original messages as processed ONLY after successful AI processing
-                    // This ensures proper message lifecycle management and prevents duplicate processing
-                    markOriginalMessagesAsProcessed(context);
-
                     successfulPostProcessing.incrementAndGet();
                     long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
                     totalPostProcessingTime.addAndGet(postProcessingTime);
@@ -173,7 +169,7 @@ public class PostProcessingConsumer {
                         postProcessingTime, record.key(), totalPostProcessingRequests.get(),
                         successfulPostProcessing.get(), retriedPostProcessing.get(), dlqPostProcessing.get());
 
-                    // ✅ ACK only after successful processing
+                    // ✅ ACK immediately after successful processing (before slow Redis operations)
                     try {
                         if (acknowledgment != null) {
                             logger.info("🔔 [ACK] About to acknowledge message | Offset: {} | Topic: {} | Partition: {}",
@@ -192,6 +188,17 @@ public class PostProcessingConsumer {
                     }
 
                     logger.info("🏁 [POST-PROCESSING-COMPLETE] Method execution finished for offset {}", record.offset());
+
+                    // ⚡ OPTIMIZATION: Mark original messages as processed AFTER acknowledgment (non-blocking)
+                    // This prevents slow Redis operations from blocking the Kafka consumer
+                    // The message is already successfully processed and acknowledged, so this is cleanup
+                    try {
+                        markOriginalMessagesAsProcessed(context);
+                    } catch (Exception markException) {
+                        logger.error("⚠️ [MESSAGE-MARKING-ERROR] Failed to mark messages as processed (non-fatal, already ACKed): {}",
+                            markException.getMessage());
+                        // Don't throw - we already ACKed the message successfully
+                    }
                 } else {
                     handlePipelineNullResponse(context, record, acknowledgment, postProcessingStartTime);
                 }

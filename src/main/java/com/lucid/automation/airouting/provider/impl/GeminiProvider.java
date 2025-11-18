@@ -42,7 +42,7 @@ public class GeminiProvider extends AIProvider {
     private final boolean isClientAvailable;
 
     public GeminiProvider() {
-        
+
         // Try to initialize the client, but handle gracefully if API key is not available
         Client tempClient = null;
         boolean clientAvailable = false;

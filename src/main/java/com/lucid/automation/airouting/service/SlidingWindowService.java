@@ -167,7 +167,7 @@ public class SlidingWindowService {
         try {
             // Count unprocessed messages for this workspace
             String deemergeUserId = workspace.getDeemergeUserId();
-            
+
             // Try to get cached unprocessed count first (optimization)
             Long cachedCount = getCachedUnprocessedCount(tenantId, deemergeUserId);
             long unprocessedCount;
@@ -916,6 +916,7 @@ public class SlidingWindowService {
         }
 
         try {
+            long startTime = System.currentTimeMillis();
             List<Message> updatedMessages = new ArrayList<>();
 
             for (Message message : messages) {
@@ -931,10 +932,13 @@ public class SlidingWindowService {
                 return;
             }
 
-            // Save all updated messages back to Redis
+            // ⚡ OPTIMIZATION: Use batch save for better performance
+            // Save all updated messages back to Redis in a single batch operation
             messageRepository.saveAll(updatedMessages);
 
-            logger.info("✅ Processing Status Updated: Marked {} messages as processed (stamped and approved! 📋)", updatedMessages.size());
+            long duration = System.currentTimeMillis() - startTime;
+            logger.info("✅ Processing Status Updated: Marked {} messages as processed in {}ms (stamped and approved! 📋)", 
+                updatedMessages.size(), duration);
 
             // Invalidate cache since unprocessed count changed
             if (!updatedMessages.isEmpty()) {

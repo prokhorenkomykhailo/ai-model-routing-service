@@ -126,7 +126,7 @@ ai:
       sentiment_analysis: geminiProvider
   enrichment:
     scheduler:
-      cron: "${AI_ENRICHMENT_CRON:0 */10 * * * ?}"  # Every 10 minutes by default
+      cron: "${AI_ENRICHMENT_CRON:0 */5 * * * ?}"  # Every 5 minutes by default
       enabled: "${AI_ENRICHMENT_ENABLED:true}"     # DISABLED to prevent excessive requests and rebalances
       parallel-threads: "${AI_ENRICHMENT_PARALLEL_THREADS:4}"  # Number of parallel threads for workspace processing
 
