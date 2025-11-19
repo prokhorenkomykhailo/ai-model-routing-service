@@ -184,12 +184,18 @@ public class WorkspaceService {
     /**
      * Get all workspaces
      *
-     * @return List of all workspaces
+     * @return List of all workspaces (null entries filtered out)
      */
     public List<Workspace> getAllWorkspaces() {
         try {
             List<Workspace> workspaces = new ArrayList<>();
-            workspaceRepository.findAll().forEach(workspaces::add);
+            workspaceRepository.findAll().forEach(workspace -> {
+                if (workspace != null) {
+                    workspaces.add(workspace);
+                } else {
+                    logger.warn("⚠️ Skipping null workspace from Redis - possible corrupted entry");
+                }
+            });
             logger.debug("Retrieved {} workspaces", workspaces.size());
             return workspaces;
         } catch (Exception e) {

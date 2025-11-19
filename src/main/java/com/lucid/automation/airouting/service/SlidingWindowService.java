@@ -923,7 +923,7 @@ public class SlidingWindowService {
     /**
      * Mark messages as processed asynchronously using Redis pipelining.
      * This method runs in a separate thread pool and uses Redis pipeline for batch operations.
-     * 
+     *
      * @param messages List of messages to mark as processed
      * @return CompletableFuture that completes when operation finishes
      */

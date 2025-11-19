@@ -13,7 +13,7 @@ import java.util.concurrent.Executor;
 /**
  * Configuration for asynchronous task execution.
  * Configures a dedicated thread pool for async operations like Redis batch saves.
- * 
+ *
  * @author vudu
  */
 @Configuration
@@ -29,28 +29,28 @@ public class AsyncConfig implements AsyncConfigurer {
     @Override
     public Executor getAsyncExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        
+
         // Core pool size: minimum threads to keep alive
         executor.setCorePoolSize(4);
-        
+
         // Max pool size: maximum threads when queue is full
         executor.setMaxPoolSize(8);
-        
+
         // Queue capacity: tasks to queue before creating new threads
         executor.setQueueCapacity(100);
-        
+
         // Thread name prefix for identification in logs
         executor.setThreadNamePrefix("AsyncRedis-");
-        
+
         // Wait for tasks to complete on shutdown
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(60);
-        
+
         executor.initialize();
-        
+
         logger.info("🔧 [ASYNC-CONFIG] Task executor initialized: core={}, max={}, queue={}",
             executor.getCorePoolSize(), executor.getMaxPoolSize(), executor.getQueueCapacity());
-        
+
         return executor;
     }
 

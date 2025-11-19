@@ -217,6 +217,12 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
         // which already checks for unprocessed message counts, time thresholds, etc.
         return workspaces.stream()
             .filter(workspace -> {
+                // Skip null workspaces (corrupted Redis entries)
+                if (workspace == null) {
+                    log.warn("⚠️ [PRE-CHECK] Skipping null workspace - possible corrupted Redis entry");
+                    return false;
+                }
+                
                 try {
                     // SlidingWindowService.shouldProcessWorkspace already checks:
                     // - Invalid tenant ID (skips)
