@@ -113,32 +113,74 @@ public class TopicEnrichmentStep implements PipelineStep {
 
         Map<String, EnrichmentUserDTO> userCache = new HashMap<>();
 
-        // Batch load all users from database in one operation
-        for (String userId : allUserIds) {
-            try {
-                Optional<User> userOptional = userService.getUser(tenantId, workspaceId, userId);
-                if (userOptional.isPresent()) {
-                    User user = userOptional.get();
-                    String userName = getFieldValue(user, "name");
-                    if (userName == null || userName.trim().isEmpty()) {
-                        userName = userId;
-                    }
-                    String displayName = getBestDisplayNameFromUser(user, userName);
+        // ✅ PERFORMANCE FIX: Batch load all users from database in one operation
+        // Construct potential user IDs
+        Set<String> potentialUserIds = new HashSet<>();
+        Map<String, String> idToUserIdMap = new HashMap<>(); // Map generated ID back to original userId
 
-                    EnrichmentUserDTO userDTO = new EnrichmentUserDTO(
-                        userId,
-                        userName,
-                        displayName,
-                        getImageFromUser(user)
-                    );
-                    userCache.put(userId, userDTO);
-                } else {
-                    // Create fallback DTO for users not in DB
+        for (String userId : allUserIds) {
+            String generatedId = User.generateId(tenantId, workspaceId, userId);
+            potentialUserIds.add(generatedId);
+            idToUserIdMap.put(generatedId, userId);
+        }
+
+        try {
+            List<User> foundUsers = userService.getUsersByIds(potentialUserIds);
+
+            for (User user : foundUsers) {
+                if (user != null) {
+                    // Map back to the original userId used in the message
+                    String originalUserId = idToUserIdMap.get(user.getId());
+                    if (originalUserId == null) {
+                        // Fallback: try to match by uniqueUserId or slackUserId
+                        if (allUserIds.contains(user.getUniqueUserId())) {
+                            originalUserId = user.getUniqueUserId();
+                        } else if (allUserIds.contains(user.getSlackUserId())) {
+                            originalUserId = user.getSlackUserId();
+                        }
+                    }
+
+                    if (originalUserId != null) {
+                        String userName = getFieldValue(user, "name");
+                        if (userName == null || userName.trim().isEmpty()) {
+                            userName = originalUserId;
+                        }
+                        String displayName = getBestDisplayNameFromUser(user, userName);
+
+                        EnrichmentUserDTO userDTO = new EnrichmentUserDTO(
+                            originalUserId,
+                            userName,
+                            displayName,
+                            getImageFromUser(user)
+                        );
+                        userCache.put(originalUserId, userDTO);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.error("❌ User Batch Lookup Failed: {}", e.getMessage());
+        }
+
+        // Fill in missing users with fallback
+        for (String userId : allUserIds) {
+            if (!userCache.containsKey(userId)) {
+                // Fallback: try individual lookup if batch failed or ID generation mismatch
+                try {
+                    Optional<User> userOptional = userService.getUser(tenantId, workspaceId, userId);
+                    if (userOptional.isPresent()) {
+                        User user = userOptional.get();
+                        String userName = getFieldValue(user, "name");
+                        if (userName == null || userName.trim().isEmpty()) {
+                            userName = userId;
+                        }
+                        String displayName = getBestDisplayNameFromUser(user, userName);
+                        userCache.put(userId, new EnrichmentUserDTO(userId, userName, displayName, getImageFromUser(user)));
+                    } else {
+                        userCache.put(userId, new EnrichmentUserDTO(userId, userId, userId, null));
+                    }
+                } catch (Exception e) {
                     userCache.put(userId, new EnrichmentUserDTO(userId, userId, userId, null));
                 }
-            } catch (Exception e) {
-                logger.warn("Failed to load user {}: {}", userId, e.getMessage());
-                userCache.put(userId, new EnrichmentUserDTO(userId, userId, userId, null));
             }
         }
 
@@ -242,31 +284,6 @@ public class TopicEnrichmentStep implements PipelineStep {
         }
     }
 
-    private Map<String, EnrichmentUserDTO> buildUserInfoMap(List<SlackMessage> messages, String tenantId, String workspaceId) {
-        Map<String, EnrichmentUserDTO> userInfos = messages.stream()
-            .filter(msg -> {
-                // Use uniqueUserId, fallback to username
-                String key = msg.getUniqueUserId() != null ? msg.getUniqueUserId() : msg.getUsername();
-                return key != null && !key.trim().isEmpty();
-            })
-            .collect(Collectors.toMap(
-                // Key by uniqueUserId (preferred) or username as fallback
-                msg -> msg.getUniqueUserId() != null ? msg.getUniqueUserId() : msg.getUsername(),
-                msg -> new EnrichmentUserDTO(
-                    msg.getUniqueUserId(), // id: platform-agnostic unique user identifier
-                    msg.getUsername(), // username: user's name/username
-                    getBestDisplayNameFromSlackMessage(msg), // displayName: best available display name
-                    // Prefer avatarUrl over imageOriginal then image72
-                    msg.getAvatarUrl() != null ? msg.getAvatarUrl() :
-                    msg.getImageOriginal() != null ? msg.getImageOriginal() : msg.getImage72()
-                ),
-                (existing, replacement) -> existing // Keep existing if duplicate
-            ));
-
-        updateUserInformation(userInfos, tenantId, workspaceId);
-        return userInfos;
-    }
-
     private String getBestDisplayNameFromSlackMessage(SlackMessage msg) {
         if (msg == null) {
             return UNKNOWN_USER;
@@ -286,41 +303,6 @@ public class TopicEnrichmentStep implements PipelineStep {
         }
 
         return UNKNOWN_USER;
-    }
-
-    private void updateUserInformation(Map<String, EnrichmentUserDTO> userInfos, String tenantId, String workspaceId) {
-        if (tenantId == null || workspaceId == null) {
-            logger.warn("Cannot update user info: tenantId={}, workspaceId={}", tenantId, workspaceId);
-            return;
-        }
-
-        userInfos.forEach((userId, user) -> {
-            try {
-                if (userId != null && !userId.trim().isEmpty()) {
-                    // userId here is the uniqueUserId
-                    Optional<User> updatedUser = userService.getUser(tenantId, workspaceId, userId);
-                    if (updatedUser.isPresent()) {
-                        User dbUser = updatedUser.get();
-                        // Get username (name field) separately from displayName
-                        String userName = getFieldValue(dbUser, "name");
-                        if (userName == null || userName.trim().isEmpty()) {
-                            userName = userId; // Fallback to userId if username unavailable
-                        }
-                        String displayName = getBestDisplayNameFromUser(dbUser, userName);
-
-                        EnrichmentUserDTO updatedUserDTO = new EnrichmentUserDTO(
-                            userId,       // id: resolved uniqueUserId (preferred) or fallback
-                            userName,     // username: user's name field
-                            displayName,  // displayName: best available display name
-                            getImageFromUser(dbUser) // imageUrl: profile image (avatarUrl preferred)
-                        );
-                        userInfos.put(userId, updatedUserDTO);
-                    }
-                }
-            } catch (Exception e) {
-                logger.warn("Failed to update user info for userId {}: {}", userId, e.getMessage());
-            }
-        });
     }
 
     private String getBestDisplayNameFromUser(User user, String fallback) {
@@ -624,251 +606,7 @@ public class TopicEnrichmentStep implements PipelineStep {
         }
     }
 
-    // Keep original methods for channel resolution (minimal DB calls)
-    private List<EnrichmentUserDTO> enhancePeopleInvolved(List<EnrichmentUserDTO> aiPeopleInvolved,
-                                                         List<SlackMessage> messages,
-                                                         String tenantId,
-                                                         String workspaceId) {
-        // If AI has already provided people involved, enhance those with fresh user data
-        if (aiPeopleInvolved != null && !aiPeopleInvolved.isEmpty()) {
-            return aiPeopleInvolved.stream()
-                .map(aiUser -> enhanceUserWithLatestData(aiUser, tenantId, workspaceId))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-        }
-
-        // Fallback: extract from messages if AI data is not available
-        return extractPeopleInvolvedFromMessages(messages, tenantId, workspaceId);
-    }
-
-    /**
-     * Enhance summary per person using AI-generated data with additional user details and metadata
-     */
-    private List<SummaryPerPerson> enhanceSummaryPerPerson(List<SummaryPerPerson> aiSummaryPerPerson,
-                                                          List<SlackMessage> messages,
-                                                          String tenantId,
-                                                          String workspaceId) {
-        // If AI has already provided summary per person, enhance those with user data and message metadata
-        if (aiSummaryPerPerson != null && !aiSummaryPerPerson.isEmpty()) {
-            return aiSummaryPerPerson.stream()
-                .map(aiSummary -> enhanceSummaryWithUserData(aiSummary, messages, tenantId, workspaceId))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-        }
-
-        // Fallback: extract from messages if AI data is not available
-        return extractSummaryPerPersonFromMessages(messages, tenantId, workspaceId);
-    }
-
-    /**
-     * Enhance a user DTO with latest user data from the database
-     */
-    private EnrichmentUserDTO enhanceUserWithLatestData(EnrichmentUserDTO aiUser, String tenantId, String workspaceId) {
-        if (aiUser == null || aiUser.id() == null) {
-            return aiUser;
-        }
-
-        try {
-            if (tenantId != null && workspaceId != null) {
-                Optional<User> userOptional = userService.getUser(tenantId, workspaceId, aiUser.id());
-                if (userOptional.isPresent()) {
-                    User dbUser = userOptional.get();
-                    String enhancedDisplayName = getBestDisplayNameFromUser(dbUser, aiUser.displayName());
-                    String enhancedUsername = getFieldValue(dbUser, "name");
-                    if (enhancedUsername == null || enhancedUsername.trim().isEmpty()) {
-                        enhancedUsername = aiUser.username() != null ? aiUser.username() : aiUser.id();
-                    }
-                    String enhancedImageUrl = getImageFromUser(dbUser);
-                    if (enhancedImageUrl == null) {
-                        enhancedImageUrl = aiUser.imageUrl(); // Keep AI image if no DB image
-                    }
-
-                    return new EnrichmentUserDTO(
-                        aiUser.id(),
-                        enhancedUsername,
-                        enhancedDisplayName,
-                        enhancedImageUrl
-                    );
-                }
-            }
-            return aiUser; // Return original if enhancement fails
-        } catch (Exception e) {
-            logger.warn("Failed to enhance user {} with latest data: {}", aiUser.id(), e.getMessage());
-            return aiUser;
-        }
-    }
-
-    /**
-     * Enhance AI-generated summary per person with user data and message metadata
-     */
-    private SummaryPerPerson enhanceSummaryWithUserData(SummaryPerPerson aiSummary,
-                                                       List<SlackMessage> messages,
-                                                       String tenantId,
-                                                       String workspaceId) {
-        if (aiSummary == null || aiSummary.id() == null) {
-            return aiSummary;
-        }
-
-        try {
-            String userId = aiSummary.id();
-
-            // Enhance user details
-            EnrichmentUserDTO enhancedUser = enhanceUserWithLatestData(
-                new EnrichmentUserDTO(userId, aiSummary.username(), aiSummary.displayName(), aiSummary.imageUrl()),
-                tenantId,
-                workspaceId
-            );
-
-            // Calculate message statistics from actual messages
-            // Filter by uniqueUserId
-            List<SlackMessage> userMessages = messages.stream()
-                .filter(msg -> userId.equals(msg.getUniqueUserId()))
-                .collect(Collectors.toList());
-
-            int messageCount = userMessages.size();
-            LocalDateTime firstMessageDate = userMessages.stream()
-                .map(SlackMessage::getTimestamp)
-                .filter(Objects::nonNull)
-                .min(LocalDateTime::compareTo)
-                .orElse(aiSummary.firstMessageDate());
-
-            LocalDateTime lastMessageDate = aiSummary.lastMessageDate();
-            if (lastMessageDate == null) {
-                lastMessageDate = userMessages.stream()
-                    .map(SlackMessage::getTimestamp)
-                    .filter(Objects::nonNull)
-                    .max(LocalDateTime::compareTo)
-                    .orElse(null);
-            }
-
-            // Extract sources from user's messages
-            List<SourceDTO> enhancedSources = extractUserSources(userId, messages, tenantId, workspaceId);
-
-            // Keep AI-generated summary and contributions, enhance with user data and message stats
-            return new SummaryPerPerson(
-                userId,
-                enhancedUser.username(),
-                enhancedUser.displayName(),
-                enhancedUser.imageUrl(),
-                aiSummary.summary(), // Keep AI-generated summary
-                Math.max(messageCount, aiSummary.messageCount()), // Use higher count
-                firstMessageDate,
-                lastMessageDate,
-                aiSummary.keyContributions(), // Keep AI-generated contributions
-                aiSummary.actionItems(), // Keep AI-generated action items
-                enhancedSources.isEmpty() ? aiSummary.sources() : enhancedSources // Use enhanced sources if available
-            );
-
-        } catch (Exception e) {
-            logger.warn("Failed to enhance summary for user {}: {}", aiSummary.id(), e.getMessage());
-            return aiSummary;
-        }
-    }
-
-    /**
-     * Fallback method: extract people involved from messages (renamed from original method)
-     */
-    private List<EnrichmentUserDTO> extractPeopleInvolvedFromMessages(List<SlackMessage> messages, String tenantId, String workspaceId) {
-        return messages.stream()
-            // Use uniqueUserId or fallback to username
-            .map(msg -> msg.getUniqueUserId() != null ? msg.getUniqueUserId() : msg.getUsername())
-            .filter(Objects::nonNull)
-            .distinct()
-            .map(userId -> enrichUserDTO(userId, tenantId, workspaceId))
-            .filter(user -> user.id() != null && !user.id().equals(NOT_AVAILABLE))
-            .collect(Collectors.toList());
-    }
-
-    private EnrichmentUserDTO enrichUserDTO(String userId, String tenantId, String workspaceId) {
-        try {
-            if (tenantId != null && workspaceId != null && userId != null && !userId.trim().isEmpty()) {
-                Optional<User> userOptional = userService.getUser(tenantId, workspaceId, userId);
-                if (userOptional.isPresent()) {
-                    User user = userOptional.get();
-                    String displayName = getBestDisplayNameFromUser(user, userId);
-                    String userName = getFieldValue(user, "name");
-                    if (userName == null || userName.trim().isEmpty()) {
-                        userName = userId;
-                    }
-
-                    return new EnrichmentUserDTO(
-                        userId,
-                        userName,
-                        displayName,
-                        getImageFromUser(user)
-                    );
-                }
-            }
-            return new EnrichmentUserDTO(userId, userId, userId, null);
-        } catch (Exception e) {
-            logger.warn("Failed to enrich UserDTO for user {}: {}", userId, e.getMessage());
-            return new EnrichmentUserDTO(userId, userId, userId, null);
-        }
-    }
-
-    /**
-     * Fallback method: extract summary per person from messages (renamed from original method)
-     */
-    private List<SummaryPerPerson> extractSummaryPerPersonFromMessages(List<SlackMessage> messages, String tenantId, String workspaceId) {
-        Map<String, List<SlackMessage>> messagesByUser = messages.stream()
-            .filter(msg -> msg.getUniqueUserId() != null)
-            .collect(Collectors.groupingBy(SlackMessage::getUniqueUserId));
-
-        return messagesByUser.entrySet().stream()
-            .map(entry -> {
-                String userId = entry.getKey();
-                List<SlackMessage> userMessages = entry.getValue();
-
-                // Calculate message statistics
-                int messageCount = userMessages.size();
-                LocalDateTime firstMessageDate = userMessages.stream()
-                    .map(SlackMessage::getTimestamp)
-                    .filter(Objects::nonNull)
-                    .min(LocalDateTime::compareTo)
-                    .orElse(null);
-
-                LocalDateTime lastMessageDate = userMessages.stream()
-                    .map(SlackMessage::getTimestamp)
-                    .filter(Objects::nonNull)
-                    .max(LocalDateTime::compareTo)
-                    .orElse(null);
-
-                // Get user details
-                EnrichmentUserDTO userDTO = enrichUserDTO(userId, tenantId, workspaceId);
-
-                // Extract sources from user's messages
-                List<SourceDTO> sources = extractUserSources(userId, messages, tenantId, workspaceId);
-
-                return new SummaryPerPerson(
-                    userId,
-                    userDTO.username(),
-                    userDTO.displayName(),
-                    userDTO.imageUrl(),
-                    DEFAULT_SUMMARY_FOR_PERSON, // Could be enhanced with AI-generated summaries
-                    messageCount,
-                    firstMessageDate,
-                    lastMessageDate,
-                    List.of(), // keyContributions
-                    List.of(), // actionItems
-                    sources
-                );
-            })
-            .collect(Collectors.toList());
-    }
-
-    private List<SourceDTO> extractUserSources(String userId, List<SlackMessage> messages, String tenantId, String workspaceId) {
-        return messages.stream()
-            .filter(msg -> userId.equals(msg.getUniqueUserId()))
-            .map(msg -> {
-                String permalink = getPermalinkWithFallback(msg);
-                String shortText = createShortTextFromMessage(msg, tenantId, workspaceId);
-                // Normalize source name to uppercase, default to SLACK if not set
-                String sourceName = SourceName.normalize(msg.getSource());
-                return new SourceDTO(permalink, shortText, sourceName);
-            })
-            .distinct()
-            .collect(Collectors.toList());
-    }
+    // Original methods removed as they were replaced by cached versions for performance
 
     private String getPermalinkWithFallback(SlackMessage msg) {
         String permalink = msg.getPermaLink();
@@ -885,99 +623,7 @@ public class TopicEnrichmentStep implements PipelineStep {
         return permalink;
     }
 
-    private String createShortTextFromMessage(SlackMessage msg, String tenantId, String workspaceId) {
-        if (msg == null) {
-            return "Unknown message";
-        }
-
-        String content = msg.getText() != null ? msg.getText() : msg.getContent();
-
-        // Resolve username for the message author
-        String username = resolveUsernameFromMessage(msg, tenantId, workspaceId);
-
-        if (content == null || content.trim().isEmpty()) {
-            return username + ": (empty message)";
-        }
-
-        // Replace any user mentions in the content with resolved usernames
-        String processedContent = resolveUserMentionsInContent(content, tenantId, workspaceId);
-
-        String truncatedContent = processedContent.length() > 100 ?
-            processedContent.substring(0, 97) + "..." : processedContent;
-        truncatedContent = truncatedContent.replaceAll("\\s+", " ").trim();
-
-        return username + ": " + truncatedContent;
-    }
-
-    private String resolveUsernameFromMessage(SlackMessage msg, String tenantId, String workspaceId) {
-        // Use uniqueUserId
-        String userId = msg.getUniqueUserId();
-
-        if (userId != null && !userId.trim().isEmpty() && tenantId != null && workspaceId != null) {
-            try {
-                Optional<User> userOptional = userService.getUser(tenantId, workspaceId, userId);
-                if (userOptional.isPresent()) {
-                    User user = userOptional.get();
-                    return getBestDisplayNameFromUser(user, userId);
-                }
-            } catch (Exception e) {
-                logger.debug("Failed to resolve username for uniqueUserId {}: {}", userId, e.getMessage());
-            }
-        }
-
-        // Fall back to available username fields from the message
-        if (msg.getUsername() != null && !msg.getUsername().trim().isEmpty()) {
-            return msg.getUsername();
-        }
-
-        if (msg.getDisplayName() != null && !msg.getDisplayName().trim().isEmpty()) {
-            return msg.getDisplayName();
-        }
-
-        if (userId != null && !userId.trim().isEmpty()) {
-            return userId;
-        }
-
-        return UNKNOWN_USER;
-    }
-
-    private String resolveUserMentionsInContent(String content, String tenantId, String workspaceId) {
-        if (content == null || content.trim().isEmpty() || tenantId == null || workspaceId == null) {
-            return content;
-        }
-
-        // Pattern to match Slack user mentions like <@U1234567890> or <@U1234567890|username>
-        Pattern mentionPattern = Pattern.compile("<@([UW][A-Z0-9]+)(?:\\|([^>]+))?>");
-        Matcher matcher = mentionPattern.matcher(content);
-
-        StringBuffer result = new StringBuffer();
-
-        try {
-            while (matcher.find()) {
-                String userId = matcher.group(1);
-                String existingName = matcher.group(2); // The part after |, if present
-
-                String resolvedName = existingName != null ? existingName : userId;
-
-                try {
-                    Optional<User> userOptional = userService.getUser(tenantId, workspaceId, userId);
-                    if (userOptional.isPresent()) {
-                        User user = userOptional.get();
-                        resolvedName = getBestDisplayNameFromUser(user, resolvedName);
-                    }
-                } catch (Exception e) {
-                    logger.debug("Failed to resolve user mention for userId {}: {}", userId, e.getMessage());
-                }
-
-                matcher.appendReplacement(result, "@" + Matcher.quoteReplacement(resolvedName));
-            }
-            matcher.appendTail(result);
-            return result.toString();
-        } catch (Exception e) {
-            logger.warn("Error processing user mentions in content: {}", e.getMessage());
-            return content; // Return original content if processing fails
-        }
-    }
+    // Original methods removed as they were replaced by cached versions for performance
 
     private List<SuggestedReply> enhanceSuggestedReplies(List<SuggestedReply> suggestedReplies, String tenantId, String workspaceId) {
         if (suggestedReplies == null || suggestedReplies.isEmpty()) {

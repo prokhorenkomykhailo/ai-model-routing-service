@@ -12,7 +12,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -24,7 +23,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -577,12 +575,36 @@ public class SlidingWindowService {
 
         // Create a map of userId -> User for quick lookup
         Map<String, User> userDataMap = new HashMap<>();
-        for (String slackUserId : userIdsToLookup) {
-            List<User> userList = userRepository.findBySlackUserId(slackUserId);
-            if (!userList.isEmpty()) {
-                userDataMap.put(slackUserId, userList.get(0));
-            } else {
-                logger.warn("😴 Missing User Data: No user data found for slackUserId: {} (user might be a ghost 👻)", slackUserId);
+        
+        // ✅ PERFORMANCE FIX: Batch lookup users instead of N+1 queries
+        try {
+            List<User> allFoundUsers = userRepository.findBySlackUserIdIn(userIdsToLookup);
+            
+            // Group by slackUserId and take the first one (matching original logic)
+            for (User user : allFoundUsers) {
+                if (user.getSlackUserId() != null && !userDataMap.containsKey(user.getSlackUserId())) {
+                    userDataMap.put(user.getSlackUserId(), user);
+                }
+            }
+            
+            // Log missing users
+            for (String slackUserId : userIdsToLookup) {
+                if (!userDataMap.containsKey(slackUserId)) {
+                    logger.warn("😴 Missing User Data: No user data found for slackUserId: {} (user might be a ghost 👻)", slackUserId);
+                }
+            }
+        } catch (Exception e) {
+            logger.error("❌ User Batch Lookup Failed: Falling back to individual lookups. Error: {}", e.getMessage());
+            // Fallback to individual lookups if batch fails
+            for (String slackUserId : userIdsToLookup) {
+                try {
+                    List<User> userList = userRepository.findBySlackUserId(slackUserId);
+                    if (!userList.isEmpty()) {
+                        userDataMap.put(slackUserId, userList.get(0));
+                    }
+                } catch (Exception ex) {
+                    logger.error("Failed lookup for user {}: {}", slackUserId, ex.getMessage());
+                }
             }
         }
 
@@ -794,57 +816,6 @@ public class SlidingWindowService {
     }
 
     /**
-     * Clean up messages from a processed batch, keeping only the overlap messages.
-     * This method soft deletes messages that are not part of the overlap for the next batch.
-     * Messages are marked as deleted and retained for 30 days before permanent removal.
-     *
-     * @param batchMessages The messages from the processed batch
-     * @param overlapSize Number of latest messages to keep for overlap
-     * @param batchNumber The batch number being processed (for logging)
-     * @author vudu
-     */
-    private void cleanupBatchMessages(List<Message> batchMessages, int overlapSize, int batchNumber) {
-        if (batchMessages == null || batchMessages.isEmpty()) {
-            logger.debug("🧹 Nothing to Clean: No messages to cleanup for batch {} (already spotless! ✨)", batchNumber);
-            return;
-        }
-
-        // Filter out already-deleted messages
-        List<Message> activeMessages = batchMessages.stream()
-                .filter(m -> !Boolean.TRUE.equals(m.getIsDeleted()))
-                .collect(Collectors.toList());
-
-        int totalActiveMessages = activeMessages.size();
-        int messagesToKeep = Math.min(overlapSize, totalActiveMessages);
-        int messagesToDelete = totalActiveMessages - messagesToKeep;
-
-        if (messagesToDelete <= 0) {
-            logger.debug("🔄 Keeping All: Batch {}: No active messages to delete. Total: {}, Keeping: {} for overlap (all precious! 💎)",
-                       batchNumber, totalActiveMessages, messagesToKeep);
-            return;
-        }
-
-        try {
-            // Messages are already sorted chronologically (oldest first) by loadMessagesForWorkspace
-            // Get oldest messages to soft delete, keeping newest for overlap
-            List<String> messageIdsForDeletion = activeMessages.stream()
-                    .limit(messagesToDelete)
-                    .map(Message::getId)
-                    .collect(Collectors.toList());
-
-            // Use batch soft delete to prevent N+1 query problem
-            int deletedCount = messageService.softDeleteByIds(messageIdsForDeletion, "SYSTEM", "BATCH_CLEANUP");
-
-            logger.info("✅ [SOFT-DELETE] Cleanup Complete: Batch {}: Soft deleted {} processed messages, keeping {} for overlap (tidying up! 🧽)",
-                       batchNumber, deletedCount, messagesToKeep);
-
-        } catch (Exception e) {
-            logger.error("💥 Cleanup Failed: Error cleaning up batch {} messages: {} 😰", batchNumber, e.getMessage(), e);
-            // Don't throw exception - let processing continue even if cleanup fails
-        }
-    }
-
-    /**
      * Manually clean up all processed messages for a workspace, keeping only the most recent messages.
      * This can be used for maintenance or when you want to clean up old processed messages.
      * Messages are soft deleted and retained for 30 days before permanent removal.
@@ -911,27 +882,10 @@ public class SlidingWindowService {
      *
      * @param messages The list of messages to mark as processed
      */
-    /**
-     * Mark messages as processed synchronously.
-     * This is the public synchronous method that delegates to the async implementation.
-     */
     public void markMessagesAsProcessed(List<Message> messages) {
-        // Delegate to async method but don't wait for completion
-        markMessagesAsProcessedAsync(messages);
-    }
-
-    /**
-     * Mark messages as processed asynchronously using Redis pipelining.
-     * This method runs in a separate thread pool and uses Redis pipeline for batch operations.
-     *
-     * @param messages List of messages to mark as processed
-     * @return CompletableFuture that completes when operation finishes
-     */
-    @Async
-    public CompletableFuture<Void> markMessagesAsProcessedAsync(List<Message> messages) {
         if (messages == null || messages.isEmpty()) {
             logger.debug("✅ Nothing to Mark: No messages to mark as processed (already done! 🎯)");
-            return CompletableFuture.completedFuture(null);
+            return;
         }
 
         try {
@@ -948,7 +902,7 @@ public class SlidingWindowService {
 
             if (updatedMessages.isEmpty()) {
                 logger.debug("✅ All Already Marked: No unprocessed messages to mark as processed in this batch (we're efficient! 🚀)");
-                return CompletableFuture.completedFuture(null);
+                return;
             }
 
             // ⚡ OPTIMIZATION: Use Redis pipelining for batch saves (significantly faster)
@@ -961,7 +915,7 @@ public class SlidingWindowService {
             });
 
             long duration = System.currentTimeMillis() - startTime;
-            logger.info("✅ [ASYNC] Processing Status Updated: Marked {} messages as processed in {}ms using Redis pipeline (stamped and approved! 📋)",
+            logger.info("✅ Processing Status Updated: Marked {} messages as processed in {}ms using Redis pipeline (stamped and approved! 📋)",
                 updatedMessages.size(), duration);
 
             // Invalidate cache since unprocessed count changed
@@ -970,12 +924,9 @@ public class SlidingWindowService {
                 invalidateCachedCount(firstMessage.getTenantId(), firstMessage.getDeemergeUserId());
             }
 
-            return CompletableFuture.completedFuture(null);
-
         } catch (Exception e) {
-            logger.error("💥 [ASYNC] Status Update Failed: Error marking messages as processed: {} 😰", e.getMessage(), e);
+            logger.error("💥 Status Update Failed: Error marking messages as processed: {} 😰", e.getMessage(), e);
             // Don't throw exception - let processing continue even if marking fails
-            return CompletableFuture.failedFuture(e);
         }
     }
 
