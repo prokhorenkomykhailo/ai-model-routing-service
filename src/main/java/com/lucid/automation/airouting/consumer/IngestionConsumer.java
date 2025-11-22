@@ -108,6 +108,11 @@ public class IngestionConsumer {
             ingestionEventDto.getMessage().getTs(),
             ingestionEventDto.getMessage().getTs());
 
+        // Standardized Input Event
+        logger.info("🔵 [EVENT-IN] Service=ai-routing-service | Endpoint=ingestion-consumer | RequestId={} | PayloadSize={}",
+            ingestionEventDto.getMessage() != null ? ingestionEventDto.getMessage().getId() : "unknown",
+            ingestionEventDto.toString().length());
+
         validateTimestamp(ingestionEventDto, acknowledgment);
 
         try {
@@ -117,6 +122,11 @@ public class IngestionConsumer {
             if (processingResult.isSuccess()) {
                 successfulMessages.incrementAndGet();
                 newMessages.incrementAndGet();
+                
+                // Standardized Performance Event
+                logger.info("⚡ [EVENT-PERF] Service=ai-routing-service | Operation=ingest-message | Duration={}ms | Throughput={}",
+                    processingTime, successfulMessages.get());
+
                 logger.info("✅ [INGESTION-SUCCESS] Message processed in {}ms: {} | 📊 RUNNING TOTALS - Processed: {} | Success: {} | Failed: {} | New: {} | Duplicates: {}",
                     processingTime,
                     ingestionEventDto.getMessage().getTs(),
@@ -134,6 +144,12 @@ public class IngestionConsumer {
         } catch (Exception e) {
             failedMessages.incrementAndGet();
             long processingTime = System.currentTimeMillis() - startTime;
+            
+            // Standardized Error Event
+            logger.error("🔴 [EVENT-ERROR] Service=ai-routing-service | Step=ingestion-consumer | Error={} | Context=messageId:{}",
+                e.getMessage(),
+                ingestionEventDto.getMessage() != null ? ingestionEventDto.getMessage().getId() : "unknown");
+
             logger.error("🚨 [INGESTION-EXCEPTION] Exception processing message after {}ms: {} | Error: {} | 📊 TOTALS - Processed: {} | Success: {} | Failed: {} | New: {} | Duplicates: {}",
                 processingTime,
                 ingestionEventDto.getMessage().getTs(),
