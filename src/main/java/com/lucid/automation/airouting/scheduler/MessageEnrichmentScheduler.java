@@ -47,7 +47,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Component
 @ConditionalOnProperty(value = "ai.enrichment.scheduler.enabled", havingValue = "true", matchIfMissing = false)
-public final class MessageEnrichmentScheduler implements InitializingBean {
+public class MessageEnrichmentScheduler implements InitializingBean {
 
     // Configuration constants
     private static final int DEFAULT_BATCH_SIZE = 1000;
