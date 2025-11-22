@@ -140,7 +140,7 @@
     <logger name="org.hibernate" level="ERROR"/>
     <logger name="org.hibernate.SQL" level="ERROR"/>
     <logger name="org.hibernate.type.descriptor.sql" level="ERROR"/>
-    <logger name="io.opentelemetry" level="ERROR"/>
+    <logger name="io.opentelemetry" level="INFO"/>
     <logger name="com.netflix" level="ERROR"/>
     <logger name="io.sentry" level="ERROR"/>
 </configuration>
