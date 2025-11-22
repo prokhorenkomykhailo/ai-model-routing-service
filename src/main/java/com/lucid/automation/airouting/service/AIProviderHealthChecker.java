@@ -8,6 +8,7 @@ import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.api.trace.Span;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -38,7 +39,7 @@ public class AIProviderHealthChecker implements HealthIndicator {
 
     public AIProviderHealthChecker(AIProviderFactory providerFactory,
                                  MeterRegistry meterRegistry,
-                                 Tracer tracer) {
+                                 @Autowired(required = false) Tracer tracer) {
         this.providerFactory = providerFactory;
         this.meterRegistry = meterRegistry;
         this.tracer = tracer;
@@ -61,7 +62,7 @@ public class AIProviderHealthChecker implements HealthIndicator {
      */
     @Scheduled(fixedRate = 30000)
     public void performHealthChecks() {
-        Span span = tracer.spanBuilder("ai.provider.health_check").startSpan();
+        Span span = tracer != null ? tracer.spanBuilder("ai.provider.health_check").startSpan() : null;
         try {
             logger.debug("Starting scheduled health checks for AI providers");
 
@@ -96,7 +97,9 @@ public class AIProviderHealthChecker implements HealthIndicator {
             logger.debug("Health check completed. {}/{} providers healthy", healthyCount, allProviders.size());
 
         } finally {
-            span.end();
+            if (span != null) {
+                span.end();
+            }
         }
     }
 
