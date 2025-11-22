@@ -86,6 +86,26 @@ public class ChannelService {
     }
 
     /**
+     * Find all channels by a list of IDs
+     *
+     * @param channelIds List of channel IDs
+     * @return List of found channels
+     */
+    public List<Channel> findAllById(Iterable<String> channelIds) {
+        if (channelIds == null) {
+            return List.of();
+        }
+        try {
+            List<Channel> channels = new java.util.ArrayList<>();
+            channelRepository.findAllById(channelIds).forEach(channels::add);
+            return channels;
+        } catch (Exception e) {
+            logger.error("❌ Failed to batch find channels: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
      * Find channels by name (case-insensitive)
      *
      * @param channelName The channel name

@@ -122,7 +122,7 @@ public class IngestionConsumer {
             if (processingResult.isSuccess()) {
                 successfulMessages.incrementAndGet();
                 newMessages.incrementAndGet();
-                
+
                 // Standardized Performance Event
                 logger.info("⚡ [EVENT-PERF] Service=ai-routing-service | Operation=ingest-message | Duration={}ms | Throughput={}",
                     processingTime, successfulMessages.get());
@@ -144,7 +144,7 @@ public class IngestionConsumer {
         } catch (Exception e) {
             failedMessages.incrementAndGet();
             long processingTime = System.currentTimeMillis() - startTime;
-            
+
             // Standardized Error Event
             logger.error("🔴 [EVENT-ERROR] Service=ai-routing-service | Step=ingestion-consumer | Error={} | Context=messageId:{}",
                 e.getMessage(),

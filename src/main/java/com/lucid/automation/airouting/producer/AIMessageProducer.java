@@ -104,8 +104,18 @@ public class AIMessageProducer {
                 // Send synchronously and wait for confirmation
                 kafkaTemplate.send(topic, aiMessage).get();
                 logger.debug("Message successfully sent to topic: {}", topic);
+
+                // Standardized Output Event
+                logger.info("🟢 [EVENT-OUT] Service=ai-routing-service | Destination={} | MessageId={} | Size={}",
+                    topic, messageId, aiMessage.toString().length());
+
             } catch (Exception kafkaException) {
                 logger.error("Failed to send message to Kafka topic: {}, error: {}", topic, kafkaException.getMessage(), kafkaException);
+
+                // Standardized Error Event
+                logger.error("🔴 [EVENT-ERROR] Service=ai-routing-service | Step=ai-message-producer | Error={} | Context=topic:{},messageId:{}",
+                    kafkaException.getMessage(), topic, messageId);
+
                 throw new RuntimeException("Failed to publish message to Kafka", kafkaException);
             }
 

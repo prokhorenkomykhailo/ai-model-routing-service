@@ -222,7 +222,7 @@ public final class MessageEnrichmentScheduler implements InitializingBean {
                     log.warn("⚠️ [PRE-CHECK] Skipping null workspace - possible corrupted Redis entry");
                     return false;
                 }
-                
+
                 try {
                     // SlidingWindowService.shouldProcessWorkspace already checks:
                     // - Invalid tenant ID (skips)

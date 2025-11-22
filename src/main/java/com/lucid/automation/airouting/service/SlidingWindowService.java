@@ -575,18 +575,18 @@ public class SlidingWindowService {
 
         // Create a map of userId -> User for quick lookup
         Map<String, User> userDataMap = new HashMap<>();
-        
+
         // ✅ PERFORMANCE FIX: Batch lookup users instead of N+1 queries
         try {
             List<User> allFoundUsers = userRepository.findBySlackUserIdIn(userIdsToLookup);
-            
+
             // Group by slackUserId and take the first one (matching original logic)
             for (User user : allFoundUsers) {
                 if (user.getSlackUserId() != null && !userDataMap.containsKey(user.getSlackUserId())) {
                     userDataMap.put(user.getSlackUserId(), user);
                 }
             }
-            
+
             // Log missing users
             for (String slackUserId : userIdsToLookup) {
                 if (!userDataMap.containsKey(slackUserId)) {

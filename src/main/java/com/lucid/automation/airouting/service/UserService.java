@@ -174,6 +174,26 @@ public class UserService {
     }
 
     /**
+     * Get users by a list of IDs
+     *
+     * @param userIds List of user IDs
+     * @return List of found users
+     */
+    public java.util.List<User> getUsersByIds(java.util.Collection<String> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return java.util.List.of();
+        }
+        try {
+            java.util.List<User> users = new java.util.ArrayList<>();
+            userRepository.findAllById(userIds).forEach(users::add);
+            return users;
+        } catch (Exception e) {
+            logger.error("❌ Failed to batch find users: {}", e.getMessage());
+            return java.util.List.of();
+        }
+    }
+
+    /**
      * Get user by ID
      */
     public Optional<User> getUserById(String userId) {

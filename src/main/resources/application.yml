@@ -71,6 +71,10 @@ spring:
     listener:
       ack-mode: manual-immediate
       missing-topics-fatal: false
+      # BOTTLENECK FIX #3: Enable concurrent processing with 10 threads
+      # This allows processing 10 messages in parallel instead of 1 at a time
+      # Expected improvement: 10x throughput increase
+      concurrency: ${KAFKA_LISTENER_CONCURRENCY:10}
 
 # Application-specific Kafka Configuration
 kafka:

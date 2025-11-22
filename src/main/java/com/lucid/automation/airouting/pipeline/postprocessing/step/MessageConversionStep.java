@@ -101,19 +101,28 @@ public class MessageConversionStep implements PipelineStep {
 
         Map<String, String> channelCache = new HashMap<>();
 
-        // Batch load all channels from database
-        for (String channelId : allChannelIds) {
-            try {
-                Optional<Channel> channelOptional = channelService.findByChannelId(channelId.trim());
-                if (channelOptional.isPresent()) {
-                    Channel channel = channelOptional.get();
-                    channelCache.put(channelId, channel.getChannelName());
-                } else {
+        // ✅ PERFORMANCE FIX: Batch load all channels from database
+        try {
+            List<Channel> foundChannels = channelService.findAllById(allChannelIds);
+
+            // Add found channels to cache
+            for (Channel channel : foundChannels) {
+                if (channel != null && channel.getChannelId() != null) {
+                    channelCache.put(channel.getChannelId(), channel.getChannelName());
+                }
+            }
+
+            // Fill in missing channels with ID fallback
+            for (String channelId : allChannelIds) {
+                if (!channelCache.containsKey(channelId)) {
                     channelCache.put(channelId, channelId); // Fallback to ID
                 }
-            } catch (Exception e) {
-                logger.warn("Failed to load channel {}: {}", channelId, e.getMessage());
-                channelCache.put(channelId, channelId); // Fallback to ID
+            }
+        } catch (Exception e) {
+            logger.error("❌ Channel Batch Lookup Failed: {}", e.getMessage());
+            // Fallback to ID for all if batch fails
+            for (String channelId : allChannelIds) {
+                channelCache.put(channelId, channelId);
             }
         }
 

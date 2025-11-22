@@ -19,6 +19,10 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Qualifier;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -57,6 +61,7 @@ public class PostProcessingConsumer {
     private final SlidingWindowService slidingWindowService;
     private final EnhancedErrorHandler enhancedErrorHandler;
     private final KafkaRetryProperties kafkaRetryProperties;
+    private final Executor redisAsyncExecutor;
 
     @Value("${kafka.topics.ai-responses:ai.responses.queue}")
     private String aiResponsesTopic;
@@ -71,7 +76,8 @@ public class PostProcessingConsumer {
             PipelineConfiguration pipelineConfiguration,
             SlidingWindowService slidingWindowService,
             EnhancedErrorHandler enhancedErrorHandler,
-            KafkaRetryProperties kafkaRetryProperties) {
+            KafkaRetryProperties kafkaRetryProperties,
+            @Qualifier("redisAsyncExecutor") Executor redisAsyncExecutor) {
         this.kafkaTemplate = kafkaTemplate;
         this.pipelineOrchestrator = pipelineOrchestrator;
         this.pipelineFactory = pipelineFactory;
@@ -79,6 +85,7 @@ public class PostProcessingConsumer {
         this.slidingWindowService = slidingWindowService;
         this.enhancedErrorHandler = enhancedErrorHandler;
         this.kafkaRetryProperties = kafkaRetryProperties;
+        this.redisAsyncExecutor = redisAsyncExecutor;
 
         logger.info("🚀 === POST-PROCESSING CONSUMER INITIALIZED (SCRUM-345 ENHANCED) ===");
         logger.info("🎯 PostProcessingConsumer initialized with pipeline architecture");
@@ -189,16 +196,19 @@ public class PostProcessingConsumer {
 
                     logger.info("🏁 [POST-PROCESSING-COMPLETE] Method execution finished for offset {}", record.offset());
 
-                    // ⚡ OPTIMIZATION: Mark original messages as processed AFTER acknowledgment (non-blocking)
-                    // This prevents slow Redis operations from blocking the Kafka consumer
-                    // The message is already successfully processed and acknowledged, so this is cleanup
-                    try {
-                        markOriginalMessagesAsProcessed(context);
-                    } catch (Exception markException) {
-                        logger.error("⚠️ [MESSAGE-MARKING-ERROR] Failed to mark messages as processed (non-fatal, already ACKed): {}",
-                            markException.getMessage());
-                        // Don't throw - we already ACKed the message successfully
-                    }
+                    // ⚡ BOTTLENECK FIX #1: Async Redis operations to prevent blocking consumer thread
+                    // Fire and forget - don't block the consumer thread waiting for Redis
+                    // The message is already successfully processed and ACKed, this is just cleanup
+                    final PostProcessingContext finalContext = context; // Make final for lambda
+                    CompletableFuture.runAsync(() -> {
+                        try {
+                            markOriginalMessagesAsProcessed(finalContext);
+                        } catch (Exception markException) {
+                            logger.error("⚠️ [ASYNC-MARKING-ERROR] Failed to mark messages as processed (non-fatal, already ACKed): {}",
+                                markException.getMessage());
+                            // Don't throw - this is async cleanup, message already ACKed
+                        }
+                    }, redisAsyncExecutor);
                 } else {
                     handlePipelineNullResponse(context, record, acknowledgment, postProcessingStartTime);
                 }
@@ -487,24 +497,32 @@ public class PostProcessingConsumer {
     }
 
     /**
-     * Send processed message to the final ai-responses topic synchronously with timeout
+     * Send processed message to the final ai-responses topic ASYNCHRONOUSLY.
+     * BOTTLENECK FIX #2: Changed from synchronous (blocking 30s) to async (non-blocking).
      */
     private void sendToFinalAiResponsesTopic(Object parsedAiResponse) {
         try {
-            logger.info("📤 [FORWARD] Attempting to send enrichment response to topic: {}", aiResponsesTopic);
+            logger.info("📤 [FORWARD] Sending enrichment response asynchronously to topic: {}", aiResponsesTopic);
 
-            // Send synchronously with 30-second timeout to prevent indefinite blocking
+            // ⚡ BOTTLENECK FIX: Async send with callback (eliminates 30s blocking)
             kafkaTemplate.send(aiResponsesTopic, parsedAiResponse)
-                .get(30, java.util.concurrent.TimeUnit.SECONDS);
+                .whenComplete((result, ex) -> {
+                    if (ex == null) {
+                        logger.info("✅ [FORWARD-SUCCESS] Message sent to {} at offset {}",
+                            aiResponsesTopic, result.getRecordMetadata().offset());
+                    } else {
+                        logger.error("❌ [FORWARD-ERROR] Failed to send to {}: {}",
+                            aiResponsesTopic, ex.getMessage(), ex);
+                        // Optional: Could send to DLQ for failed forwards
+                    }
+                });
 
-            logger.info("✅ [FORWARD-SUCCESS] Successfully forwarded message to final ai-responses topic: {}", aiResponsesTopic);
-        } catch (java.util.concurrent.TimeoutException e) {
-            logger.error("⏱️ [FORWARD-TIMEOUT] Timeout after 30s sending to topic: {}", aiResponsesTopic, e);
-            throw new RuntimeException("Timeout sending message to final ai-responses topic after 30s", e);
+            logger.info("🚀 [FORWARD-INITIATED] Async send initiated to topic: {}", aiResponsesTopic);
+
         } catch (Exception e) {
-            logger.error("❌ [FORWARD-ERROR] Failed to send message to final ai-responses topic: {}, error type: {}, message: {}",
-                        aiResponsesTopic, e.getClass().getSimpleName(), e.getMessage(), e);
-            throw new RuntimeException("Failed to send message to final ai-responses topic", e);
+            logger.error("❌ [FORWARD-EXCEPTION] Exception initiating send to {}: {}",
+                aiResponsesTopic, e.getMessage(), e);
+            throw new RuntimeException("Failed to initiate send to final ai-responses topic", e);
         }
     }
 

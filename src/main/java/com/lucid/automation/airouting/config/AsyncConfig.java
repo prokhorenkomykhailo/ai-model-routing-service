@@ -64,4 +64,32 @@ public class AsyncConfig implements AsyncConfigurer {
                 method.getName(), throwable.getMessage(), throwable);
         };
     }
+
+    /**
+     * Dedicated executor for Redis async operations (marking messages as processed).
+     * Higher capacity than default executor to handle high-throughput Redis write operations.
+     * This prevents blocking Kafka consumer threads during Redis cleanup.
+     *
+     * @return Executor for Redis async operations
+     */
+    @Bean(name = "redisAsyncExecutor")
+    public Executor redisAsyncExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+
+        // Higher capacity for Redis operations
+        executor.setCorePoolSize(10);  // More threads for Redis ops
+        executor.setMaxPoolSize(50);   // Can scale up significantly
+        executor.setQueueCapacity(1000); // Large queue for burst handling
+
+        executor.setThreadNamePrefix("redis-async-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
+
+        executor.initialize();
+
+        logger.info("⚡ [REDIS-ASYNC-CONFIG] Redis async executor initialized: core={}, max={}, queue={}",
+            executor.getCorePoolSize(), executor.getMaxPoolSize(), executor.getQueueCapacity());
+
+        return executor;
+    }
 }

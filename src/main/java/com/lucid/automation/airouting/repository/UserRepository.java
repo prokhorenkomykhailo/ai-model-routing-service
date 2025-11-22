@@ -31,6 +31,13 @@ public interface UserRepository extends CrudRepository<User, String> {
     List<User> findBySlackUserId(String slackUserId);
 
     /**
+     * Find users by a list of slack user IDs (batch lookup)
+     * @param slackUserIds List of slack user IDs
+     * @return List of matching users
+     */
+    List<User> findBySlackUserIdIn(java.util.Collection<String> slackUserIds);
+
+    /**
      * Find user by tenant, workspace, and slack user ID (legacy support)
      * @deprecated Use findByTenantIdAndWorkspaceIdAndUniqueUserId instead
      */

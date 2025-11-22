@@ -15,79 +15,90 @@ import java.util.Comparator;
 /**
  * Orchestrates the ingestion pipeline by executing processors in order.
  * This replaces the monolithic processing logic in IngestionConsumer.
- * 
+ *
  * @author AI Assistant
  */
 @Service
 public class IngestionPipelineOrchestrator {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(IngestionPipelineOrchestrator.class);
-    
+
     private final List<MessageProcessor> processors;
-    
+
     public IngestionPipelineOrchestrator(List<MessageProcessor> processors) {
         this.processors = new ArrayList<>(processors);
         // Sort processors by order
         this.processors.sort(Comparator.comparingInt(MessageProcessor::getOrder));
-        logger.info("Initialized IngestionPipelineOrchestrator with {} processors: {}", 
+        logger.info("Initialized IngestionPipelineOrchestrator with {} processors: {}",
             this.processors.size(),
             this.processors.stream().map(MessageProcessor::getProcessorName).toList());
     }
-    
+
     /**
      * Processes an ingestion event through the pipeline.
-     * 
+     *
      * @param ingestionEvent The event to process
      * @return ProcessingResult indicating overall success/failure
      */
     public ProcessingResult processMessage(IngestionEventDTO ingestionEvent) {
         IngestionProcessingContext context = new IngestionProcessingContext(ingestionEvent);
-        
-        logger.debug("Starting ingestion pipeline for messageId: {}, tenantId: {}", 
+
+        logger.debug("Starting ingestion pipeline for messageId: {}, tenantId: {}",
             context.getMessageId(), context.getTenantId());
-        
+
         boolean overallSuccess = true;
         String failureReason = null;
-        
+
         for (MessageProcessor processor : processors) {
             try {
                 logger.debug("Executing processor: {}", processor.getProcessorName());
+                long stepStartTime = System.currentTimeMillis();
                 ProcessingResult result = processor.process(context);
-                
+                long stepDuration = System.currentTimeMillis() - stepStartTime;
+
+                // Standardized Processing Event
+                logger.info("🟡 [EVENT-PROCESS] Service=ai-routing-service | Step={} | Duration={}ms | Status={}",
+                    processor.getProcessorName(), stepDuration, result.isSuccess() ? "SUCCESS" : "FAILURE");
+
                 if (!result.isSuccess()) {
                     logger.error("Processor {} failed: {}", processor.getProcessorName(), result.getErrorMessage());
                     overallSuccess = false;
                     failureReason = result.getErrorMessage();
-                    
+
                     // For critical processors, stop the pipeline
-                    if (processor instanceof ValidationProcessor || 
+                    if (processor instanceof ValidationProcessor ||
                         processor instanceof MessageStorageProcessor) {
                         logger.error("Critical processor failed, stopping pipeline");
                         break;
                     }
                 }
-                
+
                 logger.debug("Processor {} completed successfully", processor.getProcessorName());
-                
+
             } catch (Exception e) {
                 logger.error("Exception in processor {}: {}", processor.getProcessorName(), e.getMessage(), e);
+
+                // Standardized Error Event
+                logger.error("🔴 [EVENT-ERROR] Service=ai-routing-service | Step={} | Error={} | Context=messageId:{}",
+                    processor.getProcessorName(), e.getMessage(), context.getMessageId());
+
                 overallSuccess = false;
                 failureReason = "Exception in " + processor.getProcessorName() + ": " + e.getMessage();
-                
+
                 // For critical processors, stop the pipeline
-                if (processor instanceof ValidationProcessor || 
+                if (processor instanceof ValidationProcessor ||
                     processor instanceof MessageStorageProcessor) {
                     logger.error("Critical processor failed with exception, stopping pipeline");
                     break;
                 }
             }
         }
-        
+
         if (overallSuccess) {
             logger.info("Ingestion pipeline completed successfully for messageId: {}", context.getMessageId());
             return ProcessingResult.success("IngestionPipelineOrchestrator");
         } else {
-            logger.error("Ingestion pipeline failed for messageId: {}, reason: {}", 
+            logger.error("Ingestion pipeline failed for messageId: {}, reason: {}",
                 context.getMessageId(), failureReason);
             return ProcessingResult.failure("IngestionPipelineOrchestrator", failureReason);
         }
