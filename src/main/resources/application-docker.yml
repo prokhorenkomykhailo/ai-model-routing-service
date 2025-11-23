@@ -70,6 +70,30 @@ springdoc:
   default-produces-media-type: application/json
   packages-to-scan: com.lucid.automation.airouting.controller
 
+# Sliding Window Configuration for Docker
+# BALANCED CONFIG: batch=30 (avg 23 + buffer), min=2 (duo conversations), wait=1h (faster processing)
+sliding:
+  window:
+    default:
+      batch:
+        size: ${SLIDING_WINDOW_BATCH_SIZE:30}  # Balanced for production avg 23 msgs/batch
+      overlap:
+        percentage: ${SLIDING_WINDOW_OVERLAP_PERCENTAGE:20}  # 6 messages overlap for context
+    max:
+      tokens: ${SLIDING_WINDOW_MAX_TOKENS:15000}  # Kafka safety limit
+      wait:
+        hours: ${SLIDING_WINDOW_MAX_WAIT_HOURS:0.5}  # 30 minutes timeout
+    min:
+      new:
+        messages: ${SLIDING_WINDOW_MIN_NEW_MESSAGES:2}  # Duo conversations minimum
+    avg:
+      tokens:
+        per:
+          message: ${SLIDING_WINDOW_AVG_TOKENS_PER_MESSAGE:50}
+    cache:
+      ttl:
+        seconds: ${SLIDING_WINDOW_CACHE_TTL:300}
+
 # Docker logging configuration
 logging:
   level:

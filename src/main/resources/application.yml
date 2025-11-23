@@ -133,6 +133,32 @@ ai:
       cron: "${AI_ENRICHMENT_CRON:0 */5 * * * ?}"  # Every 5 minutes by default
       enabled: "${AI_ENRICHMENT_ENABLED:true}"     # DISABLED to prevent excessive requests and rebalances
       parallel-threads: "${AI_ENRICHMENT_PARALLEL_THREADS:4}"  # Number of parallel threads for workspace processing
+      batch-size: "${AI_ENRICHMENT_BATCH_SIZE:50}"  # Max messages per batch (default 50)
+      default-tenant-schema: "${DEFAULT_TENANT_SCHEMA:public}"
+
+# Sliding Window Configuration
+# BALANCED CONFIG based on production data: avg 23 msgs/batch, max 36, 90% workspaces skipped with min=5
+sliding:
+  window:
+    default:
+      batch:
+        size: ${SLIDING_WINDOW_BATCH_SIZE:30}  # Balanced: covers avg production batch (23) + buffer
+      overlap:
+        percentage: ${SLIDING_WINDOW_OVERLAP_PERCENTAGE:20}  # 20% overlap = 6 messages context
+    max:
+      tokens: ${SLIDING_WINDOW_MAX_TOKENS:15000}  # Safety limit to prevent Kafka RecordTooLargeException
+      wait:
+        hours: ${SLIDING_WINDOW_MAX_WAIT_HOURS:0.5}  # Process after 30 minutes even if < min messages
+    min:
+      new:
+        messages: ${SLIDING_WINDOW_MIN_NEW_MESSAGES:2}  # Balanced: allows duo conversations, filters noise
+    avg:
+      tokens:
+        per:
+          message: ${SLIDING_WINDOW_AVG_TOKENS_PER_MESSAGE:50}  # Token estimation for batch sizing
+    cache:
+      ttl:
+        seconds: ${SLIDING_WINDOW_CACHE_TTL:300}  # 5 minutes cache to reduce Redis load
 
 # Lucid Post-Processing Pipeline Configuration
 lucid:
@@ -152,10 +178,8 @@ lucid:
         - CONVERSATION_ENRICHMENT
         - TOPIC_ENRICHMENT
         - RESPONSE_BUILDING
-      batch-size: "${AI_ENRICHMENT_BATCH_SIZE:50}"
       max-retries: "${AI_ENRICHMENT_MAX_RETRIES:3}"
       default-tenant-id: "${DEFAULT_TENANT_ID:default-tenant}"
-      default-tenant-schema: "${DEFAULT_TENANT_SCHEMA:public}"
   # Audit configuration
   audit:
     enabled: ${LUCID_AUDIT_ENABLED:true}
@@ -234,48 +258,6 @@ redis:
     ttl-seconds: ${REDIS_TTL_SECONDS:604800} # 7 days (604800 seconds)
   enrichment-job:
     ttl-seconds: ${REDIS_ENRICHMENT_JOB_TTL_SECONDS:3600} # 60 minutes (3600 seconds)
-
-# Sliding Window Processing Configuration
-sliding:
-  window:
-    default:
-      batch:
-        size: ${SLIDING_WINDOW_BATCH_SIZE:50}
-      overlap:
-        percentage: ${SLIDING_WINDOW_OVERLAP_PERCENTAGE:20}
-    cleanup:
-      enabled: true
-    # Message processing thresholds
-    min:
-      new:
-        messages: ${SLIDING_WINDOW_MIN_NEW_MESSAGES:5}
-    max:
-      wait:
-        hours: ${SLIDING_WINDOW_MAX_WAIT_HOURS:4}
-      tokens: ${SLIDING_WINDOW_MAX_TOKENS:15000}
-    avg:
-      tokens:
-        per:
-          message: ${SLIDING_WINDOW_AVG_TOKENS_PER_MESSAGE:50}
-    # Cache configuration for unprocessed message counts
-    cache:
-      ttl:
-        seconds: ${SLIDING_WINDOW_CACHE_TTL_SECONDS:300}  # 5 minutes
-    # Token-based sliding window configuration
-    token:
-      enabled: ${SLIDING_WINDOW_TOKEN_ENABLED:true}  # Enable token-based processing
-      max:
-        tokens: ${SLIDING_WINDOW_TOKEN_MAX_TOKENS:50000}  # Maximum tokens per batch
-      min:
-        tokens: ${SLIDING_WINDOW_TOKEN_MIN_TOKENS:100}   # Minimum tokens to process
-      timeout:
-        seconds: ${SLIDING_WINDOW_TOKEN_TIMEOUT_SECONDS:300}  # 5 minutes timeout
-      overlap:
-        percentage: ${SLIDING_WINDOW_TOKEN_OVERLAP_PERCENTAGE:20}  # Percentage of tokens for overlap
-        tokens: ${SLIDING_WINDOW_TOKEN_OVERLAP_TOKENS:500}         # Fixed tokens for overlap
-      fallback:
-        message:
-          count: ${SLIDING_WINDOW_TOKEN_FALLBACK_MESSAGE_COUNT:50}  # Fallback message count
 
 # OpenTelemetry auto-instrumentation settings
 otel:
