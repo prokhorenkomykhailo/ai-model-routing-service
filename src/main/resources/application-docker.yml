@@ -82,7 +82,7 @@ sliding:
     max:
       tokens: ${SLIDING_WINDOW_MAX_TOKENS:15000}  # Kafka safety limit
       wait:
-        hours: ${SLIDING_WINDOW_MAX_WAIT_HOURS:0.5}  # 30 minutes timeout
+        minutes: ${SLIDING_WINDOW_MAX_WAIT_MINUTES:30}  # 30 minutes timeout
     min:
       new:
         messages: ${SLIDING_WINDOW_MIN_NEW_MESSAGES:2}  # Duo conversations minimum

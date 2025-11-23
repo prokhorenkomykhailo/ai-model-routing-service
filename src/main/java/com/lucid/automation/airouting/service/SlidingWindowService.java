@@ -56,8 +56,8 @@ public class SlidingWindowService {
     @Value("${sliding.window.min.new.messages:5}")
     private int minNewMessages;
 
-    @Value("${sliding.window.max.wait.hours:4}")
-    private int maxWaitHours;
+    @Value("${sliding.window.max.wait.minutes:240}")  // Changed from hours to minutes (240 min = 4 hours default)
+    private int maxWaitMinutes;
 
     @Value("${sliding.window.cache.ttl.seconds:300}")
     private long cacheTtlSeconds; // 5 minutes default
@@ -208,24 +208,23 @@ public class SlidingWindowService {
                     "Workspace has never been processed");
             }
 
-            Duration timeSinceLastProcessed = Duration.between(lastProcessed, Instant.now());
-            long hoursSinceLastProcessed = timeSinceLastProcessed.toHours();
 
-            if (hoursSinceLastProcessed >= maxWaitHours) {
-                logger.info("✅ SLIDING-WINDOW: Workspace [{}] last processed {} hours ago (≥{} hours) - processing due to time threshold",
-                           workspaceId, hoursSinceLastProcessed, maxWaitHours);
-                return new ProcessingDecision(true, ProcessingDecision.Reason.TIME_THRESHOLD,
-                    String.format("Last processed %d hours ago (≥%d hours required)", hoursSinceLastProcessed, maxWaitHours));
-            }
+        Duration timeSinceLastProcessed = Duration.between(lastProcessed, Instant.now());
+        long minutesSinceLastProcessed = timeSinceLastProcessed.toMinutes();
 
-            // Not enough messages and not enough time passed
-            logger.info("⏸️  SLIDING-WINDOW: Workspace [{}] skipped - only {} unprocessed messages (<{}) and {} hours since last processing (<{})",
-                       workspaceId, unprocessedCount, minNewMessages, hoursSinceLastProcessed, maxWaitHours);
-            return new ProcessingDecision(false, ProcessingDecision.Reason.INSUFFICIENT_CRITERIA,
-                String.format("Only %d unprocessed messages (<%d required) and %d hours since last processing (<%d hours required)",
-                             unprocessedCount, minNewMessages, hoursSinceLastProcessed, maxWaitHours));
+        if (minutesSinceLastProcessed >= maxWaitMinutes) {
+            logger.info("✅ SLIDING-WINDOW: Workspace [{}] last processed {} minutes ago (≥{} minutes) - processing due to time threshold",
+                       workspaceId, minutesSinceLastProcessed, maxWaitMinutes);
+            return new ProcessingDecision(true, ProcessingDecision.Reason.TIME_THRESHOLD,
+                String.format("Last processed %d minutes ago (≥%d minutes required)", minutesSinceLastProcessed, maxWaitMinutes));
+        }
 
-        } catch (Exception e) {
+        // Not enough messages and not enough time passed
+        logger.info("⏸️  SLIDING-WINDOW: Workspace [{}] skipped - only {} unprocessed messages (<{}) and {} minutes since last processing (<{})",
+                   workspaceId, unprocessedCount, minNewMessages, minutesSinceLastProcessed, maxWaitMinutes);
+        return new ProcessingDecision(false, ProcessingDecision.Reason.INSUFFICIENT_CRITERIA,
+            String.format("Only %d unprocessed messages (<%d required) and %d minutes since last processing (<%d minutes required)",
+                         unprocessedCount, minNewMessages, minutesSinceLastProcessed, maxWaitMinutes));        } catch (Exception e) {
             logger.error("🚨 SLIDING-WINDOW: Error evaluating workspace [{}]: {}", workspaceId, e.getMessage(), e);
             return new ProcessingDecision(false, ProcessingDecision.Reason.ERROR,
                 "Error evaluating workspace: " + e.getMessage());

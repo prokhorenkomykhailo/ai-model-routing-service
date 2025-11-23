@@ -148,7 +148,7 @@ sliding:
     max:
       tokens: ${SLIDING_WINDOW_MAX_TOKENS:15000}  # Safety limit to prevent Kafka RecordTooLargeException
       wait:
-        hours: ${SLIDING_WINDOW_MAX_WAIT_HOURS:0.5}  # Process after 30 minutes even if < min messages
+        minutes: ${SLIDING_WINDOW_MAX_WAIT_MINUTES:30}  # Process after 30 minutes even if < min messages
     min:
       new:
         messages: ${SLIDING_WINDOW_MIN_NEW_MESSAGES:2}  # Balanced: allows duo conversations, filters noise
