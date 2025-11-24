@@ -151,7 +151,7 @@ sliding:
         minutes: ${SLIDING_WINDOW_MAX_WAIT_MINUTES:30}  # Process after 30 minutes even if < min messages
     min:
       new:
-        messages: ${SLIDING_WINDOW_MIN_NEW_MESSAGES:2}  # Balanced: allows duo conversations, filters noise
+        messages: ${SLIDING_WINDOW_MIN_NEW_MESSAGES:10}  # Increased threshold: process when ≥10 messages accumulated
     avg:
       tokens:
         per:
