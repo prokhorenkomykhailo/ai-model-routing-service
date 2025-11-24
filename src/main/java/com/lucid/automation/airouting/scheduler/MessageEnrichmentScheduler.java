@@ -150,9 +150,9 @@ public class MessageEnrichmentScheduler implements InitializingBean {
 
     /**
      * Scheduled method to process message enrichment for all workspaces.
-     * Runs every 30 seconds to check for new messages and process batches more frequently.
+     * Runs every minute to check for new messages and process batches.
      */
-    @Scheduled(cron = "${ai.enrichment.scheduler.cron:*/30 * * * * ?}")
+    @Scheduled(cron = "${ai.enrichment.scheduler.cron:0 * * * * ?}")
     public void processMessageEnrichment() {
         long schedulerStartTime = System.currentTimeMillis();
         totalSchedulerRuns.incrementAndGet();
