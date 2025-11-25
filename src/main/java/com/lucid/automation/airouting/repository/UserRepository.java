@@ -12,14 +12,35 @@ import java.util.Optional;
  */
 @Repository
 public interface UserRepository extends CrudRepository<User, String> {
-    
+
     /**
-     * Find user by slack user ID (used by SlidingWindowService)
+     * Find user by unique user ID (preferred method for lookups)
      */
+    List<User> findByUniqueUserId(String uniqueUserId);
+
+    /**
+     * Find user by tenant, workspace, and unique user ID (primary lookup method)
+     */
+    Optional<User> findByTenantIdAndWorkspaceIdAndUniqueUserId(String tenantId, String workspaceId, String uniqueUserId);
+
+    /**
+     * Find user by slack user ID (legacy support)
+     * @deprecated Use findByUniqueUserId instead
+     */
+    @Deprecated
     List<User> findBySlackUserId(String slackUserId);
-    
+
     /**
-     * Find user by tenant, workspace, and slack user ID (used by consumers)
+     * Find users by a list of slack user IDs (batch lookup)
+     * @param slackUserIds List of slack user IDs
+     * @return List of matching users
      */
+    List<User> findBySlackUserIdIn(java.util.Collection<String> slackUserIds);
+
+    /**
+     * Find user by tenant, workspace, and slack user ID (legacy support)
+     * @deprecated Use findByTenantIdAndWorkspaceIdAndUniqueUserId instead
+     */
+    @Deprecated
     Optional<User> findByTenantIdAndWorkspaceIdAndSlackUserId(String tenantId, String workspaceId, String slackUserId);
 }

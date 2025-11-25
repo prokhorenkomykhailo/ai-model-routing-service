@@ -1,5 +1,6 @@
 package com.lucid.automation.airouting.controller;
 
+import com.lucid.automation.airouting.audit.Audit;
 import com.lucid.automation.airouting.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -19,11 +20,11 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/users")
 @Tag(name = "User Management", description = "API for managing users stored in Redis")
 public class UserController {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(UserController.class);
-    
+
     private final UserService userService;
-    
+
     public UserController(UserService userService) {
         this.userService = userService;
     }
@@ -32,6 +33,7 @@ public class UserController {
      * Delete user by ID
      */
     @DeleteMapping("/id/{userId}")
+    @Audit(action = "AI_USER_DELETE", description = "User deleted user by ID")
     @Operation(summary = "Delete user by ID", description = "Deletes a specific user by their ID")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "204", description = "User deleted successfully"),
@@ -40,27 +42,27 @@ public class UserController {
         @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     public ResponseEntity<Void> deleteUserById(
-            @Parameter(description = "User ID (format: tenantId:workspaceId:slackUserId)", required = true)
+            @Parameter(description = "User ID (format: tenantId:workspaceId:uniqueUserId) - legacy slackUserId format is accepted during migration", required = true)
             @PathVariable String userId) {
         try {
             if (userId == null || userId.trim().isEmpty()) {
                 logger.warn("Invalid user ID provided: {}", userId);
                 return ResponseEntity.badRequest().build();
             }
-            
+
             logger.info("Deleting user by ID: {}", userId);
-            
+
             // Check if user exists before attempting delete
             if (!userService.getUserById(userId).isPresent()) {
                 logger.warn("User not found: {}", userId);
                 return ResponseEntity.notFound().build();
             }
-            
+
             // Delete the user
             userService.deleteUser(userId);
             logger.info("Successfully deleted user: {}", userId);
             return ResponseEntity.noContent().build();
-            
+
         } catch (Exception e) {
             logger.error("Error deleting user by ID {}: {}", userId, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();

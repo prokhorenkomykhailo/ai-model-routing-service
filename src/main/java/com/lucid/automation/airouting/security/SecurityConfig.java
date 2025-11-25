@@ -32,19 +32,19 @@ public class SecurityConfig {
                 // Public endpoints
                 .requestMatchers("/actuator/**").permitAll()
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
-                
+
                 // Message API endpoints are public
                 .requestMatchers("/api/messages/**").permitAll()
-                .requestMatchers("/api/**").permitAll()
+                .requestMatchers("/ai/health/**").permitAll()
+                .requestMatchers("/ai/public/**").permitAll()
                 
-                // All AI API endpoints require authentication
-                .requestMatchers("/ai/**").permitAll()
-                
+                // Internal API endpoints are public (for service-to-service communication)
+                .requestMatchers("/api/internal/**").permitAll()
+
                 // Tenant API endpoints require authentication
                 .requestMatchers("/api/tenants/**").authenticated()
-                
-                // Any other request requires authentication
-                .anyRequest().authenticated()
+                .requestMatchers("/api/**").authenticated()
+                // Note: No global permitAll; deny-by-default semantics via HttpSecurity configuration
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 

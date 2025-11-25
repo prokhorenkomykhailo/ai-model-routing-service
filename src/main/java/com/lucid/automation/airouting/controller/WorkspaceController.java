@@ -1,5 +1,6 @@
 package com.lucid.automation.airouting.controller;
 
+import com.lucid.automation.airouting.audit.Audit;
 import com.lucid.automation.airouting.dto.WorkspaceStats;
 import com.lucid.automation.airouting.model.Workspace;
 import com.lucid.automation.airouting.service.WorkspaceService;
@@ -22,26 +23,27 @@ import java.util.List;
 @CrossOrigin(origins = "*")
 @Tag(name = "Workspace Management", description = "Operations for managing workspaces")
 public class WorkspaceController {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(WorkspaceController.class);
-    
+
     private final WorkspaceService workspaceService;
-    
+
     public WorkspaceController(WorkspaceService workspaceService) {
         this.workspaceService = workspaceService;
     }
-    
+
     /**
      * Get all workspaces
      */
     @GetMapping
+    @Audit(action = "AI_WORKSPACES_GET", description = "User retrieved all workspaces")
     @Operation(summary = "Get all workspaces", description = "Retrieves all workspaces in the system")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Workspaces retrieved successfully")
     })
     public ResponseEntity<List<Workspace>> getAllWorkspaces() {
         logger.debug("Getting all workspaces");
-        
+
         try {
             List<Workspace> workspaces = workspaceService.getAllWorkspaces();
             logger.info("Retrieved {} workspaces", workspaces.size());
@@ -51,11 +53,12 @@ public class WorkspaceController {
             return ResponseEntity.internalServerError().build();
         }
     }
-    
+
     /**
      * Delete a workspace by ID
      */
     @DeleteMapping("/{id}")
+    @Audit(action = "AI_WORKSPACE_DELETE", description = "User deleted workspace")
     @Operation(summary = "Delete workspace by ID", description = "Deletes a workspace and all its messages by its ID")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "204", description = "Workspace deleted successfully"),

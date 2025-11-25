@@ -1,0 +1,37 @@
+# Runtime-only Dockerfile using pre-built JAR
+FROM eclipse-temurin:17-jre-alpine
+
+LABEL maintainer="Lucid Team <support@lucid.com>"
+LABEL description="Lucid AI Routing Service - AI model routing and orchestration for Slack and Gmail messages"
+LABEL version="1.1.2"
+LABEL com.lucid.service="ai-routing-service"
+LABEL com.lucid.component="backend"
+LABEL com.lucid.common-dtos-version="1.4.2"
+
+# Create a non-root user to run the application
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+WORKDIR /app
+
+# Add curl for healthcheck
+RUN apk --no-cache add curl
+
+# Copy the pre-built JAR file (version from Maven build)
+COPY target/lucid-ai-routing-service-*.jar app.jar
+
+# Set proper ownership
+RUN chown -R appuser:appgroup /app
+
+# Environment variables
+ENV JAVA_OPTS=""
+ENV SERVER_PORT=8083
+
+EXPOSE 8083
+
+# Switch to non-root user
+USER appuser
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+
+HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:8083/actuator/health || exit 1

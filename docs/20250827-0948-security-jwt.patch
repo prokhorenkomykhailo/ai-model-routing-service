@@ -1,0 +1,103 @@
+Patch: Tighten SecurityConfig and enhance JwtAuthenticationFilter logging
+
+Files:
+- lucid-ai-routing-service/src/main/java/com/lucid/automation/airouting/security/SecurityConfig.java
+- lucid-ai-routing-service/src/main/java/com/lucid/automation/airouting/security/JwtAuthenticationFilter.java
+
+Apply with:
+git apply 20250827-0948-security-jwt.patch
+
+--- a/lucid-ai-routing-service/src/main/java/com/lucid/automation/airouting/security/SecurityConfig.java
++++ b/lucid-ai-routing-service/src/main/java/com/lucid/automation/airouting/security/SecurityConfig.java
+@@
+-    .requestMatchers("/actuator/**").permitAll()
+-    .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
+-    .requestMatchers("/api/messages/**").permitAll()
+-    .requestMatchers("/api/**").permitAll()
+-    .requestMatchers("/ai/**").permitAll()
+-    .requestMatchers("/**").permitAll()
+-    .requestMatchers("/api/tenants/**").authenticated()
++    .requestMatchers("/actuator/**").permitAll()
++    .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
++    .requestMatchers("/api/messages/**").permitAll()
++    .requestMatchers("/ai/health/**").permitAll()
++    .requestMatchers("/ai/public/**").permitAll()
++    .requestMatchers("/api/tenants/**").authenticated()
++    .requestMatchers("/api/**").authenticated()
++    // Note: No global permitAll; deny-by-default semantics via HttpSecurity configuration
+
+--- a/lucid-ai-routing-service/src/main/java/com/lucid/automation/airouting/security/JwtAuthenticationFilter.java
++++ b/lucid-ai-routing-service/src/main/java/com/lucid/automation/airouting/security/JwtAuthenticationFilter.java
+@@
+ public class JwtAuthenticationFilter extends OncePerRequestFilter {
+ @@
+     @Override
+     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+             throws ServletException, IOException {
++        // Add request metadata debug log for easier triage (no token contents logged)
++        logger.debug("JwtAuthenticationFilter entry: method={} path={} query={} remoteAddr={} hasAuthHeader={}",
++            request.getMethod(),
++            request.getRequestURI(),
++            request.getQueryString(),
++            request.getRemoteAddr(),
++            request.getHeader("Authorization") != null);
++
+         try {
+             // existing code ...
+         } catch (ExpiredJwtException e) {
+-            logger.warn("JWT token expired: {}", e.getMessage());
+-            handleUnauthorized(response, "Token expired");
++            logger.warn("JWT token expired: {}", e.getMessage());
++            logger.debug("ExpiredJwtException stacktrace:", e);
++            handleUnauthorized(response, "Token expired");
+             return;
+         } catch (SignatureException e) {
+-            logger.warn("Invalid JWT signature: {}", e.getMessage());
+-            handleUnauthorized(response, "Invalid token signature");
++            logger.warn("Invalid JWT signature: {}", e.getMessage());
++            logger.debug("SignatureException stacktrace:", e);
++            handleUnauthorized(response, "Invalid token signature");
+             return;
+         } catch (MalformedJwtException e) {
+-            logger.warn("Malformed JWT token: {}", e.getMessage());
+-            handleUnauthorized(response, "Malformed token");
++            logger.warn("Malformed JWT token: {}", e.getMessage());
++            logger.debug("MalformedJwtException stacktrace:", e);
++            handleUnauthorized(response, "Malformed token");
+             return;
+         } catch (Exception e) {
+-            logger.error("JWT processing error: {}", e.getMessage(), e);
+-            handleUnauthorized(response, "Token processing error");
++            logger.error("JWT processing error: {}", e.getMessage());
++            logger.debug("JWT processing exception:", e);
++            handleUnauthorized(response, "Token processing error");
+             return;
+         }
+ @@
+-        } catch (Exception e) {
+-            logger.error("Authentication filter error: {}", e.getMessage(), e);
+-            handleUnauthorized(response, "Authentication failed");
+-        }
++        } catch (Exception e) {
++            logger.error("Authentication filter error: {} method={} path={}", e.getMessage(), request.getMethod(), request.getRequestURI(), e);
++            handleUnauthorized(response, "Authentication failed");
++        }
+ @@
+-    private void handleUnauthorized(HttpServletResponse response, String message) throws IOException {
+-        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+-        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+-        response.getWriter().write(String.format("{\"error\":\"Unauthorized\",\"message\":\"%s\"}", message));
+-    }
++    private void handleUnauthorized(HttpServletResponse response, String message) throws IOException {
++        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
++        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
++        response.setCharacterEncoding("UTF-8");
++        response.getWriter().write(String.format("{\"error\":\"Unauthorized\",\"message\":\"%s\"}", message));
++        response.getWriter().flush();
++    }
+
+# End of patch
+#
+# Notes:
+# - This patch is provided for maintainers. x51Cto cannot modify Java sources directly; apply locally, run tests, and open PR referencing PRD: [`lucid-ai-routing-service/docs/20250827-0948-tighten-security-jwt-logging-PRD.md`](lucid-ai-routing-service/docs/20250827-0948-tighten-security-jwt-logging-PRD.md:1)
+# - If you want a git patch (git format-patch) file instead, I can write it under docs/.

@@ -5,7 +5,7 @@ server:
 
 spring:
   application:
-    name: lucid-ai-routing-service
+    name: ai-routing-service
   profiles:
     active: '@activatedProperties@'  # Replace or override this at runtime
 
@@ -21,15 +21,14 @@ spring:
       enabled: true
 
   kafka:
-    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:10.113.213.31:9092}
-    
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:10.113.213.31:9094}
     # Security Configuration
     security:
       protocol: ${SPRING_KAFKA_SECURITY_PROTOCOL:SASL_PLAINTEXT}
     properties:
       "[sasl.mechanism]": ${SPRING_KAFKA_SASL_MECHANISM:PLAIN}
-      "[sasl.jaas.config]": ${SPRING_KAFKA_SASL_JAAS_CONFIG:org.apache.kafka.common.security.plain.PlainLoginModule required username="client" password="client-secret";}
-    
+      "[sasl.jaas.config]": ${SPRING_KAFKA_SASL_JAAS_CONFIG:org.apache.kafka.common.security.plain.PlainLoginModule required username="client" password="Plmnko123";}
+
     # Consumer Configuration - Default for IngestionEventDTO
     consumer:
       group-id: ${SPRING_KAFKA_CONSUMER_GROUP_ID:ai-service-group}
@@ -38,16 +37,22 @@ spring:
       auto-offset-reset: latest
       enable-auto-commit: false
       properties:
-        "spring.json.trusted.packages": "*"
-        "spring.deserializer.key.delegate.class": org.apache.kafka.common.serialization.StringDeserializer
-        "spring.deserializer.value.delegate.class": org.springframework.kafka.support.serializer.JsonDeserializer
-        "spring.json.use.type.headers": false
-        "spring.json.fail.on.unknown.properties": false
-        "spring.deserializer.value.function": "org.springframework.kafka.support.serializer.FailedDeserializationInfo::getException"
-        "spring.kafka.consumer.enable-auto-commit": false
-        "spring.kafka.listener.ack-mode": manual_immediate
-    
-    # Producer Configuration (for publishing responses/results if needed)
+        "[spring.json.trusted.packages]": "*"
+        "[spring.deserializer.key.delegate.class]": org.apache.kafka.common.serialization.StringDeserializer
+        "[spring.deserializer.value.delegate.class]": org.springframework.kafka.support.serializer.JsonDeserializer
+        "[spring.json.use.type.headers]": false
+        "[spring.json.fail.on.unknown.properties]": false
+        "[spring.kafka.consumer.enable-auto-commit]": false
+        "[spring.kafka.listener.ack-mode]": manual_immediate
+        "[max.partition.fetch.bytes]": 10485760
+        "[fetch.message.max.bytes]": 10485760
+        # BEST PRACTICES: Optimized for AI processing workloads
+        "[session.timeout.ms]": 300000       # 5 minutes (balanced stability)
+        "[heartbeat.interval.ms]": 90000     # 1.5 minutes (< session_timeout/3)
+        "[max.poll.interval.ms]": 900000     # 15 minutes (sufficient for AI processing)
+        "[max.poll.records]": 10             # Small batches for consistent processing
+        "[fetch.min.bytes]": 1               # Don't wait for data accumulation
+        "[fetch.max.wait.ms]": 500           # Max 500ms wait for data    # Producer Configuration (for publishing responses/results if needed)
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
@@ -55,14 +60,21 @@ spring:
       retries: 3
       batch-size: 16384
       properties:
-        "[linger.ms]": 5
-        "[buffer.memory]": 33554432
+        "[linger.ms]": 10                 # tăng thời gian gom batch nhẹ
+        "[buffer.memory]": 67108864       # 64 MB (tuỳ máy)
         "[enable.idempotence]": true
-    
+        "[max.request.size]": 10485760    # 10 MB (khớp với topic/broker)
+        "[compression.type]": gzip
+
+
     # Listener Configuration
     listener:
       ack-mode: manual-immediate
       missing-topics-fatal: false
+      # BOTTLENECK FIX #3: Enable concurrent processing with 10 threads
+      # This allows processing 10 messages in parallel instead of 1 at a time
+      # Expected improvement: 10x throughput increase
+      concurrency: ${KAFKA_LISTENER_CONCURRENCY:10}
 
 # Application-specific Kafka Configuration
 kafka:
@@ -73,23 +85,25 @@ kafka:
     ai-enrich: ${KAFKA_TOPIC_AI_ENRICH:ai-enrich}
     ai-responses: ${KAFKA_TOPIC_AI_RESPONSES:ai.responses.queue}
     pre-ai-responses: ${KAFKA_TOPIC_PRE_AI_RESPONSES:pre.ai.responses.queue}
-  # Offset Reset Configuration:
-  # true = Always process from beginning (debugging mode - processes ALL historical messages)
-  # false = Process only new messages from latest offset (production mode)
+    user-channel: ${KAFKA_TOPIC_USER_CHANNEL_EVENTS:user-channel-topic}
+    ai-token-consumption: ${KAFKA_TOPIC_TOKEN_CONSUMPTION:ai-token-consumption}
+    ingestion-progress: ${KAFKA_TOPIC_INGESTION_PROGRESS:ingestion-progress}
   reset-offsets-on-startup: false
+  # SCRUM-345: Kafka Message Resilience Configuration
+  retry:
+    enabled: ${KAFKA_RETRY_ENABLED:true}
+    initial-backoff-ms: ${KAFKA_RETRY_INITIAL_BACKOFF_MS:1000}           # 1 second
+    backoff-multiplier: ${KAFKA_RETRY_BACKOFF_MULTIPLIER:2.0}             # Exponential: 1s→2s→4s→8s→16s
+    max-backoff-ms: ${KAFKA_RETRY_MAX_BACKOFF_MS:31000}                   # 31 seconds (reasonable limit)
+    max-attempts: ${KAFKA_RETRY_MAX_ATTEMPTS:5}                           # 5 total attempts
+    dlq-enabled: ${KAFKA_RETRY_DLQ_ENABLED:true}
+    dlq-retention-days: ${KAFKA_RETRY_DLQ_RETENTION_DAYS:30}             # 30 days
+    dlq-topic-suffix: ${KAFKA_RETRY_DLQ_TOPIC_SUFFIX:-dlq}
+    metrics-enabled: ${KAFKA_RETRY_METRICS_ENABLED:true}
+    auditing-enabled: ${KAFKA_RETRY_AUDITING_ENABLED:true}
+    pause-resume-enabled: ${KAFKA_RETRY_PAUSE_RESUME_ENABLED:true}       # For long-running AI processing
+    pause-resume-timeout-ms: ${KAFKA_RETRY_PAUSE_RESUME_TIMEOUT_MS:60000} # 1 minute timeout
 
-# OpenTelemetry Configuration
-opentelemetry:
-  exporter:
-    otlp:
-      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4317}
-  sampler:
-    probability: 1.0
-  resource:
-    attributes:
-      service.name: ${OTEL_SERVICE_NAME:ai-routing-service}
-      service.version: ${OTEL_SERVICE_VERSION:1.0.0}
-      deployment.environment: ${DEPLOYMENT_ENVIRONMENT:local}
 
 eureka:
   client:
@@ -116,26 +130,73 @@ ai:
       sentiment_analysis: geminiProvider
   enrichment:
     scheduler:
-      cron: "${AI_ENRICHMENT_CRON:0 */5 * * * ?}"  # Every 5 minutes by default
-      enabled: "${AI_ENRICHMENT_ENABLED:true}"
-      batch-size: "${AI_ENRICHMENT_BATCH_SIZE:50}"
+      cron: 0 * * * * ?  # Every minute
+      enabled: "${AI_ENRICHMENT_ENABLED:true}"     # DISABLED to prevent excessive requests and rebalances
+      parallel-threads: "${AI_ENRICHMENT_PARALLEL_THREADS:4}"  # Number of parallel threads for workspace processing
+      batch-size: "${AI_ENRICHMENT_BATCH_SIZE:50}"  # Max messages per batch (default 50)
+      default-tenant-schema: "${DEFAULT_TENANT_SCHEMA:public}"
+
+# Sliding Window Configuration
+# BALANCED CONFIG based on production data: avg 23 msgs/batch, max 36, 90% workspaces skipped with min=5
+sliding:
+  window:
+    default:
+      batch:
+        size: ${SLIDING_WINDOW_BATCH_SIZE:30}  # Balanced: covers avg production batch (23) + buffer
+      overlap:
+        percentage: ${SLIDING_WINDOW_OVERLAP_PERCENTAGE:20}  # 20% overlap = 6 messages context
+    max:
+      tokens: ${SLIDING_WINDOW_MAX_TOKENS:15000}  # Safety limit to prevent Kafka RecordTooLargeException
+      wait:
+        minutes: ${SLIDING_WINDOW_MAX_WAIT_MINUTES:30}  # Process after 30 minutes even if < min messages
+    min:
+      new:
+        messages: ${SLIDING_WINDOW_MIN_NEW_MESSAGES:10}  # Increased threshold: process when ≥10 messages accumulated
+    avg:
+      tokens:
+        per:
+          message: ${SLIDING_WINDOW_AVG_TOKENS_PER_MESSAGE:50}  # Token estimation for batch sizing
+    cache:
+      ttl:
+        seconds: ${SLIDING_WINDOW_CACHE_TTL:300}  # 5 minutes cache to reduce Redis load
+
+# Lucid Post-Processing Pipeline Configuration
+lucid:
+  post-processing:
+    pipeline:
+      enabled: ${LUCID_PIPELINE_ENABLED:true}
+      type: ${LUCID_PIPELINE_TYPE:STANDARD}  # Options: STANDARD, COMPREHENSIVE, MINIMAL, CUSTOM
+      continueOnFailure: ${LUCID_PIPELINE_CONTINUE_ON_FAILURE:false}
+      maxExecutionTimeMs: ${LUCID_PIPELINE_MAX_EXECUTION_TIME:30000}
+      detailedLogging: ${LUCID_PIPELINE_DETAILED_LOGGING:false}
+      metricsEnabled: ${LUCID_PIPELINE_METRICS_ENABLED:true}
+      # Custom steps configuration (used when type is CUSTOM)
+      customSteps:
+        - INPUT_VALIDATION
+        - MESSAGE_CONVERSION
+        - TIMESTAMP_PROCESSING
+        - CONVERSATION_ENRICHMENT
+        - TOPIC_ENRICHMENT
+        - RESPONSE_BUILDING
       max-retries: "${AI_ENRICHMENT_MAX_RETRIES:3}"
       default-tenant-id: "${DEFAULT_TENANT_ID:default-tenant}"
-      default-tenant-schema: "${DEFAULT_TENANT_SCHEMA:public}"
+  # Audit configuration
+  audit:
+    enabled: ${LUCID_AUDIT_ENABLED:true}
 
 # Logging Configuration - DEBUG MODE ENABLED
 logging:
   level:
     root: INFO
-    com.lucid.automation.airouting: DEBUG
-    com.lucid.automation.airouting.service: DEBUG
-    com.lucid.automation.airouting.scheduler: DEBUG
-    com.lucid.automation.airouting.controller: DEBUG
-    org.springframework: ERROR
-    org.springframework.web: ERROR
-    org.springframework.amqp: ERROR
-    org.springframework.data.redis: ERROR
-    AI_AUDIT: INFO
+    "[com.lucid.automation.airouting]": DEBUG
+    "[com.lucid.automation.airouting.service]": DEBUG
+    "[com.lucid.automation.airouting.scheduler]": DEBUG
+    "[com.lucid.automation.airouting.controller]": DEBUG
+    "[org.springframework]": ERROR
+    "[org.springframework.web]": ERROR
+    "[org.springframework.amqp]": ERROR
+    "[org.springframework.data.redis]": ERROR
+    "[AI_AUDIT]": INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
@@ -151,14 +212,24 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: health,info,metrics,prometheus,env,configprops
   endpoint:
     health:
       show-details: always
+      show-components: always
   metrics:
     export:
       prometheus:
+        enabled: false  # Use the new property below
+  prometheus:
+    metrics:
+      export:
         enabled: true
+  health:
+    diskspace:
+      enabled: true
+    circuitbreakers:
+      enabled: true
 
 # Info endpoint
 info:
@@ -170,20 +241,145 @@ info:
     java:
       version: ${java.version}
 
+# Anonymization Service Configuration
+anonymization:
+  service:
+    url: ${ANONYMIZATION_SERVICE_URL:http://localhost:8089}
+    enabled: ${ANONYMIZATION_ENABLED:true}
+    timeout: ${ANONYMIZATION_TIMEOUT:5000}
+    retry:
+      max-attempts: ${ANONYMIZATION_RETRY_MAX_ATTEMPTS:3}
+      backoff: ${ANONYMIZATION_RETRY_BACKOFF:2000}
+
 # Redis Conversation Configuration
 redis:
   conversation:
     max-messages: ${REDIS_MAX_MESSAGES:100}
     ttl-seconds: ${REDIS_TTL_SECONDS:604800} # 7 days (604800 seconds)
+  enrichment-job:
+    ttl-seconds: ${REDIS_ENRICHMENT_JOB_TTL_SECONDS:3600} # 60 minutes (3600 seconds)
 
-# Sliding Window Processing Configuration
-sliding:
-  window:
-    default:
-      batch:
-        size: ${SLIDING_WINDOW_BATCH_SIZE:50}
-      overlap:
-        percentage: ${SLIDING_WINDOW_OVERLAP_PERCENTAGE:20}
-    cleanup:
+# OpenTelemetry auto-instrumentation settings
+otel:
+  exporter:
+    otlp:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4317}
+      protocol: grpc
+  resource:
+    attributes:
+      '[service.name]': ${OTEL_SERVICE_NAME:ai-routing-service}
+      '[service.version]': ${OTEL_SERVICE_VERSION:1.0.0}
+  traces:
+    exporter: otlp
+  metrics:
+    exporter: otlp
+  logs:
+    exporter: otlp
+  instrumentation:
+    spring-webmvc:
       enabled: true
+    jdbc:
+      enabled: false
+
+# Enhanced Resilience4j Configuration
+resilience4j:
+  circuitbreaker:
+    configs:
+      ai-provider:
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3
+        eventConsumerBufferSize: 10
+        recordExceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - java.net.ConnectException
+          - java.net.SocketTimeoutException
+          - org.springframework.web.client.ResourceAccessException
+      # Anonymization service circuit breaker config - stricter than AI providers
+      anonymization-service:
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        eventConsumerBufferSize: 10
+        recordExceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - java.net.ConnectException
+          - java.net.SocketTimeoutException
+          - org.springframework.web.client.ResourceAccessException
+          - feign.FeignException
+    instances:
+      geminiProvider:
+        baseConfig: ai-provider
+        failureRateThreshold: 40
+      openaiProvider:
+        baseConfig: ai-provider
+        failureRateThreshold: 40
+      tokenAvailability:
+        baseConfig: ai-provider
+        failureRateThreshold: 30
+        waitDurationInOpenState: 15s
+      # Circuit breaker instance for anonymization service
+      anonymizationService:
+        baseConfig: anonymization-service
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+  retry:
+    configs:
+      ai-provider:
+        maxAttempts: 3
+        waitDuration: 1s
+        retryExceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - java.net.ConnectException
+    instances:
+      geminiProvider:
+        baseConfig: ai-provider
+      openaiProvider:
+        baseConfig: ai-provider
+      tokenAvailability:
+        baseConfig: ai-provider
+        maxAttempts: 2
+  timelimiter:
+    configs:
+      ai-provider:
+        timeoutDuration: 30s
+    instances:
+      geminiProvider:
+        baseConfig: ai-provider
+        timeoutDuration: 60s
+      openaiProvider:
+        baseConfig: ai-provider
+        timeoutDuration: 45s
+
+# Statistics configuration
+statistics:
+  max-messages: 50000
+  max-breakdown-items: 100
+  retention-window-days: 7
+
+# Message retention cleanup configuration
+# Controls automatic deletion of soft-deleted messages after 30-day retention period
+message:
+  retention:
+    cleanup:
+      enabled: false  # Disabled by default, enabled in docker profile
+      cron: "0 0 3 * * ?"  # Daily at 3 AM
+      batch-size: 100  # Process 100 messages per batch
+      job-name: message-retention-cleanup
+
+# Sentry error tracking
+sentry:
+  dsn: ${SENTRY_DSN:}
+  environment: ${SENTRY_ENVIRONMENT:development}
+  traces-sample-rate: ${SENTRY_TRACES_SAMPLE_RATE:1.0}
+  send-default-pii: false
 

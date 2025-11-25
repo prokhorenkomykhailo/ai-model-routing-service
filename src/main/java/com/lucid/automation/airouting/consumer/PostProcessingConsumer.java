@@ -1,21 +1,15 @@
 package com.lucid.automation.airouting.consumer;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonMappingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lucid.automation.airouting.dto.ConversationEnrichment;
-import com.lucid.automation.airouting.dto.ForwardInfo;
-import com.lucid.automation.airouting.dto.SuggestedReply;
-import com.lucid.automation.airouting.dto.SummaryPerPerson;
-import com.lucid.automation.airouting.dto.TopicEnrichment;
-import com.lucid.automation.airouting.dto.UrgencyLevel;
-import com.lucid.automation.airouting.dto.UserDTO;
-import com.lucid.automation.airouting.model.SlackMessage;
-import com.lucid.automation.airouting.model.User;
-import com.lucid.automation.airouting.provider.ProviderUtils;
-import com.lucid.automation.airouting.service.UserService;
-import com.lucid.automation.airouting.util.TextUtils;
-import com.lucid.automation.airouting.util.json.JsonCleaner;
+import com.lucid.automation.common.dto.enrichment.EnrichmentResponse;
+import com.lucid.automation.airouting.pipeline.postprocessing.PostProcessingPipelineFactory;
+import com.lucid.automation.airouting.pipeline.postprocessing.PostProcessingPipelineOrchestrator;
+import com.lucid.automation.airouting.pipeline.postprocessing.PostProcessingPipelineResult;
+import com.lucid.automation.airouting.pipeline.config.PipelineConfiguration;
+import com.lucid.automation.airouting.pipeline.postprocessing.PostProcessingContext;
+import com.lucid.automation.airouting.pipeline.postprocessing.step.PipelineStep;
+import com.lucid.automation.airouting.service.SlidingWindowService;
+import com.lucid.automation.airouting.config.EnhancedErrorHandler;
+import com.lucid.automation.airouting.config.KafkaRetryProperties;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
@@ -25,783 +19,684 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Qualifier;
 
-import java.time.LocalDate;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.stream.Collectors;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Consumer service for post-processing AI responses from Kafka
- * Handles processing of pre-AI responses and converts them to final AI responses
- * 
- * @author AI Assistant
+ * Consumer service for post-processing AI responses from Kafka using pipeline architecture.
+ *
+ * SCRUM-345: Enhanced with exponential backoff retry strategy:
+ * - Retryable errors (connection, timeout): NO ACK → Kafka retries with exponential backoff
+ * - Non-retryable errors (validation, deserialization): ACK → sent to DLQ
+ * - Success: ACK → message processed successfully
+ *
+ * This ensures every message in ai-enrich topic is processed successfully or logged in DLQ.
+ *
+ * @author vudu (SCRUM-345 enhancement)
  */
 @Service
 public class PostProcessingConsumer {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(PostProcessingConsumer.class);
-    
+
+    // Add post-processing counters
+    private final AtomicLong totalPostProcessingRequests = new AtomicLong(0);
+    private final AtomicLong successfulPostProcessing = new AtomicLong(0);
+    private final AtomicLong failedPostProcessing = new AtomicLong(0);
+    private final AtomicLong retriedPostProcessing = new AtomicLong(0);
+    private final AtomicLong dlqPostProcessing = new AtomicLong(0);
+    private final AtomicLong totalPostProcessingTime = new AtomicLong(0);
+
     private final KafkaTemplate<String, Object> kafkaTemplate;
-    private final UserService userService;
-    private final ObjectMapper objectMapper;
-    
+    private final PostProcessingPipelineOrchestrator pipelineOrchestrator;
+    private final PostProcessingPipelineFactory pipelineFactory;
+    private final PipelineConfiguration pipelineConfiguration;
+    private final SlidingWindowService slidingWindowService;
+    private final EnhancedErrorHandler enhancedErrorHandler;
+    private final KafkaRetryProperties kafkaRetryProperties;
+    private final Executor redisAsyncExecutor;
+
     @Value("${kafka.topics.ai-responses:ai.responses.queue}")
     private String aiResponsesTopic;
-    
-    public PostProcessingConsumer(UserService userService, ObjectMapper objectMapper,
-                                 KafkaTemplate<String, Object> kafkaTemplate) {
-        this.userService = userService;
+
+    @Value("${kafka.topics.pre-ai-responses:pre.ai.responses.queue}")
+    private String preAiResponsesTopic;
+
+    public PostProcessingConsumer(
+            KafkaTemplate<String, Object> kafkaTemplate,
+            PostProcessingPipelineOrchestrator pipelineOrchestrator,
+            PostProcessingPipelineFactory pipelineFactory,
+            PipelineConfiguration pipelineConfiguration,
+            SlidingWindowService slidingWindowService,
+            EnhancedErrorHandler enhancedErrorHandler,
+            KafkaRetryProperties kafkaRetryProperties,
+            @Qualifier("redisAsyncExecutor") Executor redisAsyncExecutor) {
         this.kafkaTemplate = kafkaTemplate;
-        this.objectMapper = objectMapper;
-        
-        logger.info("=== POST-PROCESSING CONSUMER INITIALIZED ===");
-        logger.info("PostProcessingConsumer initialized for processing pre-AI responses");
-        logger.info("Final output topic: {}", aiResponsesTopic);
-        logger.info("============================================");
+        this.pipelineOrchestrator = pipelineOrchestrator;
+        this.pipelineFactory = pipelineFactory;
+        this.pipelineConfiguration = pipelineConfiguration;
+        this.slidingWindowService = slidingWindowService;
+        this.enhancedErrorHandler = enhancedErrorHandler;
+        this.kafkaRetryProperties = kafkaRetryProperties;
+        this.redisAsyncExecutor = redisAsyncExecutor;
+
+        logger.info("🚀 === POST-PROCESSING CONSUMER INITIALIZED (SCRUM-345 ENHANCED) ===");
+        logger.info("🎯 PostProcessingConsumer initialized with pipeline architecture");
+        logger.info("📤 Final output topic: {}", aiResponsesTopic);
+        logger.info("⚙️ Pipeline orchestrator: {}", pipelineOrchestrator.getClass().getSimpleName());
+        logger.info("✅ Pipeline enabled: {}", pipelineConfiguration.isEnabled());
+        logger.info("🔄 Continue on failure: {}", pipelineConfiguration.isContinueOnFailure());
+        logger.info("⏱️ Max execution time: {}ms", pipelineConfiguration.getMaxExecutionTimeMs());
+        logger.info("🔄 Retry enabled: {}", kafkaRetryProperties.isEnabled());
+        logger.info("� Max retries: {} | Initial backoff: {}ms | Multiplier: {} | Max backoff: {}ms",
+            kafkaRetryProperties.getMaxAttempts(),
+            kafkaRetryProperties.getInitialBackoffMs(),
+            kafkaRetryProperties.getBackoffMultiplier(),
+            kafkaRetryProperties.getMaxBackoffMs());
+        logger.info("❌ DLQ enabled: {} | Retention: {} days",
+            kafkaRetryProperties.isDlqEnabled(),
+            kafkaRetryProperties.getDlqRetentionDays());
+        logger.info("�🚀 ============================================================");
     }
-    
+
     /**
-     * Consume pre-AI responses for further processing
-     * This consumer processes messages from the pre-ai-responses topic that need additional AI processing
+     * Consume pre-AI responses for further processing using pipeline architecture.
+     *
+     * SCRUM-345: Implements intelligent retry/DLQ logic:
+     * - Success: ACK message
+     * - Retryable error: NO ACK → exponential backoff retry
+     * - Non-retryable error: ACK + send to DLQ
      */
-    @KafkaListener(topics = "${kafka.topics.pre-ai-responses:pre.ai.responses.queue}", containerFactory = "genericObjectListenerContainerFactory")
+    @KafkaListener(topics = "${kafka.topics.pre-ai-responses:pre.ai.responses.queue}",
+                   containerFactory = "genericObjectListenerContainerFactory")
     public void handlePreAiResponses(ConsumerRecord<String, Object> record,
                                    Acknowledgment acknowledgment) {
+        long postProcessingStartTime = System.currentTimeMillis();
+        totalPostProcessingRequests.incrementAndGet();
+
         Object messageResponse = record.value();
         String topic = record.topic();
-        
-        if (messageResponse == null) {
-            logger.error("=== HANDLE-PRE-AI-RESPONSES-ERROR === Received NULL message from topic: {}", topic);
-            acknowledgment.acknowledge();
-            return;
+
+        logger.info("📋 [POST-PROCESSING] Received pre-AI response | Topic: {} | Partition: {} | Offset: {} | Key: {}",
+            topic, record.partition(), record.offset(), record.key());
+        logger.debug("🔍 [POST-PROCESSING-DEBUG] Method entry | Thread: {} | Acknowledgment: {}",
+            Thread.currentThread().getName(), acknowledgment != null ? "provided" : "NULL");
+
+        // Extract the actual payload from ConsumerRecord if needed
+        Object payload = messageResponse;
+        if (messageResponse instanceof ConsumerRecord) {
+            ConsumerRecord<?, ?> consumerRecord = (ConsumerRecord<?, ?>) messageResponse;
+            payload = consumerRecord.value();
+            logger.debug("🔍 Extracted payload from nested ConsumerRecord - Type: {}",
+                    payload != null ? payload.getClass().getSimpleName() : "null");
         }
 
+        PostProcessingContext context = null;
         try {
-            // Validate that the message is a Map
-            if (!(messageResponse instanceof Map<?, ?>)) {
-                logger.error("Invalid pre-AI response format: expected Map, got {}", messageResponse.getClass().getSimpleName());
-                acknowledgment.acknowledge();
+            // Validate payload
+            if (payload == null) {
+                handleNullPayload(record, acknowledgment, postProcessingStartTime);
                 return;
             }
-            
-            @SuppressWarnings("unchecked")
-            Map<String, Object> responseMap = (Map<String, Object>) messageResponse;
-            
-            Map<String, Object> parsedResponse = processPreAiResponse(responseMap);
-            sendToFinalAiResponsesTopic(parsedResponse);
-            acknowledgment.acknowledge();
-            logger.info("Successfully processed pre-AI response and forwarded to final topic");
-            
-        } catch (Exception e) {
-            logger.error("Failed to process pre-AI response from topic: {}, error: {}", topic, e.getMessage(), e);
-            e.printStackTrace(); // Print full stack trace to console
-            acknowledgment.acknowledge(); // Acknowledge to avoid reprocessing
-        }
-    }
-    
-    /**
-     * Process pre-AI response message
-     * This method can be extended to perform additional AI processing, validation, or enrichment
-     */
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> processPreAiResponse(Map<String, Object> messageResponse) {
-        logger.info("Processing pre-AI response: {}", messageResponse);
-        if (!(messageResponse instanceof Map<?, ?>)) {
-            logger.error("Invalid pre-AI response format: expected Map, got {}", messageResponse.getClass().getSimpleName());
-            return Map.of("error", "Invalid pre-AI response format");
-        }
-        
-        Map<String, Object> responseMap = (Map<String, Object>) messageResponse;
-        
-        // Extract necessary fields from the response
-        String messageId = (String) responseMap.get("messageId");
-        String correlationId = (String) responseMap.get("correlationId");
-        String taskType = (String) responseMap.get("taskType");
-        String tenantId = (String) responseMap.get("tenantId");
-        String tenantSchema = (String) responseMap.get("tenantSchema");
-        String userId = (String) responseMap.get("userId");
-        String deemergeUserId = (String) responseMap.get("deemergeUserId");
-        String deemergeUserName = (String) responseMap.get("deemergeUserName");
-        
-        // extract result as a String
-        Map<String, Object> aiResultMap = (Map<String, Object>) responseMap.get("result");
-        if (aiResultMap == null) {
-            logger.error("Result map is null in pre-AI response: {}", responseMap);
-            return Map.of("error", "Result map is null in pre-AI response");
-        }
 
-        // Convert the request objects from LinkedHashMap to SlackMessage objects
-        List<Map<String, Object>> requestMapList = (List<Map<String, Object>>) aiResultMap.get("request");
-        List<SlackMessage> requestMessages;
-        try {
-            requestMessages = convertToSlackMessages(requestMapList);
-        } catch (Exception e) {
-            logger.error("Failed to convert request maps to SlackMessage objects: {}", e.getMessage());
-            requestMessages = new ArrayList<>();
-        }
-        String responseResult = (String) aiResultMap.get("response");
-        ConversationEnrichment parsedResult = parseConversationEnrichmentResponse(responseResult, requestMessages);
-
-        // Handle processedAt field - it could be an array or a string
-        Object processedAtObj = responseMap.get("processedAt");
-        LocalDateTime processedAtTime;
-        if (processedAtObj instanceof List) {
-            // Handle array format: [2025, 6, 25, 10, 7, 25, 754055364]
-            List<Integer> timeArray = (List<Integer>) processedAtObj;
-            if (timeArray.size() >= 6) {
-                processedAtTime = LocalDateTime.of(
-                    timeArray.get(0), // year
-                    timeArray.get(1), // month
-                    timeArray.get(2), // day
-                    timeArray.get(3), // hour
-                    timeArray.get(4), // minute
-                    timeArray.get(5)  // second
-                    // Note: nanoseconds (7th element) are ignored for simplicity
-                );
-            } else {
-                processedAtTime = LocalDateTime.now();
+            if (!(payload instanceof Map<?, ?>)) {
+                handleInvalidPayload(record, payload, acknowledgment, postProcessingStartTime);
+                return;
             }
-        } else if (processedAtObj instanceof String) {
-            // Handle string format
-            processedAtTime = LocalDateTime.parse((String) processedAtObj);
-        } else {
-            processedAtTime = LocalDateTime.now();
-        }
 
-        // Create a new response map with the processed data
-        Map<String, Object> processedResponse = new HashMap<>();
-        processedResponse.put("messageId", messageId);
-        processedResponse.put("correlationId", correlationId);
-        processedResponse.put("taskType", taskType);
-        processedResponse.put("status", "success");
-        processedResponse.put("result", parsedResult);
-        processedResponse.put("processedAt", processedAtTime);
-        processedResponse.put("tenantId", tenantId);
-        processedResponse.put("tenantSchema", tenantSchema);
-        processedResponse.put("userId", userId);
-        processedResponse.put("deemergeUserId", deemergeUserId);
-        processedResponse.put("deemergeUserName", deemergeUserName);
-        return processedResponse;
+            @SuppressWarnings("unchecked")
+            Map<String, Object> responseMap = (Map<String, Object>) payload;
+
+            // Create processing context
+            context = new PostProcessingContext(responseMap);
+
+            // Execute the pipeline
+            PostProcessingPipelineResult pipelineResult = executePipeline(context);
+
+            // Handle pipeline result
+            if (pipelineResult.isOverallSuccess()) {
+                EnrichmentResponse enrichmentResponse = context.getEnrichmentResponse();
+                if (enrichmentResponse != null) {
+                    // Create lightweight version to avoid Kafka message size issues
+                    EnrichmentResponse lightweightResponse = createLightweightResponse(enrichmentResponse);
+                    sendToFinalAiResponsesTopic(lightweightResponse);
+
+                    successfulPostProcessing.incrementAndGet();
+                    long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+                    totalPostProcessingTime.addAndGet(postProcessingTime);
+
+                    logger.info("✅ [POST-PROCESSING-SUCCESS] Successfully processed pre-AI response in {}ms | Key: {} | 📊 Requests: {} | Success: {} | Retried: {} | DLQ: {}",
+                        postProcessingTime, record.key(), totalPostProcessingRequests.get(),
+                        successfulPostProcessing.get(), retriedPostProcessing.get(), dlqPostProcessing.get());
+
+                    // ✅ ACK immediately after successful processing (before slow Redis operations)
+                    try {
+                        if (acknowledgment != null) {
+                            logger.info("🔔 [ACK] About to acknowledge message | Offset: {} | Topic: {} | Partition: {}",
+                                record.offset(), record.topic(), record.partition());
+                            acknowledgment.acknowledge();
+                            logger.info("✅ [ACK-SUCCESS] Message acknowledged successfully | Offset: {} | Consumer should advance to offset {}",
+                                record.offset(), record.offset() + 1);
+                        } else {
+                            logger.error("❌ [ACK-NULL] Cannot acknowledge - Acknowledgment parameter is NULL | Offset: {}",
+                                record.offset());
+                        }
+                    } catch (Exception ackException) {
+                        logger.error("❌ [ACK-ERROR] Failed to acknowledge message | Offset: {} | Error: {}",
+                            record.offset(), ackException.getMessage(), ackException);
+                        throw ackException;
+                    }
+
+                    logger.info("🏁 [POST-PROCESSING-COMPLETE] Method execution finished for offset {}", record.offset());
+
+                    // ⚡ BOTTLENECK FIX #1: Async Redis operations to prevent blocking consumer thread
+                    // Fire and forget - don't block the consumer thread waiting for Redis
+                    // The message is already successfully processed and ACKed, this is just cleanup
+                    final PostProcessingContext finalContext = context; // Make final for lambda
+                    CompletableFuture.runAsync(() -> {
+                        try {
+                            markOriginalMessagesAsProcessed(finalContext);
+                        } catch (Exception markException) {
+                            logger.error("⚠️ [ASYNC-MARKING-ERROR] Failed to mark messages as processed (non-fatal, already ACKed): {}",
+                                markException.getMessage());
+                            // Don't throw - this is async cleanup, message already ACKed
+                        }
+                    }, redisAsyncExecutor);
+                } else {
+                    handlePipelineNullResponse(context, record, acknowledgment, postProcessingStartTime);
+                }
+            } else {
+                // Pipeline failed - check if error is retryable
+                handlePipelineFailure(pipelineResult, context, record, acknowledgment, postProcessingStartTime);
+            }
+
+        } catch (Exception e) {
+            // SCRUM-345: Check if exception is retryable
+            boolean retryable = enhancedErrorHandler.isRetryableException(e);
+
+            if (retryable) {
+                // ❌ DO NOT ACK - let Kafka rebalance and retry with exponential backoff
+                retriedPostProcessing.incrementAndGet();
+                long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+                logger.error("🔄 [RETRY-SCHEDULED] Retryable error during post-processing after {}ms, NO ACK | Exception: {} | 📊 Requests: {} | Success: {} | Retried: {} | DLQ: {}",
+                    postProcessingTime, e.getClass().getSimpleName(),
+                    totalPostProcessingRequests.get(), successfulPostProcessing.get(),
+                    retriedPostProcessing.get(), dlqPostProcessing.get(), e);
+                // DO NOT call acknowledgment.acknowledge() - let it timeout and retry
+            } else {
+                // Non-retryable: ACK and send to DLQ
+                dlqPostProcessing.incrementAndGet();
+                long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+                logger.error("❌ [DLQ-DISPATCH] Non-retryable error during post-processing after {}ms | Exception: {} | 📊 Requests: {} | Success: {} | Retried: {} | DLQ: {}",
+                    postProcessingTime, e.getClass().getSimpleName(),
+                    totalPostProcessingRequests.get(), successfulPostProcessing.get(),
+                    retriedPostProcessing.get(), dlqPostProcessing.get(), e);
+
+                try {
+                    // Send to DLQ if enabled
+                    if (kafkaRetryProperties.isDlqEnabled()) {
+                        sendToDLQ(record, e);
+                    }
+                    // ACK after sending to DLQ
+                    if (acknowledgment != null) {
+                        acknowledgment.acknowledge();
+                    }
+                } catch (Exception dlqError) {
+                    logger.error("❌ [DLQ-ERROR] Failed to send to DLQ: {}", dlqError.getMessage());
+                    // Still acknowledge to prevent infinite retry loop
+                    if (acknowledgment != null) {
+                        acknowledgment.acknowledge();
+                    }
+                }
+            }
+        }
     }
-    
+
     /**
-     * Send processed message to the final ai-responses topic
+     * Handle null payload error
+     */
+    private void handleNullPayload(ConsumerRecord<String, Object> record,
+                                   Acknowledgment acknowledgment,
+                                   long postProcessingStartTime) {
+        failedPostProcessing.incrementAndGet();
+        long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+        totalPostProcessingTime.addAndGet(postProcessingTime);
+        logger.error("❌ [POST-PROCESSING-NULL] Received NULL payload from topic: {} | 📊 Requests: {} | Success: {} | Failed: {} | Retried: {} | DLQ: {} | Time: {}ms",
+            record.topic(), totalPostProcessingRequests.get(), successfulPostProcessing.get(),
+            failedPostProcessing.get(), retriedPostProcessing.get(), dlqPostProcessing.get(), postProcessingTime);
+
+        // Null payload is non-retryable validation error
+        dlqPostProcessing.incrementAndGet();
+        try {
+            if (kafkaRetryProperties.isDlqEnabled()) {
+                sendToDLQ(record, new IllegalArgumentException("Null payload"));
+            }
+            if (acknowledgment != null) {
+                acknowledgment.acknowledge();
+            }
+        } catch (Exception e) {
+            logger.error("❌ [DLQ-ERROR] Failed to send null payload to DLQ: {}", e.getMessage());
+            if (acknowledgment != null) {
+                acknowledgment.acknowledge();
+            }
+        }
+    }
+
+    /**
+     * Handle invalid payload error
+     */
+    private void handleInvalidPayload(ConsumerRecord<String, Object> record,
+                                      Object payload,
+                                      Acknowledgment acknowledgment,
+                                      long postProcessingStartTime) {
+        failedPostProcessing.incrementAndGet();
+        dlqPostProcessing.incrementAndGet();
+        long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+        totalPostProcessingTime.addAndGet(postProcessingTime);
+        logger.error("❌ [POST-PROCESSING-INVALID] Invalid pre-AI response format: expected Map, got {} | 📊 Requests: {} | Success: {} | Failed: {} | Retried: {} | DLQ: {} | Time: {}ms",
+            payload.getClass().getSimpleName(), totalPostProcessingRequests.get(),
+            successfulPostProcessing.get(), failedPostProcessing.get(),
+            retriedPostProcessing.get(), dlqPostProcessing.get(), postProcessingTime);
+
+        // Invalid format is non-retryable
+        try {
+            if (kafkaRetryProperties.isDlqEnabled()) {
+                sendToDLQ(record, new IllegalArgumentException("Invalid payload format, expected Map"));
+            }
+            if (acknowledgment != null) {
+                acknowledgment.acknowledge();
+            }
+        } catch (Exception e) {
+            logger.error("❌ [DLQ-ERROR] Failed to send invalid payload to DLQ: {}", e.getMessage());
+            if (acknowledgment != null) {
+                acknowledgment.acknowledge();
+            }
+        }
+    }
+
+    /**
+     * Handle pipeline null response error
+     */
+    private void handlePipelineNullResponse(PostProcessingContext context,
+                                            ConsumerRecord<String, Object> record,
+                                            Acknowledgment acknowledgment,
+                                            long postProcessingStartTime) {
+        failedPostProcessing.incrementAndGet();
+        dlqPostProcessing.incrementAndGet();
+        long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+        totalPostProcessingTime.addAndGet(postProcessingTime);
+        logger.error("❌ [POST-PROCESSING-NULL-RESPONSE] Pipeline succeeded but enrichment response is null | 📊 Requests: {} | Success: {} | Failed: {} | Retried: {} | DLQ: {} | Time: {}ms",
+            totalPostProcessingRequests.get(), successfulPostProcessing.get(),
+            failedPostProcessing.get(), retriedPostProcessing.get(), dlqPostProcessing.get(), postProcessingTime);
+
+        // Null response is non-retryable
+        try {
+            sendErrorResponse(context, "Pipeline succeeded but response is null");
+            if (kafkaRetryProperties.isDlqEnabled()) {
+                sendToDLQ(record, new RuntimeException("Pipeline null response"));
+            }
+            if (acknowledgment != null) {
+                acknowledgment.acknowledge();
+            }
+        } catch (Exception e) {
+            logger.error("❌ [DLQ-ERROR] Failed to send null response to DLQ: {}", e.getMessage());
+            if (acknowledgment != null) {
+                acknowledgment.acknowledge();
+            }
+        }
+    }
+
+    /**
+     * Handle pipeline failure with retry logic
+     */
+    private void handlePipelineFailure(PostProcessingPipelineResult pipelineResult,
+                                       PostProcessingContext context,
+                                       ConsumerRecord<String, Object> record,
+                                       Acknowledgment acknowledgment,
+                                       long postProcessingStartTime) {
+        failedPostProcessing.incrementAndGet();
+        long postProcessingTime = System.currentTimeMillis() - postProcessingStartTime;
+
+        // Check if the pipeline failure is due to a retryable error
+        Exception pipelineException = new RuntimeException("Pipeline failed: " + pipelineResult.getErrorMessage());
+        boolean retryable = enhancedErrorHandler.isRetryableException(pipelineException);
+
+        if (retryable) {
+            // ❌ DO NOT ACK - let Kafka retry
+            retriedPostProcessing.incrementAndGet();
+            logger.error("🔄 [RETRY-SCHEDULED] Retryable pipeline failure after {}ms: {}, NO ACK | 📊 Requests: {} | Success: {} | Retried: {} | DLQ: {}",
+                postProcessingTime, pipelineResult.getErrorMessage(),
+                totalPostProcessingRequests.get(), successfulPostProcessing.get(),
+                retriedPostProcessing.get(), dlqPostProcessing.get());
+        } else {
+            // Non-retryable: ACK and send to DLQ
+            dlqPostProcessing.incrementAndGet();
+            logger.error("❌ [DLQ-DISPATCH] Non-retryable pipeline failure after {}ms: {} | 📊 Requests: {} | Success: {} | Retried: {} | DLQ: {}",
+                postProcessingTime, pipelineResult.getErrorMessage(),
+                totalPostProcessingRequests.get(), successfulPostProcessing.get(),
+                retriedPostProcessing.get(), dlqPostProcessing.get());
+
+            try {
+                sendErrorResponse(context, pipelineResult.getErrorMessage());
+                if (kafkaRetryProperties.isDlqEnabled()) {
+                    sendToDLQ(record, pipelineException);
+                }
+                if (acknowledgment != null) {
+                    acknowledgment.acknowledge();
+                }
+            } catch (Exception e) {
+                logger.error("❌ [DLQ-ERROR] Failed to send pipeline failure to DLQ: {}", e.getMessage());
+                if (acknowledgment != null) {
+                    acknowledgment.acknowledge();
+                }
+            }
+        }
+    }
+
+    /**
+     * Execute the processing pipeline
+     */
+    private PostProcessingPipelineResult executePipeline(PostProcessingContext context) {
+        try {
+            // Check if pipeline is enabled
+            if (!pipelineConfiguration.isEnabled()) {
+                logger.warn("⚠️ Pipeline is disabled, skipping processing");
+                return PostProcessingPipelineResult.failure("Pipeline is disabled");
+            }
+
+            // Create the appropriate pipeline based on configuration
+            List<PipelineStep> pipelineSteps = createPipelineSteps();
+
+            // Execute the pipeline
+            return pipelineOrchestrator.execute(context, pipelineSteps);
+
+        } catch (Exception e) {
+            logger.error("❌ Error creating or executing pipeline: {}", e.getMessage(), e);
+            return PostProcessingPipelineResult.failure("Pipeline execution error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Create pipeline steps - simplified to only use standard pipeline
+     */
+    private List<PipelineStep> createPipelineSteps() {
+        // Always use standard pipeline for simplicity
+        return pipelineFactory.createStandardPipeline();
+    }
+
+    /**
+     * Marks original messages as processed after successful AI processing.
+     * Extracts message IDs from the context and uses SlidingWindowService to update their status.
+     *
+     * @param context PostProcessingContext containing original message IDs and tenant information
+     */
+    private void markOriginalMessagesAsProcessed(PostProcessingContext context) {
+        try {
+            // Extract original message IDs from the AI request context
+            Map<String, Object> rawResponse = context.getRawResponseMap();
+            if (rawResponse == null) {
+                logger.warn("⚠️ [MESSAGE-PROCESSING] Cannot mark messages as processed: no raw response data");
+                return;
+            }
+
+            // Check if the context contains the original message IDs
+            // These should have been added by MessageEnrichmentScheduler when creating the AI request
+            Object originalMessageIdsObj = rawResponse.get("originalMessageIds");
+            if (originalMessageIdsObj == null) {
+                // Try to get it from the nested context within the response
+                Object contextObj = rawResponse.get("context");
+                if (contextObj instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> contextMap = (Map<String, Object>) contextObj;
+                    originalMessageIdsObj = contextMap.get("originalMessageIds");
+                }
+            }
+
+            if (originalMessageIdsObj == null) {
+                logger.warn("⚠️ [MESSAGE-PROCESSING] Cannot mark messages as processed: no original message IDs found in context or response");
+                return;
+            }
+
+            @SuppressWarnings("unchecked")
+            List<String> originalMessageIds = (List<String>) originalMessageIdsObj;
+
+            if (originalMessageIds.isEmpty()) {
+                logger.warn("⚠️ [MESSAGE-PROCESSING] Cannot mark messages as processed: empty original message IDs list");
+                return;
+            }
+
+            String tenantId = context.getTenantId();
+            String deemergeUserId = context.getDeemergeUserId();
+
+            if (tenantId == null || deemergeUserId == null) {
+                logger.warn("⚠️ [MESSAGE-PROCESSING] Cannot mark messages as processed: missing tenant ID or user ID");
+                return;
+            }
+
+            logger.info("✅ [MESSAGE-PROCESSING] Marking {} original messages as processed after successful AI response | Tenant: {} | User: {}",
+                       originalMessageIds.size(), tenantId, deemergeUserId);
+
+            // Use SlidingWindowService to mark the original messages as processed
+            slidingWindowService.markMessagesAsProcessedByIds(originalMessageIds, tenantId, deemergeUserId);
+
+            // Clean up marked messages after successful processing
+            // This cleanup was moved here from SlidingWindowService to prevent premature deletion
+            slidingWindowService.cleanupMessagesByIds(originalMessageIds, tenantId, deemergeUserId);
+
+        } catch (Exception e) {
+            logger.error("❌ [MESSAGE-PROCESSING] Failed to mark original messages as processed: {}", e.getMessage(), e);
+            // Don't throw - this is a status update issue, not a critical pipeline failure
+        }
+    }
+
+    /**
+     * Send processed message to the final ai-responses topic ASYNCHRONOUSLY.
+     * BOTTLENECK FIX #2: Changed from synchronous (blocking 30s) to async (non-blocking).
      */
     private void sendToFinalAiResponsesTopic(Object parsedAiResponse) {
         try {
-            // Send to the final ai-responses topic
-            kafkaTemplate.send(aiResponsesTopic, parsedAiResponse);
-            logger.info("Successfully forwarded message to final ai-responses topic: {}", aiResponsesTopic);
-        } catch (Exception e) {
-            logger.error("Failed to send message to final ai-responses topic: {}, error: {}", aiResponsesTopic, e.getMessage(), e);
-        }
-    }
+            logger.info("📤 [FORWARD] Sending enrichment response asynchronously to topic: {}", aiResponsesTopic);
 
-    private ConversationEnrichment parseConversationEnrichmentResponse(String response, List<SlackMessage> messages) {
-        try {
-            String cleanedResponse = JsonCleaner.cleanJsonResponse(response);
-            logger.info("[==>>> GEMINI-PARSE]: Cleaned response:\n{}", cleanedResponse);
-
-            if (cleanedResponse.trim().startsWith("[")) {
-                return parseTopicsFromText(cleanedResponse, messages);
-            }
-
-            return new ConversationEnrichment(
-                List.of(), // No topics
-                List.of(), // No action items
-                List.of(), // No messages
-                null // No urgency level
-            );
-        } catch (Exception e) {
-            logger.error("GEMINI-PARSE: Failed to parse conversation enrichment response. Error: {}", e.getMessage(), e);
-            return getDefaultConversationEnrichment();
-        }
-    }
-
-    private ConversationEnrichment parseTopicsFromText(String topicsText, List<SlackMessage> messages) 
-        throws JsonMappingException, JsonProcessingException {
-
-        List<?> topicsArray = objectMapper.readValue(topicsText, List.class);
-        List<TopicEnrichment> topics = new ArrayList<>();
-        for (int i = 0; i < topicsArray.size(); i++) {
-            Object topicObj = topicsArray.get(i);            
-            if (topicObj instanceof Map<?, ?> topicMap) {
-                TopicEnrichment topic = parseTopicFromMap(topicMap, messages);
-                topics.add(topic);
-                logger.info("GEMINI-PARSE: Successfully parsed topic {}: '{}'", i, topic.title());
-            }
-        }
-        return new ConversationEnrichment(topics, List.of(), List.of(), null);
-    }
-
-    
-    private String extractStringValue(Map<?, ?> map, String key, String defaultValue) {
-        Object value = map.get(key);
-        return value instanceof String str ? str : defaultValue;
-    }
-    
-    private Integer extractIntegerValue(Map<?, ?> map, String key, Integer defaultValue) {
-        Object value = map.get(key);
-        if (value instanceof Integer intValue) {
-            return intValue;
-        } else if (value instanceof String strValue) {
-            try {
-                return Integer.parseInt(strValue);
-            } catch (NumberFormatException e) {
-                logger.warn("Failed to parse integer value '{}' for key '{}', using default: {}", strValue, key, defaultValue);
-                return defaultValue;
-            }
-        }
-        return defaultValue;
-    }
-    
-    private ConversationEnrichment getDefaultConversationEnrichment() {
-        TopicEnrichment defaultTopic = new TopicEnrichment(
-            "General Discussion",
-            "No summary available", 
-            "No detailed summary available",
-            "No action suggested",
-            null, // clientOrSupplier
-            null, // deadline
-            UrgencyLevel.LOW,
-            "General", // category
-            null, // subCategory
-            null, // startTime
-            null, // endTime
-            null, // periodStartDate
-            null, // periodEndDate
-            null, // latestMessageDate
-            List.of(), // peopleInvolved
-            List.of(), // summaryPerPerson
-            Map.of(), // lastMessageDatePerPerson
-            List.of(), // suggestedReplies
-            null // suggestedForwardRecipient
-        );
-        
-        return new ConversationEnrichment(
-            List.of(defaultTopic),
-            List.of(),
-            List.of(),
-            Map.of("error", "Failed to analyze conversation")
-        );
-    }
-    
-    private TopicEnrichment parseTopicFromMap(Map<?, ?> topicMap, List<SlackMessage> messages) {
-        Map<String, UserDTO> userInfos = messages.stream().filter(msg -> {
-                String key = msg.getSlackUserId() != null ? msg.getSlackUserId() : msg.getUsername();
-                return key != null && !key.trim().isEmpty();
-            }).collect(Collectors.toMap(
-                msg -> msg.getSlackUserId() != null ? msg.getSlackUserId() : msg.getUsername(),
-                msg -> new UserDTO(msg.getSlackUserId(), msg.getUsername(), getBestDisplayNameFromSlackMessage(msg), msg.getImage72()),
-                (existing, replacement) -> existing // Keep existing if duplicate
-            ));
-
-        String tenantId = messages.isEmpty() ? null : messages.get(0).getTenantId();
-        String workspaceId = messages.isEmpty() ? null : messages.get(0).getWorkspaceId();
-        updateUserInformation(userInfos, tenantId, workspaceId);
-
-        String title = extractStringValue(topicMap, "title", "Untitled Topic");
-        String shortSummary = extractStringValue(topicMap, "shortSummary", "No summary available");
-        shortSummary = TextUtils.replaceSlackMentions(shortSummary, userInfos);
-        
-        String fullSummary = extractStringValue(topicMap, "fullSummary", "No detailed summary available");
-        fullSummary = TextUtils.replaceSlackMentions(fullSummary, userInfos);
-
-        String suggestedAction = extractStringValue(topicMap, "suggestedAction", "No action suggested");
-        suggestedAction = TextUtils.replaceSlackMentions(suggestedAction, userInfos);
-
-        String clientOrSupplier = extractStringValue(topicMap, "clientOrSupplier", null);
-        String deadlineStr = extractStringValue(topicMap, "deadline", null);
-        LocalDateTime deadline = parseDeadline(deadlineStr);
-        String urgencyStr = extractStringValue(topicMap, "urgency", "Low");
-        String category = extractStringValue(topicMap, "category", "General");
-        String subCategory = extractStringValue(topicMap, "subCategory", null);
-        String periodStartDate = extractStringValue(topicMap, "periodStartDate", null);
-        String periodEndDate = extractStringValue(topicMap, "periodEndDate", null);
-        String latestMessageDate = extractStringValue(topicMap, "latestMessageDate", null);
-
-        // Update periodStartDate to first message date if null
-        if (periodStartDate == null && !messages.isEmpty()) {
-            periodStartDate = messages.get(0).getTimestamp().toString();
-        }
-        // Update periodEndDate to last message date if null
-        if (periodEndDate == null && !messages.isEmpty()) {
-            periodEndDate = messages.get(messages.size() - 1).getTimestamp().toString();
-        }
-        
-        UrgencyLevel urgency = mapStringToUrgency(urgencyStr);
-        
-        LocalDateTime startTime = extractDateTime(topicMap, "startTime");
-        LocalDateTime endTime = extractDateTime(topicMap, "endTime");
-                
-        List<UserDTO> peopleInvolved = extractPeopleInvolved(topicMap, tenantId, workspaceId);
-        List<SummaryPerPerson> summaryPerPerson = extractSummaryPerPerson(topicMap, tenantId, workspaceId, messages);
-        Map<String, String> lastMessageDatePerPerson = extractStringMap(topicMap, "lastMessageDatePerPerson");
-        List<SuggestedReply> suggestedReplies = ProviderUtils.extractSuggestedReplies(topicMap);
-        ForwardInfo suggestedForwardRecipient = extractForwardInfo(topicMap);
-        
-        return new TopicEnrichment(title, shortSummary, fullSummary, suggestedAction, 
-                                 clientOrSupplier, deadline, urgency, category, subCategory,
-                                 startTime, endTime, periodStartDate, periodEndDate, latestMessageDate,
-                                 peopleInvolved, summaryPerPerson, lastMessageDatePerPerson, 
-                                 suggestedReplies, suggestedForwardRecipient);
-    }
-    
-
-    /**
-     * Get the best available display name for a user
-     * Priority: displayName -> displayNameNormalized -> realNameNormalized -> name -> fallback
-     */
-    private String getBestDisplayName(User user, String fallback) {
-        if (user == null) {
-            logger.debug("getBestDisplayName: User is null, using fallback: {}", fallback);
-            return fallback != null ? fallback : "Unknown User";
-        }
-        
-        // Try displayName first
-        if (user.getDisplayName() != null && !user.getDisplayName().trim().isEmpty()) {
-            logger.debug("getBestDisplayName: Using displayName: {}", user.getDisplayName());
-            return user.getDisplayName();
-        }
-        
-        // Try displayNameNormalized
-        if (user.getDisplayNameNormalized() != null && !user.getDisplayNameNormalized().trim().isEmpty()) {
-            logger.debug("getBestDisplayName: Using displayNameNormalized: {}", user.getDisplayNameNormalized());
-            return user.getDisplayNameNormalized();
-        }
-        
-        // Try realNameNormalized
-        if (user.getRealNameNormalized() != null && !user.getRealNameNormalized().trim().isEmpty()) {
-            logger.debug("getBestDisplayName: Using realNameNormalized: {}", user.getRealNameNormalized());
-            return user.getRealNameNormalized();
-        }
-        
-        // Try name
-        if (user.getName() != null && !user.getName().trim().isEmpty()) {
-            logger.debug("getBestDisplayName: Using name: {}", user.getName());
-            return user.getName();
-        }
-        
-        // Use fallback
-        String result = fallback != null ? fallback : "Unknown User";
-        logger.debug("getBestDisplayName: All user name fields are null/empty. Using fallback: {}", result);
-        logger.debug("getBestDisplayName: User debug info - displayName: '{}', displayNameNormalized: '{}', realNameNormalized: '{}', name: '{}'", 
-                    user.getDisplayName(), user.getDisplayNameNormalized(), user.getRealNameNormalized(), user.getName());
-        return result;
-    }
-
-    /**
-     * Get the best available display name from SlackMessage data
-     * Priority: displayName -> username -> slackUserId
-     */
-    private String getBestDisplayNameFromSlackMessage(SlackMessage msg) {
-        if (msg == null) {
-            return "Unknown User";
-        }
-        
-        // Try displayName first
-        if (msg.getDisplayName() != null && !msg.getDisplayName().trim().isEmpty()) {
-            return msg.getDisplayName();
-        }
-        
-        // Try username
-        if (msg.getUsername() != null && !msg.getUsername().trim().isEmpty()) {
-            return msg.getUsername();
-        }
-        
-        // Use slackUserId as last resort
-        if (msg.getSlackUserId() != null && !msg.getSlackUserId().trim().isEmpty()) {
-            return msg.getSlackUserId();
-        }
-        
-        return "Unknown User";
-    }
-
-    private void updateUserInformation(Map<String, UserDTO> userInfos, String tenantId, String workspaceId) {
-        if (tenantId == null || workspaceId == null) return;
-        
-        if (tenantId != null && workspaceId != null) {
-            userInfos.forEach((slackId, user) -> {
-                try {
-                    // Only call userService if slackId is not null
-                    if (slackId != null && !slackId.trim().isEmpty()) {
-                        User updatedUser = userService.getUser(tenantId, workspaceId, slackId).orElse(null);
-                        if (updatedUser != null) {
-                            UserDTO updatedUserDTO = new UserDTO(
-                                updatedUser.getId(),
-                                updatedUser.getName(),
-                                getBestDisplayName(updatedUser, updatedUser.getName()),
-                                updatedUser.getImage72()
-                            );
-                            userInfos.put(slackId, updatedUserDTO);
-                        }
+            // ⚡ BOTTLENECK FIX: Async send with callback (eliminates 30s blocking)
+            kafkaTemplate.send(aiResponsesTopic, parsedAiResponse)
+                .whenComplete((result, ex) -> {
+                    if (ex == null) {
+                        logger.info("✅ [FORWARD-SUCCESS] Message sent to {} at offset {}",
+                            aiResponsesTopic, result.getRecordMetadata().offset());
+                    } else {
+                        logger.error("❌ [FORWARD-ERROR] Failed to send to {}: {}",
+                            aiResponsesTopic, ex.getMessage(), ex);
+                        // Optional: Could send to DLQ for failed forwards
                     }
-                } catch (Exception e) {
-                    logger.warn("Failed to update user info for slackId {}: {}", slackId, e.getMessage());
+                });
+
+            logger.info("🚀 [FORWARD-INITIATED] Async send initiated to topic: {}", aiResponsesTopic);
+
+        } catch (Exception e) {
+            logger.error("❌ [FORWARD-EXCEPTION] Exception initiating send to {}: {}",
+                aiResponsesTopic, e.getMessage(), e);
+            throw new RuntimeException("Failed to initiate send to final ai-responses topic", e);
+        }
+    }
+
+    /**
+     * Send error response to the final topic
+     */
+    private void sendErrorResponse(PostProcessingContext context, String errorMessage) {
+        try {
+            EnrichmentResponse errorResponse = createErrorResponse(context, errorMessage);
+            sendToFinalAiResponsesTopic(errorResponse);
+            logger.info("⚠️ Sent error response to final topic due to processing failure");
+        } catch (Exception e) {
+            logger.error("❌ Failed to send error response: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Create an error EnrichmentResponse
+     */
+    private EnrichmentResponse createErrorResponse(PostProcessingContext context, String errorMessage) {
+        EnrichmentResponse response = new EnrichmentResponse();
+
+        // Set basic fields from context if available
+        if (context != null) {
+            response.setMessageId(context.getMessageId());
+            response.setCorrelationId(context.getCorrelationId());
+            response.setTaskType(context.getTaskType());
+            response.setTenantId(context.getTenantId());
+            response.setTenantSchema(context.getTenantSchema());
+            response.setUserId(context.getUserId());
+            response.setDeemergeUserId(context.getDeemergeUserId());
+            response.setDeemergeUserName(context.getDeemergeUserName());
+            response.setTeamId(context.getTeamId());
+        }
+
+        response.setSuccess(false);
+        response.setStatus("error");
+        response.setErrorMessage(errorMessage);
+        response.setProcessedAt(List.of(
+            LocalDateTime.now().getYear(),
+            LocalDateTime.now().getMonthValue(),
+            LocalDateTime.now().getDayOfMonth(),
+            LocalDateTime.now().getHour(),
+            LocalDateTime.now().getMinute(),
+            LocalDateTime.now().getSecond()
+        ));
+
+        return response;
+    }
+
+    /**
+     * Create a lightweight version of EnrichmentResponse to avoid Kafka message size issues.
+     * This method removes or summarizes large data fields like full message and participant lists.
+     */
+    private EnrichmentResponse createLightweightResponse(EnrichmentResponse originalResponse) {
+        if (originalResponse == null) {
+            return null;
+        }
+
+        EnrichmentResponse lightweightResponse = new EnrichmentResponse();
+
+        // Copy all basic fields (these are small)
+        lightweightResponse.setMessageId(originalResponse.getMessageId());
+        lightweightResponse.setCorrelationId(originalResponse.getCorrelationId());
+        lightweightResponse.setConversationId(originalResponse.getConversationId());
+        lightweightResponse.setTaskType(originalResponse.getTaskType());
+        lightweightResponse.setSuccess(originalResponse.isSuccess());
+        lightweightResponse.setStatus(originalResponse.getStatus());
+        lightweightResponse.setProviderId(originalResponse.getProviderId());
+        lightweightResponse.setErrorMessage(originalResponse.getErrorMessage());
+        lightweightResponse.setConfidence(originalResponse.getConfidence());
+        lightweightResponse.setProcessedAt(originalResponse.getProcessedAt());
+        lightweightResponse.setProcessingTimeMs(originalResponse.getProcessingTimeMs());
+        lightweightResponse.setTenantId(originalResponse.getTenantId());
+        lightweightResponse.setTenantSchema(originalResponse.getTenantSchema());
+        lightweightResponse.setUserId(originalResponse.getUserId());
+        lightweightResponse.setDeemergeUserId(originalResponse.getDeemergeUserId());
+        lightweightResponse.setDeemergeUserName(originalResponse.getDeemergeUserName());
+        lightweightResponse.setTeamId(originalResponse.getTeamId());
+
+        // Handle metadata - copy but limit size
+        if (originalResponse.getMetadata() != null) {
+            Map<String, Object> lightweightMetadata = new java.util.HashMap<>();
+            originalResponse.getMetadata().forEach((key, value) -> {
+                // Only include small metadata fields, skip large collections
+                if (value instanceof String || value instanceof Number || value instanceof Boolean) {
+                    lightweightMetadata.put(key, value);
+                } else if (value instanceof Map || value instanceof List) {
+                    // Add summary info instead of full data
+                    if (value instanceof List) {
+                        lightweightMetadata.put(key + "_count", ((List<?>) value).size());
+                    } else if (value instanceof Map) {
+                        lightweightMetadata.put(key + "_keys", ((Map<?, ?>) value).keySet().size());
+                    }
                 }
             });
-        } else {
-            logger.warn("Cannot update user info: tenantId={}, workspaceId={}", tenantId, workspaceId);
+            lightweightResponse.setMetadata(lightweightMetadata);
         }
+
+        // Handle ConversationEnrichment result - create summary version
+        if (originalResponse.getResult() != null) {
+            lightweightResponse.setResult(createLightweightConversationEnrichment(originalResponse.getResult()));
+        }
+
+        logger.debug("💡 Created lightweight response for messageId={}, optimized for Kafka",
+                    originalResponse.getMessageId());
+
+        return lightweightResponse;
     }
 
-    private UrgencyLevel mapStringToUrgency(String urgencyStr) {
-        if (urgencyStr == null) return UrgencyLevel.LOW;
-        
-        return switch (urgencyStr.toUpperCase()) {
-            case "CRITICAL" -> UrgencyLevel.CRITICAL;
-            case "HIGH" -> UrgencyLevel.HIGH;
-            case "MEDIUM" -> UrgencyLevel.MEDIUM;
-            default -> UrgencyLevel.LOW;
-        };
-    }
-    
-    private List<String> extractStringList(Map<?, ?> map, String key) {
-        Object value = map.get(key);
-        if (value instanceof List<?> list) {
-            return list.stream()
-                .filter(String.class::isInstance)
-                .map(String.class::cast)
-                .toList();
+    /**
+     * Create a lightweight version of ConversationEnrichment by removing large data and keeping only summaries
+     */
+    private com.lucid.automation.common.dto.enrichment.ConversationEnrichment createLightweightConversationEnrichment(
+            com.lucid.automation.common.dto.enrichment.ConversationEnrichment original) {
+
+        if (original == null) {
+            return null;
         }
-        return List.of();
-    }
-    
-    private Map<String, String> extractStringMap(Map<?, ?> map, String key) {
-        Object value = map.get(key);
-        if (value instanceof Map<?, ?> innerMap) {
-            Map<String, String> result = new HashMap<>();
-            for (Map.Entry<?, ?> entry : innerMap.entrySet()) {
-                if (entry.getKey() instanceof String k && entry.getValue() instanceof String v) {
-                    result.put(k, v);
-                }
-            }
-            return result;
+
+        // Create lightweight metadata with counts instead of full data
+        Map<String, Object> lightweightMetadata = new java.util.HashMap<>();
+        if (original.metadata() != null) {
+            lightweightMetadata.putAll(original.metadata());
         }
-        return Map.of();
-    }
-    
-    private ForwardInfo extractForwardInfo(Map<?, ?> topicMap) {
-        Object forwardObj = topicMap.get("forward");
-        if (forwardObj instanceof Map<?, ?> forwardMap) {
-            String channel = extractStringValue(forwardMap, "channel", null);
-            String to = extractStringValue(forwardMap, "to", null);
-            String subject = extractStringValue(forwardMap, "subject", null);
-            String body = extractStringValue(forwardMap, "body", null);
-            
-            return new ForwardInfo(channel, to, subject, body);
+
+        // Add summary counts instead of full data
+        if (original.messages() != null) {
+            lightweightMetadata.put("messages_count", original.messages().size());
         }
-        return null;
+        if (original.participants() != null) {
+            lightweightMetadata.put("participants_count", original.participants().size());
+        }
+        if (original.topics() != null) {
+            lightweightMetadata.put("topics_count", original.topics().size());
+        }
+
+        // Return only topics and metadata, exclude large message/participant lists
+        return new com.lucid.automation.common.dto.enrichment.ConversationEnrichment(
+            original.topics(), // Keep topics as they're usually small
+            List.of(), // Empty participants list
+            List.of(), // Empty messages list
+            lightweightMetadata
+        );
     }
 
-    private List<UserDTO> extractPeopleInvolved(Map<?, ?> topicMap, String tenantId, String workspaceId) {
-        Object value = topicMap.get("peopleInvolved");
-        if (value instanceof List<?> list) {
-            List<UserDTO> result = new ArrayList<>();
-            for (Object item : list) {
-                if (item instanceof String userId) {
-                    // Process only string user IDs like "U08SABCH6R3"
-                    UserDTO enrichedUser = enrichUserDTO(userId, tenantId, workspaceId);
-                    // Add user only if ID is valid (not null and not N/A)
-                    if (enrichedUser.id() != null && !enrichedUser.id().equals("N/A")) {
-                        result.add(enrichedUser);
-                    }
-                } else {
-                    logger.warn("Skipping non-string item in peopleInvolved: {} (type: {})", 
-                               item, item != null ? item.getClass().getSimpleName() : "null");
-                }
-            }
-            return result;
-        }
-        logger.debug("peopleInvolved is not a List, returning empty list. Value type: {}", 
-                    value != null ? value.getClass().getSimpleName() : "null");
-        return List.of();
-    }
-    
     /**
-     * Enriches UserDTO with data from Redis
+     * Send message to Dead Letter Queue for non-retryable errors.
+     * SCRUM-345: DLQ topic = original topic + "-dlq" suffix
+     *
+     * @param record the ConsumerRecord that failed
+     * @param error the exception that caused the failure
      */
-    private UserDTO enrichUserDTO(String userId, String tenantId, String workspaceId) {
-        try {            
-            // Get user details from Redis - add null checks
-            if (tenantId != null && workspaceId != null && userId != null && !userId.trim().isEmpty()) {
-                Optional<User> userOptional = userService.getUser(tenantId, workspaceId, userId);
-                if (userOptional.isPresent()) {
-                    User user = userOptional.get();
-                    // Use userId as final fallback if all user name fields are empty
-                    String displayName = getBestDisplayName(user, userId);
-                    String userName = user.getName() != null && !user.getName().trim().isEmpty() ? user.getName() : userId;
-                    logger.debug("enrichUserDTO: Successfully enriched user {} with displayName: '{}', userName: '{}'", 
-                                userId, displayName, userName);
-                    return new UserDTO(
-                        userId,
-                        userName,
-                        displayName,
-                        user.getImageOriginal()
-                    );
-                }
-            }
-            logger.warn("Cannot enrich user data due to null/empty parameters: tenantId={}, workspaceId={}, userId={}", 
-                       tenantId, workspaceId, userId);
-            return new UserDTO(userId, userId, userId, null); // Use userId for all name fields as fallback
-        } catch (Exception e) {
-            logger.warn("Failed to enrich UserDTO for user {}: {}", userId, e.getMessage());
-            // Return original data on error with userId as fallback for all name fields
-            return new UserDTO(userId, userId, userId, null);
-        }
-    }
-    
-    /**
-     * Extract DateTime from map with ISO format support
-     */
-    private LocalDateTime extractDateTime(Map<?, ?> map, String key) {
-        String dateTimeStr = extractStringValue(map, key, null);
-        if (dateTimeStr == null || dateTimeStr.trim().isEmpty()) {
-            return null;
-        }
-        
+    private void sendToDLQ(ConsumerRecord<String, Object> record, Exception error) {
         try {
-            // Try ISO format first (e.g., "2025-06-18T10:30:00Z")
-            if (dateTimeStr.endsWith("Z")) {
-                dateTimeStr = dateTimeStr.substring(0, dateTimeStr.length() - 1);
-            }
-            return LocalDateTime.parse(dateTimeStr, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-        } catch (Exception e) {
-            try {
-                // Try without time part (just date)
-                return LocalDateTime.parse(dateTimeStr + "T00:00:00", DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-            } catch (Exception e2) {
-                // If all parsing fails, return null
-                return null;
-            }
-        }
-    }
-    
-    /**
-     * Enhance displayName for an existing user with enriched data from Redis
-     */
-    private String enhanceDisplayName(String userId, String existingDisplayName, String existingUsername, String tenantId, String workspaceId) {
-        try {
-            if (tenantId != null && workspaceId != null && userId != null && !userId.trim().isEmpty()) {
-                Optional<User> userOptional = userService.getUser(tenantId, workspaceId, userId);
-                if (userOptional.isPresent()) {
-                    User user = userOptional.get();
-                    return getBestDisplayName(user, existingDisplayName);
-                }
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to enhance displayName for user {}: {}", userId, e.getMessage());
-        }
-        
-        // Fallback to existing logic if Redis lookup fails
-        if (existingDisplayName == null || existingDisplayName.trim().isEmpty()) {
-            return existingUsername != null ? existingUsername : userId;
-        }
-        return existingDisplayName;
-    }
+            String dlqTopic = record.topic() + kafkaRetryProperties.getDlqTopicSuffix();
 
-    private List<SummaryPerPerson> extractSummaryPerPerson(Map<?, ?> topicMap, String tenantId, String workspaceId, List<SlackMessage> messages) {
-        Object summaryPerPersonObj = topicMap.get("summaryPerPerson");
-        
-        // Handle new format: simple map of userId -> summary
-        if (summaryPerPersonObj instanceof Map<?, ?> summaryMap) {
-            List<SummaryPerPerson> summaries = new ArrayList<>();
-            
-            for (Map.Entry<?, ?> entry : summaryMap.entrySet()) {
-                String userId = String.valueOf(entry.getKey());
-                String summary = String.valueOf(entry.getValue());
-                
-                // Enrich with user data from Redis
-                SummaryPerPerson enrichedSummary = enrichSummaryWithUserData(
-                    userId, summary, tenantId, workspaceId, messages
-                );
-                summaries.add(enrichedSummary);
-            }
-            return summaries;
-        } else if (summaryPerPersonObj instanceof List<?> summaryList) {
-            List<SummaryPerPerson> summaries = new ArrayList<>();
-            
-            for (Object summaryObj : summaryList) {
-                if (summaryObj instanceof Map<?, ?> summaryObjMap) {
-                    String id = extractStringValue(summaryObjMap, "id", null);
-                    String username = extractStringValue(summaryObjMap, "username", null);
-                    String displayName = extractStringValue(summaryObjMap, "displayName", null);
-                    String imageUrl = extractStringValue(summaryObjMap, "imageUrl", null);
-                    String summary = extractStringValue(summaryObjMap, "summary", "No summary available");
-                    Integer messageCount = extractIntegerValue(summaryObjMap, "messageCount", 0);
-                    LocalDateTime firstMessageDate = extractDateTime(summaryObjMap, "firstMessageDate");
-                    LocalDateTime lastMessageDate = extractDateTime(summaryObjMap, "lastMessageDate");
-                    List<String> keyContributions = extractStringList(summaryObjMap, "keyContributions");
-                    List<String> actionItems = extractStringList(summaryObjMap, "actionItems");
-                    // check if username is empty or null, fallback to id
-                    if (username == null || username.trim().isEmpty()) {
-                        username = id;
-                    }
-                    // Enhance displayName with user data from Redis
-                    displayName = enhanceDisplayName(id, displayName, username, tenantId, workspaceId);
-                    SummaryPerPerson summaryPerPerson = new SummaryPerPerson(
-                        id, username, displayName, imageUrl, summary,
-                        messageCount, firstMessageDate, lastMessageDate,
-                        keyContributions, actionItems
-                    );
-                    summaries.add(summaryPerPerson);
-                }
-            }
-            return summaries;
-        }
-        
-        return List.of();
-    }
-    
-    /**
-     * Enriches a basic SummaryPerPerson with user data from Redis and message statistics
-     */
-    private SummaryPerPerson enrichSummaryWithUserData(String userId, String summary, String tenantId, String workspaceId, List<SlackMessage> messages) {
-        try {
-            // Get user details from Redis
-            User user = null;
-            if (tenantId != null && workspaceId != null) {
-                Optional<User> userOptional = userService.getUser(tenantId, workspaceId, userId);
-                user = userOptional.orElse(null);
-            }
-            // Calculate message statistics for this user
-            List<SlackMessage> userMessages = messages.stream()
-                .filter(msg -> userId.equals(msg.getUserId()))
-                .toList();
-            int messageCount = userMessages.size();
-            LocalDateTime firstMessageDate = userMessages.stream()
-                .map(SlackMessage::getTimestamp)
-                .filter(Objects::nonNull)
-                .min(LocalDateTime::compareTo)
-                .orElse(null);
-            LocalDateTime lastMessageDate = userMessages.stream()
-                .map(SlackMessage::getTimestamp)
-                .filter(Objects::nonNull)
-                .max(LocalDateTime::compareTo)
-                .orElse(null);
-            // Extract user details from Redis or fall back to basic info
-            String username = user != null ? user.getName() : null;
-            if (username == null || username.trim().isEmpty()) {
-                username = userId; // Fallback to userId if username is not available
-            }
-            String displayName = getBestDisplayName(user, username);
-            String imageUrl = user != null ? user.getImageOriginal() : null;
-            return new SummaryPerPerson(
-                userId,
-                username,
-                displayName,
-                imageUrl,
-                summary,
-                messageCount,
-                firstMessageDate,
-                lastMessageDate,
-                List.of(), // keyContributions - could be enhanced later
-                List.of()  // actionItems - could be enhanced later
-            );
-        } catch (Exception e) {
-            logger.warn("Failed to enrich summary for user {}: {}", userId, e.getMessage());
-            // Return basic summary without enrichment
-            return new SummaryPerPerson(
-                userId,
-                userId,  // username
-                userId,  // displayName
-                null,  // imageUrl
-                summary,
-                0,     // messageCount
-                null,  // firstMessageDate
-                null,  // lastMessageDate
-                List.of(),
-                List.of()
-            );
-        }
-    }
-    
-    /**
-     * Parse deadline string into LocalDateTime
-     * Supports various date formats commonly used in AI responses
-     */
-    private LocalDateTime parseDeadline(String deadlineStr) {
-        if (deadlineStr == null || deadlineStr.trim().isEmpty()) {
-            return null;
-        }
-        
-        try {
-            // Try ISO date-time format first
-            if (deadlineStr.contains("T")) {
-                return LocalDateTime.parse(deadlineStr);
-            }
-            
-            // Try date-only format (assume end of day)
-            if (deadlineStr.matches("\\d{4}-\\d{2}-\\d{2}")) {
-                return LocalDate.parse(deadlineStr).atTime(23, 59, 59);
-            }
-            
-            // Try other common formats
-            DateTimeFormatter[] formatters = {
-                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
-                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"),
-                DateTimeFormatter.ofPattern("MM/dd/yyyy HH:mm"),
-                DateTimeFormatter.ofPattern("MM/dd/yyyy"),
-                DateTimeFormatter.ofPattern("dd/MM/yyyy"),
-                DateTimeFormatter.ofPattern("yyyy/MM/dd")
-            };
-            
-            for (DateTimeFormatter formatter : formatters) {
-                try {
-                    if (formatter.toString().contains("HH")) {
-                        return LocalDateTime.parse(deadlineStr, formatter);
-                    } else {
-                        return LocalDate.parse(deadlineStr, formatter).atTime(23, 59, 59);
-                    }
-                } catch (DateTimeParseException ignored) {
-                    // Try next formatter
-                }
-            }
-            
-            logger.warn("Could not parse deadline string: {}", deadlineStr);
-            return null;
-        } catch (Exception e) {
-            logger.warn("Error parsing deadline string '{}': {}", deadlineStr, e.getMessage());
-            return null;
-        }
-    }
-    
-    /**
-     * Convert a list of LinkedHashMap objects to SlackMessage objects
-     */
-    private List<SlackMessage> convertToSlackMessages(List<Map<String, Object>> requestMapList) {
-        if (requestMapList == null) {
-            return new ArrayList<>();
-        }
-        
-        return requestMapList.stream()
-            .map(this::convertMapToSlackMessage)
-            .collect(Collectors.toList());
-    }
-    
-    /**
-     * Convert a single Map to SlackMessage object
-     */
-    private SlackMessage convertMapToSlackMessage(Map<String, Object> map) {
-        try {
-            // Use ObjectMapper to convert Map to SlackMessage
-            return objectMapper.convertValue(map, SlackMessage.class);
-        } catch (Exception e) {
-            logger.warn("Failed to convert map to SlackMessage: {}, error: {}", map, e.getMessage());
-            // Return a basic SlackMessage with minimal data
-            SlackMessage message = new SlackMessage();
-            message.setId((String) map.get("id"));
-            message.setContent((String) map.get("content"));
-            message.setUserId((String) map.get("userId"));
-            return message;
+            // Create DLQ message with error context
+            Map<String, Object> dlqMessage = new java.util.HashMap<>();
+            dlqMessage.put("originalTopic", record.topic());
+            dlqMessage.put("originalPartition", record.partition());
+            dlqMessage.put("originalOffset", record.offset());
+            dlqMessage.put("originalKey", record.key());
+            dlqMessage.put("originalValue", record.value());
+            dlqMessage.put("errorType", error.getClass().getSimpleName());
+            dlqMessage.put("errorMessage", error.getMessage());
+            dlqMessage.put("failedAt", LocalDateTime.now());
+            dlqMessage.put("retryAttempts", 0); // Will be incremented by DLQ consumer
+
+            kafkaTemplate.send(dlqTopic, dlqMessage).get();
+            logger.info("📤 [DLQ] Successfully sent message to DLQ topic: {} (from: {})", dlqTopic, record.topic());
+        } catch (Exception dlqError) {
+            logger.error("❌ [DLQ-SEND-ERROR] Failed to send message to DLQ: {}", dlqError.getMessage(), dlqError);
+            throw new RuntimeException("Failed to send message to DLQ", dlqError);
         }
     }
 }

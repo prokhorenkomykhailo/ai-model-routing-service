@@ -2,8 +2,7 @@ package com.lucid.automation.airouting.model;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.lucid.automation.airouting.dto.ConversationEnrichment;
-import com.lucid.automation.airouting.provider.AIProvider;
+import com.lucid.automation.common.dto.enrichment.ConversationEnrichment;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;

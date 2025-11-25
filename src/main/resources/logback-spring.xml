@@ -1,39 +1,146 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration scan="true">
+    <property name="LOG_FILE" value="${LOG_FILE:-${LOG_PATH:-${LOG_TEMP:-${java.io.tmpdir:-/tmp}}}/spring.log}"/>
 
-    <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"/>
-    <property name="LOG_FILE" value="logs/ai-routing-service.log"/>
+    <!-- Use the Spring Boot defined properties for log file names -->
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
 
+    <!-- Apply PII sanitizer to all logs -->
+    <conversionRule conversionWord="sanitize"
+                    converterClass="com.lucid.automation.airouting.logging.PiiSanitizingConverter"/>
+
+    <!-- Define the JSON encoder for structured logging -->
+    <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="ch.qos.logback.contrib.json.classic.JsonLayout">
+                <jsonFormatter class="ch.qos.logback.contrib.jackson.JacksonJsonFormatter">
+                    <prettyPrint>false</prettyPrint>
+                </jsonFormatter>
+                <timestampFormat>yyyy-MM-dd'T'HH:mm:ss.SSSX</timestampFormat>
+                <appendLineSeparator>true</appendLineSeparator>
+                <includeThreadName>true</includeThreadName>
+                <includeMDC>true</includeMDC>
+                <includeLoggerName>true</includeLoggerName>
+                <includeFormattedMessage>true</includeFormattedMessage>
+                <includeExceptionInMessage>true</includeExceptionInMessage>
+                <includeContextName>true</includeContextName>
+            </layout>
+        </encoder>
+    </appender>
+
+    <!-- Define the JSON file appender for structured logging -->
+    <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_FILE}</file>
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="ch.qos.logback.contrib.json.classic.JsonLayout">
+                <jsonFormatter class="ch.qos.logback.contrib.jackson.JacksonJsonFormatter">
+                    <prettyPrint>false</prettyPrint>
+                </jsonFormatter>
+                <timestampFormat>yyyy-MM-dd'T'HH:mm:ss.SSSX</timestampFormat>
+                <appendLineSeparator>true</appendLineSeparator>
+                <includeThreadName>true</includeThreadName>
+                <includeMDC>true</includeMDC>
+                <includeLoggerName>true</includeLoggerName>
+                <includeFormattedMessage>true</includeFormattedMessage>
+                <includeExceptionInMessage>true</includeExceptionInMessage>
+                <includeContextName>true</includeContextName>
+            </layout>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_FILE}.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
+            <maxFileSize>10MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+    <!-- Console appender with custom formatting and PII sanitization -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>${LOG_PATTERN}</pattern>
+            <!-- Custom pattern matching desired format: Time | Level | Message | TraceId | SpanId | [ScopeInfo] | {Thread} -->
+            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSS'Z'} %-5level '%sanitize{%msg}' : %X{traceId:-} %X{spanId:-} [%logger{36}:] {thread.name="%thread"}%n</pattern>
         </encoder>
     </appender>
 
-    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_FILE}</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>logs/ai-routing-service.log.%d{yyyy-MM-dd}.gz</fileNamePattern>
-            <maxHistory>30</maxHistory>
-        </rollingPolicy>
-        <encoder>
-            <pattern>${LOG_PATTERN}</pattern>
+    <!-- OpenTelemetry logback appender -->
+    <appender name="OTEL" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+        <captureExperimentalAttributes>true</captureExperimentalAttributes>
+        <captureKeyValuePairAttributes>true</captureKeyValuePairAttributes>
+        <captureMarkerAttribute>true</captureMarkerAttribute>
+        <captureMdcAttributes>true</captureMdcAttributes>
+    </appender>
+
+    <!-- Dedicated AUDIT appender for structured audit logs -->
+    <appender name="AUDIT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="ch.qos.logback.contrib.json.classic.JsonLayout">
+                <jsonFormatter class="ch.qos.logback.contrib.jackson.JacksonJsonFormatter">
+                    <prettyPrint>false</prettyPrint>
+                </jsonFormatter>
+                <timestampFormat>yyyy-MM-dd'T'HH:mm:ss.SSSX</timestampFormat>
+                <appendLineSeparator>true</appendLineSeparator>
+                <includeThreadName>true</includeThreadName>
+                <includeMDC>true</includeMDC>
+                <includeLoggerName>true</includeLoggerName>
+                <includeFormattedMessage>true</includeFormattedMessage>
+                <includeExceptionInMessage>true</includeExceptionInMessage>
+                <includeContextName>true</includeContextName>
+            </layout>
         </encoder>
     </appender>
 
-    <!-- OpenTelemetry Logback Appender (requires opentelemetry-logback-appender dependency) -->
-    <appender name="OTLP" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
-        <otelExporterEndpoint>http://otel-collector:4317</otelExporterEndpoint>
-        <otelServiceName>ai-routing-service</otelServiceName>
-        <otelResourceAttributes>deployment.environment=dev</otelResourceAttributes>
-    </appender>
+    <!-- Root logger configuration -->
+    <springProfile name="local,dev,docker">
+        <!-- In dev and docker environments, use both console and JSON formats -->
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="JSON_FILE"/>
+            <appender-ref ref="OTEL"/>
+        </root>
+    </springProfile>
 
+    <springProfile name="!local &amp; !dev &amp; !docker">
+        <!-- In production environments, use only JSON format -->
+        <root level="INFO">
+            <appender-ref ref="JSON_FILE"/>
+            <appender-ref ref="OTEL"/>
+        </root>
+    </springProfile>
+
+    <!-- Application specific loggers -->
     <logger name="com.lucid.automation.airouting" level="DEBUG"/>
     <logger name="AI_AUDIT" level="INFO"/>
 
-    <root level="INFO">
-        <appender-ref ref="CONSOLE"/>
-        <appender-ref ref="FILE"/>
-        <appender-ref ref="OTLP"/>
-    </root>
+    <!-- Dedicated logger for audit events - Profile specific -->
+    <springProfile name="local,dev">
+        <logger name="AUDIT" level="DEBUG" additivity="false">
+            <!-- Only send to OpenTelemetry in dev -->
+            <appender-ref ref="OTEL" />
+        </logger>
+    </springProfile>
+
+    <springProfile name="docker">
+        <logger name="AUDIT" level="INFO" additivity="false">
+            <!-- Full audit logging in docker profile -->
+            <appender-ref ref="AUDIT" />
+            <appender-ref ref="OTEL" />
+        </logger>
+    </springProfile>
+
+    <springProfile name="!local &amp; !dev &amp; !docker">
+        <logger name="AUDIT" level="INFO" additivity="false">
+            <!-- Full audit logging in production -->
+            <appender-ref ref="AUDIT" />
+            <appender-ref ref="OTEL" />
+        </logger>
+    </springProfile>
+
+    <!-- Third-party loggers -->
+    <logger name="org.springframework" level="ERROR"/>
+    <logger name="org.hibernate" level="ERROR"/>
+    <logger name="org.hibernate.SQL" level="ERROR"/>
+    <logger name="org.hibernate.type.descriptor.sql" level="ERROR"/>
+    <logger name="io.opentelemetry" level="INFO"/>
+    <logger name="com.netflix" level="ERROR"/>
+    <logger name="io.sentry" level="ERROR"/>
 </configuration>

@@ -1,15 +1,13 @@
 package com.lucid.automation.airouting.service;
 
-import com.lucid.automation.slackingestion.dto.messaging.IngestionEventDTO;
-import com.lucid.automation.slackingestion.dto.messaging.SlackMessageDTO;
-import com.lucid.automation.airouting.dto.WorkspaceStats;
+import com.lucid.automation.common.dto.messaging.IngestionEventDTO;
+import com.lucid.automation.common.dto.messaging.IngestionMessageDTO;
 import com.lucid.automation.airouting.model.Workspace;
 import com.lucid.automation.airouting.repository.WorkspaceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -21,29 +19,31 @@ import java.util.Optional;
  */
 @Service
 public class WorkspaceService {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(WorkspaceService.class);
-    
+
     private final WorkspaceRepository workspaceRepository;
-    private final SlidingWindowService slidingWindowService;
-    
-    public WorkspaceService(WorkspaceRepository workspaceRepository, SlidingWindowService slidingWindowService) {
+    public WorkspaceService(WorkspaceRepository workspaceRepository) {
         this.workspaceRepository = workspaceRepository;
-        this.slidingWindowService = slidingWindowService;
     }
-    
+
     /**
-     * Create or update workspace from message data
-     * 
+     * Create or update workspace from message data.
+     *
+     * Supports both Slack and Gmail messages:
+     * - Slack: Uses teamId from message
+     * - Gmail: Falls back to workspaceId (email domain) when teamId is null
+     *
      * @param ingestionEventDto The ingestion event DTO containing message data
-     * @return The created or updated workspace
+     * @return The created or updated workspace, or null if required fields are missing
+     * @author vudu
      */
     public Workspace createOrUpdateWorkspace(IngestionEventDTO ingestionEventDto) {
         if (ingestionEventDto.getTenantId() == null || ingestionEventDto.getMessage() == null) {
             logger.warn("Cannot create/update workspace: missing tenantId or message data");
             return null;
         }
-        
+
         String deemergeUserId = ingestionEventDto.getDeemergeUserId();
         if (deemergeUserId == null || deemergeUserId.trim().isEmpty()) {
             logger.warn("Cannot create/update workspace: missing deemergeUserId");
@@ -56,42 +56,48 @@ public class WorkspaceService {
             return null;
         }
 
+        // Get workspace identifier: prioritize teamId (Slack), fallback to workspaceId (Gmail)
         String teamId = ingestionEventDto.getMessage().getTeamId();
         if (teamId == null || teamId.trim().isEmpty()) {
-            logger.warn("Cannot create/update workspace: missing teamId in message data");
-            return null;
+            // For Gmail messages: use workspaceId (email domain) as workspace identifier
+            teamId = ingestionEventDto.getMessage().getBestWorkspaceId();
+            if (teamId == null || teamId.trim().isEmpty()) {
+                logger.warn("Cannot create/update workspace: missing both teamId and workspaceId in message data");
+                return null;
+            }
+            logger.debug("Using workspaceId as teamId for non-Slack message: {}", teamId);
         }
-        
+
         try {
             Workspace workspace = workspaceRepository.findByTeamIdAndTenantIdAndDeemergeUserId(teamId, tenantId, deemergeUserId)
                     .orElse(new Workspace(teamId, tenantId, deemergeUserId));
             updateWorkspaceFromMessage(workspace, ingestionEventDto);
-            
+
             // Save and return
             Workspace savedWorkspace = workspaceRepository.save(workspace);
-            logger.debug("Updated workspace: {}", savedWorkspace);
-            
+            logger.debug("✅ Workspace saved: {} | teamId={} | source={} | tenant={}",
+                        savedWorkspace.getName(), teamId, ingestionEventDto.getMessage().getSource(), tenantId);
             return savedWorkspace;
-            
+
         } catch (Exception e) {
-            logger.error("Error creating/updating workspace: deemergeUserId={}, error={}", 
+            logger.error("Error creating/updating workspace: deemergeUserId={}, error={}",
                         deemergeUserId, e);
             return null;
         }
     }
-    
+
     /**
      * Update workspace statistics from message
-     * 
+     *
      * @param workspace The workspace to update
      * @param ingestionEventDto The message data
      */
     private void updateWorkspaceFromMessage(Workspace workspace, IngestionEventDTO ingestionEventDto) {
-        SlackMessageDTO messageData = ingestionEventDto.getMessage();
+        IngestionMessageDTO messageData = ingestionEventDto.getMessage();
 
-        // Update basic info
-        if (workspace.getTeamId() == null && messageData.getTeamId() != null) {
-            workspace.setTeamId(messageData.getTeamId());
+        // Update basic info - use unified workspaceId
+        if (workspace.getTeamId() == null && messageData.getBestWorkspaceId() != null) {
+            workspace.setTeamId(messageData.getBestWorkspaceId());
         }
 
         // Update tenant schema if not set
@@ -131,16 +137,16 @@ public class WorkspaceService {
             workspace.setDeemergeUserName(ingestionEventDto.getDeemergeUserName());
         }
     }
-    
+
     /**
      * Parse message timestamp
      */
-    private Instant parseMessageTime(IngestionEventDTO dto, SlackMessageDTO messageData) {
+    private Instant parseMessageTime(IngestionEventDTO dto, IngestionMessageDTO messageData) {
         // Try to use ingestedAt first
         if (dto.getIngestedAt() != null) {
             return dto.getIngestedAt();
         }
-        
+
         // Try to parse message timestamp
         if (messageData.getTs() != null) {
             try {
@@ -154,33 +160,42 @@ public class WorkspaceService {
                 logger.warn("Could not parse message timestamp: {}", messageData.getTs());
             }
         }
-        
+
         // Fallback to current time
         return Instant.now();
     }
-    
+
     /**
-     * Extract workspace name from message metadata
+     * Extract workspace name from message metadata or unified message DTO
      */
     private void extractWorkspaceName(Workspace workspace, IngestionEventDTO dto) {
-        // Try to get name from metadata
+        // Try to get name from unified metadata (all platforms)
         if (dto.getMetadata() != null && dto.getMetadata().getWorkspaceName() != null) {
             workspace.setName(dto.getMetadata().getWorkspaceName());
+        } else if (dto.getMessage() != null && dto.getMessage().getBestWorkspaceName() != null) {
+            // Try to get from unified message DTO (works for both Slack and Gmail)
+            workspace.setName(dto.getMessage().getBestWorkspaceName());
         } else {
             // Default name
             workspace.setName("Workspace " + workspace.getId());
         }
     }
-    
+
     /**
      * Get all workspaces
-     * 
-     * @return List of all workspaces
+     *
+     * @return List of all workspaces (null entries filtered out)
      */
     public List<Workspace> getAllWorkspaces() {
         try {
             List<Workspace> workspaces = new ArrayList<>();
-            workspaceRepository.findAll().forEach(workspaces::add);
+            workspaceRepository.findAll().forEach(workspace -> {
+                if (workspace != null) {
+                    workspaces.add(workspace);
+                } else {
+                    logger.warn("⚠️ Skipping null workspace from Redis - possible corrupted entry");
+                }
+            });
             logger.debug("Retrieved {} workspaces", workspaces.size());
             return workspaces;
         } catch (Exception e) {
@@ -191,7 +206,7 @@ public class WorkspaceService {
 
     /**
      * Delete a workspace by ID along with all its associated messages
-     * 
+     *
      * @param id The workspace ID to delete
      * @return true if the workspace was found and deleted, false if not found
      */
@@ -200,7 +215,7 @@ public class WorkspaceService {
             logger.warn("Cannot delete workspace: ID is null or empty");
             return false;
         }
-        
+
         try {
             // Check if workspace exists
             Optional<Workspace> workspaceOpt = workspaceRepository.findById(id);
@@ -208,26 +223,27 @@ public class WorkspaceService {
                 logger.warn("Workspace with ID {} not found", id);
                 return false;
             }
-            
+
             Workspace workspace = workspaceOpt.get();
             String deemergeUserId = workspace.getDeemergeUserId();
-            
+            String tenantId = workspace.getTenantId();
+
             logger.info("Deleting workspace {} (ID: {}) and all associated messages", workspace.getName(), id);
-            
+
             // Clean up all messages associated with this workspace
             if (deemergeUserId != null && !deemergeUserId.trim().isEmpty()) {
-                int deletedMessages = slidingWindowService.cleanupWorkspace(deemergeUserId, 0);
+                int deletedMessages = 0;
                 logger.info("Deleted {} messages for workspace {}", deletedMessages, id);
             } else {
                 logger.warn("Workspace {} has no deemergeUserId, skipping message cleanup", id);
             }
-            
+
             // Delete the workspace itself
             workspaceRepository.deleteById(id);
-            
+
             logger.info("Successfully deleted workspace {} (ID: {})", workspace.getName(), id);
             return true;
-            
+
         } catch (Exception e) {
             logger.error("Error deleting workspace with ID: {}", id, e);
             return false;

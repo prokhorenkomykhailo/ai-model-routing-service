@@ -5,6 +5,9 @@ server:
 spring:
   application:
     name: ai-routing-service
+  config:
+    import:
+      - classpath:pipeline-config-docker.yml
   # Redis Configuration
   data:
     redis:
@@ -13,12 +16,20 @@ spring:
       password: ${REDIS_PASSWORD:}
       timeout: 2000
       database: 0
+      lettuce:
+        pool:
+          max-active: ${REDIS_POOL_MAX_ACTIVE:16}
+          max-idle: ${REDIS_POOL_MAX_IDLE:16}
+          min-idle: ${REDIS_POOL_MIN_IDLE:4}
+          max-wait: ${REDIS_POOL_MAX_WAIT:2000ms}
+          time-between-eviction-runs: ${REDIS_POOL_TIME_BETWEEN_EVICTION_RUNS:30s}
+        shutdown-timeout: 100ms
 
 # Service discovery configuration for Docker
 eureka:
   client:
     service-url:
-      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://discovery-service:8761/eureka/}
+      defaultZone: http://${EUREKA_USERNAME:admin}:${EUREKA_PASSWORD:changeme}@discovery-service:8761/eureka/
     fetch-registry: true
     register-with-eureka: true
   instance:
@@ -34,7 +45,7 @@ ai:
       endpoint: https://generativelanguage.googleapis.com/v1/models
       timeout: 45000
       enabled: ${GEMINI_ENABLED:true}
-    
+
     openai:
       type: openai
       api-key: ${OPENAI_API_KEY:}
@@ -59,6 +70,30 @@ springdoc:
   default-produces-media-type: application/json
   packages-to-scan: com.lucid.automation.airouting.controller
 
+# Sliding Window Configuration for Docker
+# BALANCED CONFIG: batch=30 (avg 23 + buffer), min=2 (duo conversations), wait=1h (faster processing)
+sliding:
+  window:
+    default:
+      batch:
+        size: ${SLIDING_WINDOW_BATCH_SIZE:30}  # Balanced for production avg 23 msgs/batch
+      overlap:
+        percentage: ${SLIDING_WINDOW_OVERLAP_PERCENTAGE:20}  # 6 messages overlap for context
+    max:
+      tokens: ${SLIDING_WINDOW_MAX_TOKENS:15000}  # Kafka safety limit
+      wait:
+        minutes: ${SLIDING_WINDOW_MAX_WAIT_MINUTES:30}  # 30 minutes timeout
+    min:
+      new:
+        messages: ${SLIDING_WINDOW_MIN_NEW_MESSAGES:2}  # Duo conversations minimum
+    avg:
+      tokens:
+        per:
+          message: ${SLIDING_WINDOW_AVG_TOKENS_PER_MESSAGE:50}
+    cache:
+      ttl:
+        seconds: ${SLIDING_WINDOW_CACHE_TTL:300}
+
 # Docker logging configuration
 logging:
   level:
@@ -68,6 +103,43 @@ logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [${spring.application.name}] %logger{36} - %msg%n"
 
+# OpenTelemetry auto-instrumentation settings for Docker
+otel:
+  exporter:
+    otlp:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://otel-collector:4317}
+      protocol: grpc
+  resource:
+    attributes:
+      '[service.name]': ${OTEL_SERVICE_NAME:ai-routing-service}
+      '[service.version]': ${OTEL_SERVICE_VERSION:1.0.0}
+  traces:
+    exporter: otlp
+  metrics:
+    exporter: otlp
+  logs:
+    exporter: otlp
+  instrumentation:
+    spring-webmvc:
+      enabled: true
+    jdbc:
+      enabled: false
+
+# Lucid Configuration - Enable audit logging in docker profile
+lucid:
+  audit:
+    enabled: true
+
+# Anonymization Service Configuration for Docker
+anonymization:
+  service:
+    url: ${ANONYMIZATION_SERVICE_URL:http://anonymization-service:8089}
+    enabled: ${ANONYMIZATION_ENABLED:false}
+    timeout: ${ANONYMIZATION_TIMEOUT:5000}
+    retry:
+      max-attempts: ${ANONYMIZATION_RETRY_MAX_ATTEMPTS:3}
+      backoff: ${ANONYMIZATION_RETRY_BACKOFF:2000}
+
 # Data storage service configuration
 data-storage-service:
   url: ${DATA_STORAGE_SERVICE_URL:http://localhost:8082}
@@ -75,3 +147,12 @@ data-storage-service:
 # auth service configuration
 auth-service:
   url: ${AUTH_SERVICE_URL:http://localhost:8088}
+
+# Message retention cleanup configuration
+message:
+  retention:
+    cleanup:
+      enabled: ${MESSAGE_RETENTION_CLEANUP_ENABLED:true}  # Enable automatic cleanup of expired messages
+      cron: ${MESSAGE_RETENTION_CLEANUP_CRON:0 0 3 * * ?}  # Daily at 3 AM
+      batch-size: ${MESSAGE_RETENTION_CLEANUP_BATCH_SIZE:100}  # Process 100 messages per batch
+      job-name: message-retention-cleanup

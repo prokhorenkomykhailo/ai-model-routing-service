@@ -1,5 +1,6 @@
 package com.lucid.automation.airouting.controller;
 
+import com.lucid.automation.airouting.audit.Audit;
 import com.lucid.automation.airouting.dto.ChannelResponseDTO;
 import com.lucid.automation.airouting.model.Channel;
 import com.lucid.automation.airouting.service.ChannelService;
@@ -18,7 +19,7 @@ import java.util.Optional;
 
 /**
  * REST controller for channel management
- * 
+ *
  * @author AI Assistant
  */
 @RestController
@@ -26,33 +27,35 @@ import java.util.Optional;
 @CrossOrigin(origins = "*")
 @Tag(name = "Channel Management", description = "CRUD operations for channel management")
 public class ChannelController {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(ChannelController.class);
-    
+
     private final ChannelService channelService;
-    
+
     public ChannelController(ChannelService channelService) {
         this.channelService = channelService;
     }
-    
+
     @GetMapping
+    @Audit(action = "AI_CHANNELS_GET", description = "User retrieved all channels")
     @Operation(summary = "Get all channels", description = "Retrieves all channels")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Channels retrieved successfully")
     })
     public ResponseEntity<List<ChannelResponseDTO>> getAllChannels() {
         logger.debug("Retrieving all channels");
-        
+
         List<Channel> channels = channelService.findAll();
         List<ChannelResponseDTO> responseDtos = channels.stream()
             .map(this::convertToResponseDTO)
             .toList();
-        
+
         logger.info("Retrieved {} channels", responseDtos.size());
         return ResponseEntity.ok(responseDtos);
     }
 
     @DeleteMapping("/{channelId}")
+    @Audit(action = "AI_CHANNEL_DELETE", description = "User deleted channel")
     @Operation(summary = "Delete channel", description = "Deletes a channel by its ID")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "204", description = "Channel deleted successfully"),
@@ -61,35 +64,35 @@ public class ChannelController {
     })
     public ResponseEntity<Void> deleteChannel(
             @Parameter(description = "Channel ID") @PathVariable String channelId) {
-        
+
         logger.info("Deleting channel with ID: {}", channelId);
-        
+
         if (channelId == null || channelId.trim().isEmpty()) {
             logger.warn("Invalid channel ID provided: {}", channelId);
             return ResponseEntity.badRequest().build();
         }
-        
+
         try {
             Optional<Channel> existingChannel = channelService.findByChannelId(channelId);
-            
+
             if (existingChannel.isEmpty()) {
                 logger.warn("Channel not found with ID: {}", channelId);
                 return ResponseEntity.notFound().build();
             }
-            
+
             channelService.deleteById(channelId);
             logger.info("Successfully deleted channel with ID: {}", channelId);
             return ResponseEntity.noContent().build();
-            
+
         } catch (Exception e) {
             logger.error("Failed to delete channel {}: {}", channelId, e.getMessage());
             return ResponseEntity.internalServerError().build();
         }
     }
-    
+
     /**
      * Converts Channel entity to ChannelResponseDTO
-     * 
+     *
      * @param channel The channel entity
      * @return ChannelResponseDTO
      */

@@ -4,18 +4,38 @@ services:
   ai-routing-service:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.prebuilt
+    image: docker.x51.vn/lucy/lucid-ai-routing-service:1.1.5
+    container_name: ai-routing-service
     ports:
       - "8083:8083"
     environment:
       - SPRING_PROFILES_ACTIVE=docker
+      - SERVER_PORT=8083
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-service:8761/eureka/
+      # Redis configuration
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      # Kafka configuration (Local development)
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - SPRING_KAFKA_SECURITY_PROTOCOL=PLAINTEXT
       - SPRING_KAFKA_CONSUMER_GROUP_ID=ai-routing-service-group
       - KAFKA_TOPIC_INGESTION_MESSAGES=lucid-ingestion-messages
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-service:8761/eureka/
+      - KAFKA_TOPIC_AI_TASKS=lucid-ai-tasks
+      - KAFKA_TOPIC_AI_RESPONSES=ai-responses
+      - KAFKA_TOPIC_INGESTION_PROGRESS=ingestion-progress
+      # AI Provider configuration
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-your-api-key-here}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-your-api-key-here}
+      # Swagger/OpenAPI
+      - SWAGGER_ENABLED=true
+      # OpenTelemetry configuration
+      - OTEL_SERVICE_NAME=ai-routing-service
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_TRACES_EXPORTER=otlp
     depends_on:
       - redis
       - kafka

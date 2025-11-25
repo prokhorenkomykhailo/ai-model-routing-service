@@ -21,6 +21,7 @@ import java.util.Map;
 public class MessageResponseDTO {
     
     private String id;
+    private String source;
     private String tenantId;
     private String workspaceId;
     private String channelId;
@@ -33,6 +34,8 @@ public class MessageResponseDTO {
     private String text;
     private String messageType;
     private String subtype;
+    private String permaLink;
     private Map<String, Object> metadata;
     private Long ingestedAt;
+    private Boolean isProcessed; // Indicates whether this message has been processed by sliding window
 }

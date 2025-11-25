@@ -18,6 +18,17 @@ ai:
       timeout: 30000
       enabled: true
 
+# Pipeline configuration for development (enable detailed logging)
+lucid:
+  post-processing:
+    pipeline:
+      enabled: true
+      type: COMPREHENSIVE  # Use comprehensive pipeline for dev
+      continueOnFailure: true  # Continue on failure for debugging
+      maxExecutionTimeMs: 45000  # Longer timeout for debugging
+      detailedLogging: true  # Enable detailed logging in dev
+      metricsEnabled: true
+
 # Swagger enabled for dev
 springdoc:
   api-docs:
