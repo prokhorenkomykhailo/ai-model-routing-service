@@ -5,6 +5,7 @@ import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.message.AIMessage;
 import com.lucid.automation.airouting.exception.TokenQuotaExhaustedException;
 import com.google.genai.Client;
+import com.google.genai.types.GenerateContentConfig;
 import com.google.genai.types.CountTokensResponse;
 import com.google.genai.types.GenerateContentResponse;
 
@@ -28,7 +29,7 @@ public class GeminiProvider extends AIProvider {
     private String apiEndpoint;
 
     // @Value("${ai.providers.gemini.model:gemini-2.0-flash}")
-    @Value("${ai.providers.gemini.model:gemini-2.5-flash}")
+    @Value("${ai.providers.gemini.model:gemini-2.0-flash-001}")
     private String model;
 
     @Value("${app.tenant.default-id:default}")
@@ -51,7 +52,9 @@ public class GeminiProvider extends AIProvider {
             // Check if GOOGLE_API_KEY environment variable is set before initializing client
             String googleApiKey = System.getenv("GOOGLE_API_KEY");
             if (googleApiKey != null && !googleApiKey.trim().isEmpty()) {
-                tempClient = new Client();
+                tempClient = Client.builder()
+                    .apiKey(googleApiKey.trim())
+                    .build();
                 clientAvailable = true;
                 logger.info("✅ Gemini client initialized successfully");
             } else {
@@ -212,8 +215,15 @@ public class GeminiProvider extends AIProvider {
             CountTokensResponse inputTokenInfo = geminiClient.models.countTokens(model, prompt, null);
             int inputTokens = inputTokenInfo.totalTokens().orElse(0);
 
+            GenerateContentConfig generationConfig = GenerateContentConfig.builder()
+                .temperature(0.0f)
+                .topK(1f)
+                .topP(0.9f)
+                .maxOutputTokens(2048)
+                .build();
+
             // Generate response
-            GenerateContentResponse response = geminiClient.models.generateContent(model, prompt, null);
+            GenerateContentResponse response = geminiClient.models.generateContent(model, prompt, generationConfig);
             String outputText = response.text();
 
             // Count output tokens

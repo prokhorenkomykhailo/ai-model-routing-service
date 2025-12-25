@@ -12,6 +12,13 @@ spring:
       enabled: false
   application:
     name: ai-routing-service
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    security:
+      protocol: ${SPRING_KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+    properties:
+      "[sasl.mechanism]": ${SPRING_KAFKA_SASL_MECHANISM:}
+      "[sasl.jaas.config]": ${SPRING_KAFKA_SASL_JAAS_CONFIG:}
 
   # Redis Configuration for local development
   data:
@@ -85,3 +92,19 @@ sliding:
       tokens:
         per:
           message: 50
+
+# Disable anonymization service locally (no 8089 dependency for prompt runs)
+anonymization:
+  service:
+    enabled: ${ANONYMIZATION_SERVICE_ENABLED:false}
+
+# Optional CSV runner for Step 1 testing (disabled by default; set enabled=true to run once on startup)
+topic:
+  clustering:
+    runner:
+      enabled: ${TOPIC_CLUSTERING_RUNNER_ENABLED:false}
+      csv-path: ${TOPIC_CLUSTERING_RUNNER_CSV_PATH:}
+      tenant-id: ${TOPIC_CLUSTERING_RUNNER_TENANT_ID:}
+      workspace-id: ${TOPIC_CLUSTERING_RUNNER_WORKSPACE_ID:}
+      workspace-name: ${TOPIC_CLUSTERING_RUNNER_WORKSPACE_NAME:}
+      batch-number: ${TOPIC_CLUSTERING_RUNNER_BATCH_NUMBER:1}
