@@ -32,6 +32,12 @@ public class GeminiProvider extends AIProvider {
     @Value("${ai.providers.gemini.model:gemini-2.0-flash-001}")
     private String model;
 
+    @Value("${ai.providers.gemini.max-output-tokens:2048}")
+    private int defaultMaxOutputTokens;
+
+    @Value("${ai.providers.gemini.max-output-tokens.text-query:8192}")
+    private int textQueryMaxOutputTokens;
+
     @Value("${app.tenant.default-id:default}")
     private String defaultTenantId;
 
@@ -215,11 +221,16 @@ public class GeminiProvider extends AIProvider {
             CountTokensResponse inputTokenInfo = geminiClient.models.countTokens(model, prompt, null);
             int inputTokens = inputTokenInfo.totalTokens().orElse(0);
 
+            int maxOutputTokens = defaultMaxOutputTokens;
+            if ("text-query".equalsIgnoreCase(operation)) {
+                maxOutputTokens = textQueryMaxOutputTokens;
+            }
+
             GenerateContentConfig generationConfig = GenerateContentConfig.builder()
                 .temperature(0.0f)
                 .topK(1f)
                 .topP(0.9f)
-                .maxOutputTokens(2048)
+                .maxOutputTokens(maxOutputTokens)
                 .build();
 
             // Generate response

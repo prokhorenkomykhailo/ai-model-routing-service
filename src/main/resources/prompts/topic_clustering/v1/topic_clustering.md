@@ -24,9 +24,13 @@ Given a set of Slack messages, your task is to:
 - Group related messages together based on meaningful relationships.
 - Each message should belong to exactly one cluster.
 - Consider both explicit relationships (threads) and implicit ones (same topic).
-- Merge related threads and topics into cohesive clusters.
+- Prefer finer-grained clusters over mega-clusters.
+- Do NOT merge different threads unless the topic is clearly the same (same project + same goal + same participants).
+- Do NOT merge different projects (EcoBloom/FitFusion/TechNova/GreenScape/UrbanEdge) into one cluster.
 - Provide clear, descriptive titles for each cluster.
 - Pay attention to project names (EcoBloom, FitFusion, TechNova, GreenScape, UrbanEdge).
 - Consider temporal relationships and deadlines mentioned.
-- Focus on creating logical, meaningful groupings rather than arbitrary cluster counts.
+- Target: for ~200 messages, produce ~12–25 clusters when appropriate (avoid returning only a few clusters).
+- Avoid clusters larger than ~40 messages; if a topic is too broad, split it into smaller clusters.
+- `message_ids` MUST be integers (not strings).
 - Respond with JSON ONLY, no prose, no explanations, no markdown. If you cannot cluster, return an empty clusters array in JSON.

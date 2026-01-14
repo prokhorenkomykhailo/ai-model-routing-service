@@ -108,3 +108,11 @@ topic:
       workspace-id: ${TOPIC_CLUSTERING_RUNNER_WORKSPACE_ID:}
       workspace-name: ${TOPIC_CLUSTERING_RUNNER_WORKSPACE_NAME:}
       batch-number: ${TOPIC_CLUSTERING_RUNNER_BATCH_NUMBER:1}
+  merge-split:
+    draft-topic: ${TOPIC_MERGE_SPLIT_DRAFT_TOPIC:ai-topic-drafts}
+    refined-topic: ${TOPIC_MERGE_SPLIT_REFINED_TOPIC:ai-topic-refined}
+    dlq-topic: ${TOPIC_MERGE_SPLIT_DLQ_TOPIC:ai-topic-drafts-dlq}
+    similarity-threshold: ${TOPIC_MERGE_SPLIT_SIMILARITY_THRESHOLD:0.85}
+    split-enabled: ${TOPIC_MERGE_SPLIT_SPLIT_ENABLED:true}
+    max-messages-per-cluster: ${TOPIC_MERGE_SPLIT_MAX_MESSAGES_PER_CLUSTER:40}
+    split-chunk-size: ${TOPIC_MERGE_SPLIT_SPLIT_CHUNK_SIZE:25}
