@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.PostConstruct;
 import java.util.*;
 
 @Component("geminiProvider")
@@ -44,34 +45,50 @@ public class GeminiProvider extends AIProvider {
     @Value("${app.tenant.default-schema:public}")
     private String defaultTenantSchema;
 
-    private final Client geminiClient;
+    private Client geminiClient;
     private double lastConfidence = 0.0;
-    private final boolean isClientAvailable;
+    private volatile boolean isClientAvailable;
 
-    public GeminiProvider() {
-
-        // Try to initialize the client, but handle gracefully if API key is not available
+    @PostConstruct
+    public void init() {
         Client tempClient = null;
         boolean clientAvailable = false;
 
+        String resolvedKey = resolveApiKey();
+        if (resolvedKey == null || resolvedKey.trim().isEmpty()) {
+            logger.warn("⚠️ Gemini API key not set (ai.providers.gemini.api-key/GEMINI_API_KEY/GOOGLE_API_KEY), provider unavailable");
+            this.geminiClient = null;
+            this.isClientAvailable = false;
+            return;
+        }
+
         try {
-            // Check if GOOGLE_API_KEY environment variable is set before initializing client
-            String googleApiKey = System.getenv("GOOGLE_API_KEY");
-            if (googleApiKey != null && !googleApiKey.trim().isEmpty()) {
-                tempClient = Client.builder()
-                    .apiKey(googleApiKey.trim())
-                    .build();
-                clientAvailable = true;
-                logger.info("✅ Gemini client initialized successfully");
-            } else {
-                logger.warn("⚠️ GOOGLE_API_KEY not set, Gemini provider will be unavailable");
-            }
+            tempClient = Client.builder()
+                .apiKey(resolvedKey.trim())
+                .build();
+            clientAvailable = true;
+            logger.info("✅ Gemini client initialized successfully");
         } catch (Exception e) {
             logger.warn("⚠️ Failed to initialize Gemini client: {}", e.getMessage());
         }
 
         this.geminiClient = tempClient;
         this.isClientAvailable = clientAvailable;
+    }
+
+    private String resolveApiKey() {
+        if (apiKey != null && !apiKey.trim().isEmpty()) {
+            return apiKey;
+        }
+        String envGemini = System.getenv("GEMINI_API_KEY");
+        if (envGemini != null && !envGemini.trim().isEmpty()) {
+            return envGemini;
+        }
+        String envGoogle = System.getenv("GOOGLE_API_KEY");
+        if (envGoogle != null && !envGoogle.trim().isEmpty()) {
+            return envGoogle;
+        }
+        return null;
     }
 
     @Override

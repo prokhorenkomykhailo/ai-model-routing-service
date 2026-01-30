@@ -116,3 +116,17 @@ topic:
     split-enabled: ${TOPIC_MERGE_SPLIT_SPLIT_ENABLED:true}
     max-messages-per-cluster: ${TOPIC_MERGE_SPLIT_MAX_MESSAGES_PER_CLUSTER:40}
     split-chunk-size: ${TOPIC_MERGE_SPLIT_SPLIT_CHUNK_SIZE:25}
+  metadata:
+    refined-topic: ${TOPIC_METADATA_REFINED_TOPIC:ai-topic-refined}
+    metadata-topic: ${TOPIC_METADATA_METADATA_TOPIC:ai-topic-metadata}
+    dlq-topic: ${TOPIC_METADATA_DLQ_TOPIC:ai-topic-metadata-dlq}
+    tenant-id: ${TOPIC_METADATA_TENANT_ID:}
+    prompt-name: ${TOPIC_METADATA_PROMPT_NAME:topic_metadata/v1/topic_metadata}
+    prompt-version: ${TOPIC_METADATA_PROMPT_VERSION:v1}
+    max-messages: ${TOPIC_METADATA_MAX_MESSAGES:60}
+    max-message-characters: ${TOPIC_METADATA_MAX_MESSAGE_CHARACTERS:600}
+    max-prompt-characters: ${TOPIC_METADATA_MAX_PROMPT_CHARACTERS:180000}
+    csv-fallback-enabled: ${TOPIC_METADATA_CSV_FALLBACK_ENABLED:false}
+    csv-path: ${TOPIC_METADATA_CSV_PATH:}
+    repair-empty-action-items-enabled: ${TOPIC_METADATA_REPAIR_EMPTY_ACTION_ITEMS_ENABLED:true}
+    repair-empty-action-items-max-attempts: ${TOPIC_METADATA_REPAIR_EMPTY_ACTION_ITEMS_MAX_ATTEMPTS:1}

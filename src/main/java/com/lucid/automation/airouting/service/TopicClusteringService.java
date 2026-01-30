@@ -104,7 +104,12 @@ public class TopicClusteringService {
         event.setProviderId(providerId);
         event.setPromptVersion(properties.getPromptVersion());
         event.setCreatedAt(Instant.now());
-        event.setMetadata(Optional.ofNullable(metadata).orElseGet(HashMap::new));
+        Map<String, Object> eventMetadata = new HashMap<>(Optional.ofNullable(metadata).orElseGet(HashMap::new));
+        if (workspace.getTenantId() != null) {
+            eventMetadata.putIfAbsent("tenantId", workspace.getTenantId());
+        }
+        eventMetadata.putIfAbsent("workspaceId", workspace.getId());
+        event.setMetadata(eventMetadata);
 
         try {
             JsonNode root = tryParseJson(response);
@@ -232,13 +237,32 @@ public class TopicClusteringService {
     }
 
     private List<String> asTextList(JsonNode node) {
-        if (node == null || !node.isArray()) {
+        if (node == null) {
             return List.of();
         }
-        List<String> values = node.findValuesAsText("");
-        return values.stream()
-            .filter(StringUtils::hasText)
-            .toList();
+        if (!node.isArray()) {
+            if (node.isTextual() && StringUtils.hasText(node.asText())) {
+                return List.of(node.asText().trim());
+            }
+            return List.of();
+        }
+        List<String> values = new java.util.ArrayList<>();
+        for (JsonNode child : node) {
+            if (child == null || child.isNull()) {
+                continue;
+            }
+            if (child.isTextual() && StringUtils.hasText(child.asText())) {
+                values.add(child.asText().trim());
+            } else if (child.isNumber()) {
+                values.add(child.asText());
+            } else if (child.isObject()) {
+                JsonNode name = child.get("name");
+                if (name != null && name.isTextual() && StringUtils.hasText(name.asText())) {
+                    values.add(name.asText().trim());
+                }
+            }
+        }
+        return values.stream().filter(StringUtils::hasText).distinct().toList();
     }
 
     private String text(JsonNode node, String... keys) {
