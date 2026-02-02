@@ -130,3 +130,17 @@ topic:
     csv-path: ${TOPIC_METADATA_CSV_PATH:}
     repair-empty-action-items-enabled: ${TOPIC_METADATA_REPAIR_EMPTY_ACTION_ITEMS_ENABLED:true}
     repair-empty-action-items-max-attempts: ${TOPIC_METADATA_REPAIR_EMPTY_ACTION_ITEMS_MAX_ATTEMPTS:1}
+  embedding:
+    metadata-topic: ${TOPIC_EMBEDDING_METADATA_TOPIC:ai-topic-metadata}
+    dlq-topic: ${TOPIC_EMBEDDING_DLQ_TOPIC:ai-topic-embeddings-dlq}
+    provider: ${TOPIC_EMBEDDING_PROVIDER:gemini}
+    gemini-model: ${TOPIC_EMBEDDING_GEMINI_MODEL:text-embedding-004}
+    dimension: ${TOPIC_EMBEDDING_DIMENSION:768}
+    pgvector:
+      jdbc-url: ${TOPIC_EMBEDDING_PGVECTOR_JDBC_URL:}
+      username: ${TOPIC_EMBEDDING_PGVECTOR_USERNAME:}
+      password: ${TOPIC_EMBEDDING_PGVECTOR_PASSWORD:}
+      schema: ${TOPIC_EMBEDDING_PGVECTOR_SCHEMA:public}
+      table: ${TOPIC_EMBEDDING_PGVECTOR_TABLE:topics_embeddings}
+      auto-ddl: ${TOPIC_EMBEDDING_PGVECTOR_AUTO_DDL:true}
+      search-top-k-default: ${TOPIC_EMBEDDING_PGVECTOR_SEARCH_TOP_K_DEFAULT:10}
