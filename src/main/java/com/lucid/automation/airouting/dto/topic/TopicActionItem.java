@@ -4,6 +4,8 @@ public class TopicActionItem {
 
     private String task;
     private String owner;
+    private String ownerUserId;
+    private String ownerEmail;
     private String dueDate;
     private String status;
     private String priority;
@@ -22,6 +24,22 @@ public class TopicActionItem {
 
     public void setOwner(String owner) {
         this.owner = owner;
+    }
+
+    public String getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(String ownerUserId) {
+        this.ownerUserId = ownerUserId;
+    }
+
+    public String getOwnerEmail() {
+        return ownerEmail;
+    }
+
+    public void setOwnerEmail(String ownerEmail) {
+        this.ownerEmail = ownerEmail;
     }
 
     public String getDueDate() {
@@ -48,4 +66,3 @@ public class TopicActionItem {
         this.priority = priority;
     }
 }
-

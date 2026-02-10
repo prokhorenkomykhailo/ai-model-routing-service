@@ -144,3 +144,12 @@ topic:
       table: ${TOPIC_EMBEDDING_PGVECTOR_TABLE:topics_embeddings}
       auto-ddl: ${TOPIC_EMBEDDING_PGVECTOR_AUTO_DDL:true}
       search-top-k-default: ${TOPIC_EMBEDDING_PGVECTOR_SEARCH_TOP_K_DEFAULT:10}
+  visibility:
+    metadata-topic: ${TOPIC_VISIBILITY_METADATA_TOPIC:ai-topic-metadata}
+    visibility-topic: ${TOPIC_VISIBILITY_VISIBILITY_TOPIC:topic-visibility}
+    dlq-topic: ${TOPIC_VISIBILITY_DLQ_TOPIC:topic-visibility-dlq}
+    consumer-group: ${TOPIC_VISIBILITY_CONSUMER_GROUP:ai-service-group-topic-visibility}
+    strict-channel-membership: ${TOPIC_VISIBILITY_STRICT_CHANNEL_MEMBERSHIP:false}
+    user-channels-json: ${TOPIC_VISIBILITY_USER_CHANNELS_JSON:}
+    ttl-seconds: ${TOPIC_VISIBILITY_TTL_SECONDS:3600}
+    max-topics-per-user: ${TOPIC_VISIBILITY_MAX_TOPICS_PER_USER:5000}

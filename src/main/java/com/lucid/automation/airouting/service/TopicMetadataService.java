@@ -269,6 +269,8 @@ JSON:
             return;
         }
 
+        enrichActionItemOwnerIdentities(topic, messages);
+
         if (topic.getParticipants() == null || topic.getParticipants().isEmpty()) {
             LinkedHashSet<String> participants = new LinkedHashSet<>();
 
@@ -319,6 +321,84 @@ JSON:
             }
         }
     }
+
+    private void enrichActionItemOwnerIdentities(TopicMetadata topic, List<Message> messages) {
+        if (topic == null || topic.getActionItems() == null || topic.getActionItems().isEmpty()) {
+            return;
+        }
+        if (messages == null || messages.isEmpty()) {
+            return;
+        }
+
+        Map<String, OwnerIdentity> identityByKey = new HashMap<>();
+        for (Message m : messages) {
+            if (m == null) continue;
+            String display = firstNonBlank(m.getDisplayName(), m.getUsername(), m.getName());
+            String userId = firstNonBlank(m.getSlackUserId(), m.getUniqueUserId(), m.getUserId());
+            String email = m.getEmail();
+            if (!StringUtils.hasText(display) && !StringUtils.hasText(userId) && !StringUtils.hasText(email)) {
+                continue;
+            }
+            OwnerIdentity id = new OwnerIdentity(display, userId, email);
+            if (StringUtils.hasText(display)) {
+                identityByKey.putIfAbsent(normalizeIdentityKey(display), id);
+            }
+            if (StringUtils.hasText(m.getUsername())) {
+                identityByKey.putIfAbsent(normalizeIdentityKey(m.getUsername()), id);
+            }
+            if (StringUtils.hasText(email)) {
+                identityByKey.putIfAbsent(normalizeIdentityKey(email), id);
+            }
+            if (StringUtils.hasText(userId)) {
+                identityByKey.putIfAbsent(normalizeIdentityKey(userId), id);
+            }
+        }
+
+        for (TopicActionItem ai : topic.getActionItems()) {
+            if (ai == null) continue;
+            if (StringUtils.hasText(ai.getOwnerUserId()) || StringUtils.hasText(ai.getOwnerEmail())) {
+                continue;
+            }
+            String owner = ai.getOwner();
+            if (!StringUtils.hasText(owner)) {
+                continue;
+            }
+            OwnerIdentity resolved = identityByKey.get(normalizeIdentityKey(owner));
+            if (resolved == null) {
+                continue;
+            }
+            if (StringUtils.hasText(resolved.userId)) {
+                ai.setOwnerUserId(resolved.userId);
+            }
+            if (StringUtils.hasText(resolved.email)) {
+                ai.setOwnerEmail(resolved.email);
+            }
+            if (!StringUtils.hasText(ai.getOwner()) && StringUtils.hasText(resolved.displayName)) {
+                ai.setOwner(resolved.displayName);
+            }
+        }
+    }
+
+    private String normalizeIdentityKey(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return "";
+        }
+        String s = raw.trim();
+        if (s.startsWith("@")) {
+            s = s.substring(1).trim();
+        }
+        return s.toLowerCase();
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) return null;
+        for (String v : values) {
+            if (StringUtils.hasText(v)) return v;
+        }
+        return null;
+    }
+
+    private record OwnerIdentity(String displayName, String userId, String email) {}
 
     private List<String> deriveTags(TopicMetadata topic, TopicClusterRefined cluster) {
         LinkedHashSet<String> tags = new LinkedHashSet<>();
@@ -406,6 +486,9 @@ JSON:
         m.setChannelId(row.channel);
         m.setDisplayName(row.userName);
         m.setUsername(row.userName);
+        m.setUserId(row.userId);
+        m.setSlackUserId(row.userId);
+        m.setUniqueUserId(row.userId);
         m.setText(row.text);
         m.setThreadTs(row.threadId);
         m.setMessageTs(row.timestamp);
@@ -445,6 +528,7 @@ JSON:
                 CsvRow row = new CsvRow(
                     stripQuotes(cols[0]),
                     stripQuotes(cols[1]),
+                    stripQuotes(cols[2]),
                     stripQuotes(cols[3]),
                     stripQuotes(cols[4]),
                     cols.length > 5 ? nullIfNone(stripQuotes(cols[5])) : null
@@ -501,7 +585,16 @@ JSON:
                 if (!item.isObject()) continue;
                 TopicActionItem ai = new TopicActionItem();
                 ai.setTask(text(item, "task"));
-                ai.setOwner(text(item, "owner"));
+                JsonNode ownerNode = item.get("owner");
+                if (ownerNode != null && ownerNode.isObject()) {
+                    ai.setOwner(text(ownerNode, "display_name", "displayName", "name", "owner"));
+                    ai.setOwnerUserId(text(ownerNode, "user_id", "userId", "slack_user_id", "slackUserId"));
+                    ai.setOwnerEmail(text(ownerNode, "email"));
+                } else {
+                    ai.setOwner(text(item, "owner"));
+                    ai.setOwnerUserId(text(item, "owner_user_id", "ownerUserId", "slack_user_id", "slackUserId"));
+                    ai.setOwnerEmail(text(item, "owner_email", "ownerEmail", "email"));
+                }
                 ai.setDueDate(text(item, "due_date", "dueDate"));
                 ai.setStatus(text(item, "status"));
                 ai.setPriority(text(item, "priority"));
@@ -645,5 +738,5 @@ JSON:
         return null;
     }
 
-    private record CsvRow(String channel, String userName, String timestamp, String text, String threadId) {}
+    private record CsvRow(String channel, String userName, String userId, String timestamp, String text, String threadId) {}
 }

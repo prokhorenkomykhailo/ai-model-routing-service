@@ -56,11 +56,15 @@ public class TopicMetadataPromptBuilder {
                 String text = truncate(m.getText(), properties.getMaxMessageCharacters());
                 String user = StringUtils.hasText(m.getDisplayName()) ? m.getDisplayName()
                     : StringUtils.hasText(m.getUsername()) ? m.getUsername() : "";
+                String userId = StringUtils.hasText(m.getSlackUserId()) ? m.getSlackUserId()
+                    : StringUtils.hasText(m.getUniqueUserId()) ? m.getUniqueUserId()
+                    : StringUtils.hasText(m.getUserId()) ? m.getUserId() : "";
+                String userLabel = StringUtils.hasText(userId) ? (user + " (" + userId + ")") : user;
                 formatted.add(String.format(
                     "ID: %s | Channel: %s | User: %s | Thread: %s | Text: %s",
                     safe(m.getId()),
                     safe(m.getChannelName()),
-                    safe(user),
+                    safe(userLabel),
                     safe(m.getThreadTs()),
                     text
                 ));
@@ -89,4 +93,3 @@ public class TopicMetadataPromptBuilder {
         return value == null ? "" : value.trim();
     }
 }
-
