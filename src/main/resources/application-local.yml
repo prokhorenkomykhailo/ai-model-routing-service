@@ -153,3 +153,12 @@ topic:
     user-channels-json: ${TOPIC_VISIBILITY_USER_CHANNELS_JSON:}
     ttl-seconds: ${TOPIC_VISIBILITY_TTL_SECONDS:3600}
     max-topics-per-user: ${TOPIC_VISIBILITY_MAX_TOPICS_PER_USER:5000}
+  update:
+    enabled: ${TOPIC_UPDATE_ENABLED:false}
+    search-top-k: ${TOPIC_UPDATE_SEARCH_TOP_K:5}
+    similarity-threshold: ${TOPIC_UPDATE_SIMILARITY_THRESHOLD:0.85}
+    require-same-channel: ${TOPIC_UPDATE_REQUIRE_SAME_CHANNEL:true}
+    belongs-check-enabled: ${TOPIC_UPDATE_BELONGS_CHECK_ENABLED:true}
+    belongs-check-model-hint: ${TOPIC_UPDATE_BELONGS_CHECK_MODEL_HINT:}
+    update-prompt-name: ${TOPIC_UPDATE_PROMPT_NAME:topic_update/v1/topic_update}
+    prompt-version: ${TOPIC_UPDATE_PROMPT_VERSION:v1}

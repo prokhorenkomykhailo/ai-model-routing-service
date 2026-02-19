@@ -104,20 +104,24 @@ public class MessageService {
     }
 
     private String buildMessageId(IngestionEventDTO dto, String threadTs, String messageTs) {
+        String tenantId = dto.getTenantId() != null ? dto.getTenantId() : "";
+        String workspaceId = dto.getMessage() != null ? dto.getMessage().getBestWorkspaceId() : "";
+        String channelId = getChannelId(dto);
         return String.join(":",
-            dto.getTenantId(),
-            getTeamId(dto),
-            getChannelId(dto),
+            tenantId,
+            workspaceId != null ? workspaceId : "",
+            channelId,
             threadTs != null ? threadTs : "",
             messageTs != null ? messageTs : "");
     }
 
     private String getTeamId(IngestionEventDTO dto) {
-        return dto.getMessage() != null ? dto.getMessage().getTeamId() : "";
+        // Legacy name: this is effectively the best available workspace identifier.
+        return dto.getMessage() != null ? dto.getMessage().getBestWorkspaceId() : "";
     }
 
     private String getChannelId(IngestionEventDTO dto) {
-        return dto.getMessage() != null ? dto.getMessage().getChannelId() : "";
+        return dto.getMessage() != null && dto.getMessage().getChannelId() != null ? dto.getMessage().getChannelId() : "";
     }
 
     public Optional<Message> findById(String id) {
