@@ -116,7 +116,16 @@ public class ConversationEnrichmentStep implements PipelineStep {
         String suggestedAction = extractStringValue(topicMap, "suggestedAction", DEFAULT_ACTION);
         String category = extractStringValue(topicMap, "category", DEFAULT_CATEGORY);
         String subCategory = extractStringValue(topicMap, "subCategory", null);
-        String clientOrSupplier = extractStringValue(topicMap, "clientOrSupplier", null);
+        String clientOrSupplier = extractStringValue(topicMap, "external_party", null);
+        if (clientOrSupplier == null) {
+            clientOrSupplier = extractStringValue(topicMap, "externalParty", null);
+        }
+        if (clientOrSupplier == null) {
+            clientOrSupplier = extractStringValue(topicMap, "client_or_supplier", null);
+        }
+        if (clientOrSupplier == null) {
+            clientOrSupplier = extractStringValue(topicMap, "clientOrSupplier", null);
+        }
         String urgencyStr = extractStringValue(topicMap, "urgency", "low");
         String periodStartDate = extractStringValue(topicMap, "periodStartDate", null);
         String periodEndDate = extractStringValue(topicMap, "periodEndDate", null);
