@@ -13,8 +13,8 @@ public class TopicMetadataProperties {
 
     private String tenantId = "";
 
-    private String promptName = "topic_metadata/v1/topic_metadata";
-    private String promptVersion = "v1";
+    private String promptName = "topic_metadata/v2/topic_metadata";
+    private String promptVersion = "v2";
 
     private int maxMessages = 60;
     private int maxMessageCharacters = 600;

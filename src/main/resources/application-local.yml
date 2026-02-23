@@ -121,8 +121,8 @@ topic:
     metadata-topic: ${TOPIC_METADATA_METADATA_TOPIC:ai-topic-metadata}
     dlq-topic: ${TOPIC_METADATA_DLQ_TOPIC:ai-topic-metadata-dlq}
     tenant-id: ${TOPIC_METADATA_TENANT_ID:}
-    prompt-name: ${TOPIC_METADATA_PROMPT_NAME:topic_metadata/v1/topic_metadata}
-    prompt-version: ${TOPIC_METADATA_PROMPT_VERSION:v1}
+    prompt-name: ${TOPIC_METADATA_PROMPT_NAME:topic_metadata/v2/topic_metadata}
+    prompt-version: ${TOPIC_METADATA_PROMPT_VERSION:v2}
     max-messages: ${TOPIC_METADATA_MAX_MESSAGES:60}
     max-message-characters: ${TOPIC_METADATA_MAX_MESSAGE_CHARACTERS:600}
     max-prompt-characters: ${TOPIC_METADATA_MAX_PROMPT_CHARACTERS:180000}

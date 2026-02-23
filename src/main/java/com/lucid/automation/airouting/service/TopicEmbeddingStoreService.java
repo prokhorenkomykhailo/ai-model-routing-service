@@ -352,6 +352,7 @@ public class TopicEmbeddingStoreService {
             safe(topic.getChannel()),
             safe(topic.getTitle()),
             safe(topic.getSummary()),
+            safe(topic.getSuggestedAction()),
             "tags: " + join(topic.getTags())
         ).trim();
     }
@@ -361,6 +362,13 @@ public class TopicEmbeddingStoreService {
         m.put("title", topic.getTitle());
         m.put("summary", topic.getSummary());
         m.put("externalParty", topic.getExternalParty());
+        m.put("priority", topic.getPriority());
+        m.put("reason", topic.getReason());
+        m.put("suggestedAction", topic.getSuggestedAction());
+        m.put("situation", topic.getSituation());
+        m.put("impact", topic.getImpact());
+        m.put("proposedSolution", topic.getProposedSolution());
+        m.put("decisionNeeded", topic.getDecisionNeeded());
         m.put("participants", topic.getParticipants());
         m.put("actionItems", topic.getActionItems());
         m.put("tags", topic.getTags());

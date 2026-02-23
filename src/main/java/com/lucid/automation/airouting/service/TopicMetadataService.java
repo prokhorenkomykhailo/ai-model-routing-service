@@ -159,7 +159,7 @@ public class TopicMetadataService {
         if (topic == null) {
             return null;
         }
-        if (topic.getActionItems() != null && !topic.getActionItems().isEmpty()) {
+        if (isUxComplete(topic)) {
             return topic;
         }
 
@@ -178,7 +178,7 @@ public class TopicMetadataService {
                     TopicMetadata repaired = parseMetadata(repairedResponse);
                     if (repaired != null) {
                         applyFallbacks(repaired, cluster, List.of());
-                        if (repaired.getActionItems() != null && !repaired.getActionItems().isEmpty()) {
+                        if (isUxComplete(repaired)) {
                             return repaired;
                         }
                     }
@@ -188,11 +188,75 @@ public class TopicMetadataService {
             }
         }
 
-        TopicActionItem derived = deriveActionItem(topic);
-        if (derived != null) {
-            topic.setActionItems(List.of(derived));
+        if (topic.getActionItems() == null || topic.getActionItems().isEmpty()) {
+            TopicActionItem derived = deriveActionItem(topic);
+            if (derived != null) {
+                topic.setActionItems(List.of(derived));
+            }
         }
+        applyUxFallbacks(topic);
         return topic;
+    }
+
+    private boolean isUxComplete(TopicMetadata topic) {
+        if (topic == null) {
+            return false;
+        }
+        boolean hasActionItems = topic.getActionItems() != null && !topic.getActionItems().isEmpty();
+        boolean hasSuggestedAction = StringUtils.hasText(topic.getSuggestedAction());
+        boolean hasReason = StringUtils.hasText(topic.getReason());
+        boolean hasSections = StringUtils.hasText(topic.getSituation())
+            && StringUtils.hasText(topic.getImpact())
+            && StringUtils.hasText(topic.getProposedSolution())
+            && StringUtils.hasText(topic.getDecisionNeeded());
+        boolean hasParticipants = topic.getParticipants() != null && !topic.getParticipants().isEmpty();
+        boolean hasTags = topic.getTags() != null && !topic.getTags().isEmpty();
+        return hasActionItems && hasSuggestedAction && hasReason && hasSections && hasParticipants && hasTags;
+    }
+
+    private void applyUxFallbacks(TopicMetadata topic) {
+        if (topic == null) {
+            return;
+        }
+
+        if (!StringUtils.hasText(topic.getSuggestedAction())) {
+            String fromAction = null;
+            if (topic.getActionItems() != null && !topic.getActionItems().isEmpty()) {
+                TopicActionItem first = topic.getActionItems().get(0);
+                fromAction = first != null ? first.getTask() : null;
+            }
+            if (!StringUtils.hasText(fromAction)) {
+                fromAction = deriveTaskText(topic);
+            }
+            topic.setSuggestedAction(fromAction);
+        }
+
+        if (!StringUtils.hasText(topic.getReason())) {
+            String reason = firstNonBlank(topic.getImpact(), topic.getDecisionNeeded(), topic.getSummary());
+            if (StringUtils.hasText(reason)) {
+                reason = reason.trim();
+                int cut = reason.indexOf('.');
+                reason = cut > 0 ? reason.substring(0, cut + 1).trim() : reason;
+                topic.setReason(trimToMax(reason, 220));
+            }
+        }
+
+        if (!StringUtils.hasText(topic.getSituation())) {
+            topic.setSituation(firstNonBlank(topic.getSummary(), topic.getTitle()));
+        }
+        if (!StringUtils.hasText(topic.getImpact())) {
+            topic.setImpact(firstNonBlank(topic.getReason(), topic.getSummary()));
+        }
+        if (!StringUtils.hasText(topic.getProposedSolution())) {
+            topic.setProposedSolution(firstNonBlank(topic.getSuggestedAction(), topic.getSummary()));
+        }
+        if (!StringUtils.hasText(topic.getDecisionNeeded())) {
+            topic.setDecisionNeeded(firstNonBlank(topic.getSuggestedAction(), topic.getProposedSolution()));
+        }
+
+        if (!StringUtils.hasText(topic.getPriority())) {
+            topic.setPriority(StringUtils.hasText(topic.getUrgency()) ? topic.getUrgency().trim() : "medium");
+        }
     }
 
     private String buildRepairPrompt(TopicMetadata topic) {
@@ -200,6 +264,14 @@ public class TopicMetadataService {
         canonical.put("title", topic.getTitle());
         canonical.put("summary", topic.getSummary());
         canonical.put("external_party", topic.getExternalParty());
+        canonical.put("priority", topic.getPriority());
+        canonical.put("due_date", topic.getDeadline());
+        canonical.put("reason", topic.getReason());
+        canonical.put("suggested_action", topic.getSuggestedAction());
+        canonical.put("situation", topic.getSituation());
+        canonical.put("impact", topic.getImpact());
+        canonical.put("proposed_solution", topic.getProposedSolution());
+        canonical.put("decision_needed", topic.getDecisionNeeded());
         canonical.put("participants", topic.getParticipants() != null ? topic.getParticipants() : List.of());
         canonical.put("action_items", List.of());
         canonical.put("urgency", topic.getUrgency());
@@ -220,6 +292,9 @@ You are fixing a JSON response. Return STRICT JSON ONLY (no markdown, no extra t
 
 Given the JSON below, rewrite it using the same schema but ensure:
 - action_items is a non-empty list (at least 1 item)
+- suggested_action is a non-empty string
+- reason is a non-empty string
+- situation, impact, proposed_solution, decision_needed are non-empty strings (infer if missing)
 - owner should be one of participants if possible; otherwise null
 - due_date should be deadline if it exists; otherwise null
 - keep other fields consistent with title/summary/channel
@@ -249,6 +324,15 @@ JSON:
         if (topic == null) {
             return null;
         }
+        if (StringUtils.hasText(topic.getSuggestedAction())) {
+            return trimToMax(topic.getSuggestedAction().trim(), 220);
+        }
+        if (StringUtils.hasText(topic.getDecisionNeeded())) {
+            return trimToMax(topic.getDecisionNeeded().trim(), 220);
+        }
+        if (StringUtils.hasText(topic.getProposedSolution())) {
+            return trimToMax(topic.getProposedSolution().trim(), 220);
+        }
         if (StringUtils.hasText(topic.getSummary())) {
             String summary = topic.getSummary().trim();
             int cut = summary.indexOf('.');
@@ -264,12 +348,35 @@ JSON:
         return null;
     }
 
+    private String trimToMax(String value, int max) {
+        if (!StringUtils.hasText(value)) {
+            return value;
+        }
+        if (value.length() <= max) {
+            return value;
+        }
+        return value.substring(0, max).trim();
+    }
+
     private void applyFallbacks(TopicMetadata topic, TopicClusterRefined cluster, List<Message> messages) {
         if (topic == null) {
             return;
         }
 
         enrichActionItemOwnerIdentities(topic, messages);
+
+        if (!StringUtils.hasText(topic.getPriority())) {
+            if (StringUtils.hasText(topic.getUrgency())) {
+                topic.setPriority(topic.getUrgency().trim());
+            }
+        }
+
+        if (!StringUtils.hasText(topic.getSummary())) {
+            String stitched = stitchSummary(topic);
+            if (StringUtils.hasText(stitched)) {
+                topic.setSummary(stitched);
+            }
+        }
 
         if (topic.getParticipants() == null || topic.getParticipants().isEmpty()) {
             LinkedHashSet<String> participants = new LinkedHashSet<>();
@@ -320,6 +427,21 @@ JSON:
                 logger.debug("Step3 fallback tags applied: {}", topic.getTags());
             }
         }
+    }
+
+    private String stitchSummary(TopicMetadata topic) {
+        if (topic == null) {
+            return null;
+        }
+        List<String> parts = new ArrayList<>();
+        if (StringUtils.hasText(topic.getSituation())) parts.add(topic.getSituation().trim());
+        if (StringUtils.hasText(topic.getImpact())) parts.add(topic.getImpact().trim());
+        if (StringUtils.hasText(topic.getDecisionNeeded())) parts.add(topic.getDecisionNeeded().trim());
+        if (parts.isEmpty()) {
+            return null;
+        }
+        String joined = String.join(" ", parts);
+        return trimToMax(joined, 500);
     }
 
     private void enrichActionItemOwnerIdentities(TopicMetadata topic, List<Message> messages) {
@@ -568,9 +690,16 @@ JSON:
         metadata.setTitle(text(root, "title"));
         metadata.setSummary(text(root, "summary"));
         metadata.setExternalParty(text(root, "external_party", "externalParty", "external_party_name", "externalPartyName"));
+        metadata.setPriority(text(root, "priority", "priority_level", "priorityLevel"));
+        metadata.setReason(text(root, "reason", "due_reason", "dueReason"));
+        metadata.setSuggestedAction(text(root, "suggested_action", "suggestedAction", "suggested_action_text", "suggestedActionText"));
+        metadata.setSituation(text(root, "situation"));
+        metadata.setImpact(text(root, "impact"));
+        metadata.setProposedSolution(text(root, "proposed_solution", "proposedSolution"));
+        metadata.setDecisionNeeded(text(root, "decision_needed", "decisionNeeded"));
         metadata.setChannel(text(root, "channel"));
         metadata.setUrgency(text(root, "urgency"));
-        metadata.setDeadline(text(root, "deadline"));
+        metadata.setDeadline(text(root, "deadline", "due_date", "dueDate"));
         metadata.setStatus(text(root, "status"));
         metadata.setTags(asTextList(root.get("tags")));
         metadata.setParticipants(asTextList(root.get("participants")));

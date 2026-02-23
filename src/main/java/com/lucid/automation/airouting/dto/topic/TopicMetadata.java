@@ -8,6 +8,13 @@ public class TopicMetadata {
     private String title;
     private String summary;
     private String externalParty;
+    private String priority;
+    private String reason;
+    private String suggestedAction;
+    private String situation;
+    private String impact;
+    private String proposedSolution;
+    private String decisionNeeded;
     private List<String> participants = new ArrayList<>();
     private List<TopicActionItem> actionItems = new ArrayList<>();
     private String urgency;
@@ -38,6 +45,62 @@ public class TopicMetadata {
 
     public void setExternalParty(String externalParty) {
         this.externalParty = externalParty;
+    }
+
+    public String getPriority() {
+        return priority;
+    }
+
+    public void setPriority(String priority) {
+        this.priority = priority;
+    }
+
+    public String getReason() {
+        return reason;
+    }
+
+    public void setReason(String reason) {
+        this.reason = reason;
+    }
+
+    public String getSuggestedAction() {
+        return suggestedAction;
+    }
+
+    public void setSuggestedAction(String suggestedAction) {
+        this.suggestedAction = suggestedAction;
+    }
+
+    public String getSituation() {
+        return situation;
+    }
+
+    public void setSituation(String situation) {
+        this.situation = situation;
+    }
+
+    public String getImpact() {
+        return impact;
+    }
+
+    public void setImpact(String impact) {
+        this.impact = impact;
+    }
+
+    public String getProposedSolution() {
+        return proposedSolution;
+    }
+
+    public void setProposedSolution(String proposedSolution) {
+        this.proposedSolution = proposedSolution;
+    }
+
+    public String getDecisionNeeded() {
+        return decisionNeeded;
+    }
+
+    public void setDecisionNeeded(String decisionNeeded) {
+        this.decisionNeeded = decisionNeeded;
     }
 
     public List<String> getParticipants() {
@@ -96,4 +159,3 @@ public class TopicMetadata {
         this.tags = tags;
     }
 }
-
