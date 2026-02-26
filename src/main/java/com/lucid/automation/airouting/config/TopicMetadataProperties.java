@@ -13,8 +13,8 @@ public class TopicMetadataProperties {
 
     private String tenantId = "";
 
-    private String promptName = "topic_metadata/v2/topic_metadata";
-    private String promptVersion = "v2";
+    private String promptName = "topic_metadata/v3/topic_metadata";
+    private String promptVersion = "v3";
 
     private int maxMessages = 60;
     private int maxMessageCharacters = 600;
@@ -28,6 +28,12 @@ public class TopicMetadataProperties {
 
     private boolean csvFallbackEnabled = false;
     private String csvPath = "";
+
+    /**
+     * Optional provider hint (bean name/providerId) to force a provider for Step 3.
+     * Example: "geminiProvider", "openaiProvider", "huggingfaceProvider".
+     */
+    private String providerHint = "";
 
     public String getRefinedTopic() {
         return refinedTopic;
@@ -147,5 +153,13 @@ public class TopicMetadataProperties {
 
     public void setCsvPath(String csvPath) {
         this.csvPath = csvPath;
+    }
+
+    public String getProviderHint() {
+        return providerHint;
+    }
+
+    public void setProviderHint(String providerHint) {
+        this.providerHint = providerHint;
     }
 }

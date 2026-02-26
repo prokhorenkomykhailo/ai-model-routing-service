@@ -41,10 +41,18 @@ ai:
 
     openai:
       type: openai
-      api-key: ${OPENAI_API_KEY:test-openai-key}
+      api-key: ${OPENAI_API_KEY:}
       endpoint: https://api.openai.com/v1
       timeout: 30000
       enabled: true
+
+    huggingface:
+      type: huggingface
+      api-key: ${HUGGINGFACE_API_KEY:}
+      endpoint: ${HUGGINGFACE_ENDPOINT:https://api-inference.huggingface.co/models}
+      model: ${HUGGINGFACE_MODEL:}
+      timeout: ${HUGGINGFACE_TIMEOUT:60000}
+      enabled: ${HUGGINGFACE_ENABLED:false}
 
 # Swagger/OpenAPI Configuration for local development
 springdoc:
@@ -101,6 +109,7 @@ anonymization:
 # Optional CSV runner for Step 1 testing (disabled by default; set enabled=true to run once on startup)
 topic:
   clustering:
+    provider-hint: ${TOPIC_CLUSTERING_PROVIDER_HINT:}
     runner:
       enabled: ${TOPIC_CLUSTERING_RUNNER_ENABLED:false}
       csv-path: ${TOPIC_CLUSTERING_RUNNER_CSV_PATH:}
@@ -121,8 +130,9 @@ topic:
     metadata-topic: ${TOPIC_METADATA_METADATA_TOPIC:ai-topic-metadata}
     dlq-topic: ${TOPIC_METADATA_DLQ_TOPIC:ai-topic-metadata-dlq}
     tenant-id: ${TOPIC_METADATA_TENANT_ID:}
-    prompt-name: ${TOPIC_METADATA_PROMPT_NAME:topic_metadata/v2/topic_metadata}
-    prompt-version: ${TOPIC_METADATA_PROMPT_VERSION:v2}
+    prompt-name: ${TOPIC_METADATA_PROMPT_NAME:topic_metadata/v3/topic_metadata}
+    prompt-version: ${TOPIC_METADATA_PROMPT_VERSION:v3}
+    provider-hint: ${TOPIC_METADATA_PROVIDER_HINT:}
     max-messages: ${TOPIC_METADATA_MAX_MESSAGES:60}
     max-message-characters: ${TOPIC_METADATA_MAX_MESSAGE_CHARACTERS:600}
     max-prompt-characters: ${TOPIC_METADATA_MAX_PROMPT_CHARACTERS:180000}
@@ -134,7 +144,7 @@ topic:
     metadata-topic: ${TOPIC_EMBEDDING_METADATA_TOPIC:ai-topic-metadata}
     dlq-topic: ${TOPIC_EMBEDDING_DLQ_TOPIC:ai-topic-embeddings-dlq}
     provider: ${TOPIC_EMBEDDING_PROVIDER:gemini}
-    gemini-model: ${TOPIC_EMBEDDING_GEMINI_MODEL:text-embedding-004}
+    gemini-model: ${TOPIC_EMBEDDING_GEMINI_MODEL:gemini-embedding-001}
     dimension: ${TOPIC_EMBEDDING_DIMENSION:768}
     pgvector:
       jdbc-url: ${TOPIC_EMBEDDING_PGVECTOR_JDBC_URL:}
@@ -161,4 +171,5 @@ topic:
     belongs-check-enabled: ${TOPIC_UPDATE_BELONGS_CHECK_ENABLED:true}
     belongs-check-model-hint: ${TOPIC_UPDATE_BELONGS_CHECK_MODEL_HINT:}
     update-prompt-name: ${TOPIC_UPDATE_PROMPT_NAME:topic_update/v1/topic_update}
+    provider-hint: ${TOPIC_UPDATE_PROVIDER_HINT:}
     prompt-version: ${TOPIC_UPDATE_PROMPT_VERSION:v1}

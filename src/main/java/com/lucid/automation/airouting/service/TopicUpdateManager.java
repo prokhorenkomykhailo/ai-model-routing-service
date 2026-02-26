@@ -272,7 +272,7 @@ public class TopicUpdateManager {
         TopicMetadata updated = null;
         boolean llmGenerated = false;
         try {
-            provider = providerRouterService.selectProvider(AITaskType.GENERATE_TOPIC, tenantId, properties.getBelongsCheckModelHint());
+            provider = providerRouterService.selectProvider(AITaskType.GENERATE_TOPIC, tenantId, properties.getProviderHint());
             String prompt = buildUpdatePrompt(existing, author, text, channelName);
             updated = parseTopicMetadata(provider.processTextQuery(prompt, "system", tenantId));
             llmGenerated = updated != null;
@@ -361,7 +361,7 @@ public class TopicUpdateManager {
         TopicMetadata created = null;
         boolean llmGenerated = false;
         try {
-            provider = providerRouterService.selectProvider(AITaskType.GENERATE_TOPIC, tenantId, properties.getBelongsCheckModelHint());
+            provider = providerRouterService.selectProvider(AITaskType.GENERATE_TOPIC, tenantId, properties.getProviderHint());
             String prompt = buildUpdatePrompt(seed, author, text, channelName);
             created = parseTopicMetadata(provider.processTextQuery(prompt, "system", tenantId));
             llmGenerated = created != null;

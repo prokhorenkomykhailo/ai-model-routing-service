@@ -73,7 +73,11 @@ public class TopicClusteringService {
             return;
         }
 
-        AIProvider provider = providerRouterService.selectProvider(AITaskType.GENERATE_TOPIC, workspace.getTenantId());
+        AIProvider provider = providerRouterService.selectProvider(
+            AITaskType.GENERATE_TOPIC,
+            workspace.getTenantId(),
+            properties.getProviderHint()
+        );
         String providerId = provider != null ? provider.getProviderId() : "unknown";
         if (provider == null) {
             logger.error("No AI provider available for topic clustering");

@@ -303,7 +303,7 @@ public class TopicEmbeddingStoreService {
 
         String ddl = """
             CREATE TABLE IF NOT EXISTS %s.%s (
-              topic_id uuid PRIMARY KEY,
+              topic_id text PRIMARY KEY,
               workspace_id text NOT NULL,
               batch_id text,
               embedding_provider text,

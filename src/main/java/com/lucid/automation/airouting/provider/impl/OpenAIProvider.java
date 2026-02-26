@@ -16,6 +16,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.PostConstruct;
+import java.time.Duration;
 import java.util.*;
 
 @Component("openaiProvider")
@@ -44,33 +46,60 @@ public class OpenAIProvider extends AIProvider {
     @Value("${app.tenant.default-schema:public}")
     private String defaultTenantSchema;
 
-    private final OpenAIClient openaiClient;
+    private OpenAIClient openaiClient;
     private double lastConfidence = 0.0;
-    private final boolean isClientAvailable;
+    private volatile boolean isClientAvailable;
 
-    public OpenAIProvider() {
-        // Try to initialize the client, but handle gracefully if API key is not available
-        OpenAIClient tempClient = null;
-        boolean clientAvailable = false;
-
-        try {
-            // Check if OPENAI_API_KEY environment variable is set before initializing client
-            String openaiApiKey = System.getenv("OPENAI_API_KEY");
-            if (openaiApiKey != null && !openaiApiKey.trim().isEmpty()) {
-                tempClient = OpenAIOkHttpClient.builder()
-                    .apiKey(openaiApiKey)
-                    .build();
-                clientAvailable = true;
-                logger.info("OpenAI client initialized successfully");
-            } else {
-                logger.warn("OPENAI_API_KEY not set, OpenAI provider will be unavailable");
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to initialize OpenAI client: {}", e.getMessage());
+    @PostConstruct
+    public void init() {
+        if (!enabled) {
+            logger.info("OpenAI provider disabled (ai.providers.openai.enabled=false)");
+            this.openaiClient = null;
+            this.isClientAvailable = false;
+            return;
         }
 
-        this.openaiClient = tempClient;
-        this.isClientAvailable = clientAvailable;
+        String resolvedKey = resolveApiKey();
+        if (resolvedKey == null || resolvedKey.trim().isEmpty()) {
+            logger.warn("OPENAI_API_KEY not set (ai.providers.openai.api-key/OPENAI_API_KEY), OpenAI provider unavailable");
+            this.openaiClient = null;
+            this.isClientAvailable = false;
+            return;
+        }
+
+        String resolvedEndpoint = resolveEndpoint();
+        try {
+            this.openaiClient = OpenAIOkHttpClient.builder()
+                .apiKey(resolvedKey.trim())
+                .baseUrl(resolvedEndpoint)
+                .timeout(Duration.ofMillis(timeoutMs))
+                .build();
+            this.isClientAvailable = true;
+            logger.info("✅ OpenAI client initialized successfully (baseUrl={}, model={})", resolvedEndpoint, model);
+        } catch (Exception e) {
+            logger.warn("Failed to initialize OpenAI client: {}", e.getMessage());
+            this.openaiClient = null;
+            this.isClientAvailable = false;
+        }
+    }
+
+    private String resolveApiKey() {
+        if (apiKey != null && !apiKey.trim().isEmpty()) {
+            return apiKey;
+        }
+        String env = System.getenv("OPENAI_API_KEY");
+        if (env != null && !env.trim().isEmpty()) {
+            return env;
+        }
+        return null;
+    }
+
+    private String resolveEndpoint() {
+        String env = System.getenv("OPENAI_BASE_URL");
+        if (env != null && !env.trim().isEmpty()) {
+            return env.trim();
+        }
+        return apiEndpoint != null && !apiEndpoint.trim().isEmpty() ? apiEndpoint.trim() : "https://api.openai.com/v1";
     }
 
     @Override

@@ -98,16 +98,36 @@ def consume_step6_events_from_beginning(tenant_id: str, expected: int, *, timeou
         ],
         timeout_s=timeout_s,
     )
-    stdout = proc.stdout.decode("utf-8", errors="replace").splitlines()
+    text = (proc.stdout or b"").decode("utf-8", errors="replace")
     consumed: List[Dict[str, Any]] = []
-    for line in stdout:
-        line = line.strip()
-        if not line.startswith("{"):
+
+    # Some producers may emit pretty-printed JSON spanning multiple lines; extract objects by brace counting.
+    events: List[Dict[str, Any]] = []
+    buf: List[str] = []
+    depth = 0
+    in_obj = False
+    for ch in text:
+        if ch == "{" and not in_obj:
+            in_obj = True
+            depth = 1
+            buf = ["{"]
             continue
-        try:
-            evt = json.loads(line)
-        except Exception:
+        if not in_obj:
             continue
+        buf.append(ch)
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                raw = "".join(buf)
+                in_obj = False
+                try:
+                    events.append(json.loads(raw))
+                except Exception:
+                    pass
+
+    for evt in events:
         meta = evt.get("metadata")
         if not (isinstance(meta, dict) and str(meta.get("step")) == "6"):
             continue

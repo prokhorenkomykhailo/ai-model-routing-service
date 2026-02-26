@@ -11,7 +11,7 @@ public class TopicEmbeddingProperties {
     private String dlqTopic = "ai-topic-embeddings-dlq";
 
     private String provider = "gemini";
-    private String geminiModel = "text-embedding-004";
+    private String geminiModel = "gemini-embedding-001";
     private int dimension = 768;
 
     private Pgvector pgvector = new Pgvector();
@@ -130,4 +130,3 @@ public class TopicEmbeddingProperties {
         }
     }
 }
-

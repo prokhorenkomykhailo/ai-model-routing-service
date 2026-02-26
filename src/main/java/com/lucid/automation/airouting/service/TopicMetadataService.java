@@ -90,7 +90,11 @@ public class TopicMetadataService {
         ws.setDeemergeUserId("system");
         ws.setName(event.getWorkspaceId());
 
-        AIProvider provider = providerRouterService.selectProvider(AITaskType.GENERATE_TOPIC, ws.getTenantId());
+        AIProvider provider = providerRouterService.selectProvider(
+            AITaskType.GENERATE_TOPIC,
+            ws.getTenantId(),
+            properties.getProviderHint()
+        );
         if (provider == null) {
             logger.error("Step3: no AI provider available for workspace {}", event.getWorkspaceId());
             return;
@@ -293,7 +297,6 @@ You are fixing a JSON response. Return STRICT JSON ONLY (no markdown, no extra t
 Given the JSON below, rewrite it using the same schema but ensure:
 - action_items is a non-empty list (at least 1 item)
 - suggested_action is a non-empty string
-- reason is a non-empty string
 - situation, impact, proposed_solution, decision_needed are non-empty strings (infer if missing)
 - owner should be one of participants if possible; otherwise null
 - due_date should be deadline if it exists; otherwise null

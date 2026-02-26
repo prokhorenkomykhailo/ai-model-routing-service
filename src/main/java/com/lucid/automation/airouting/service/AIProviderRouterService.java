@@ -32,10 +32,13 @@ public class AIProviderRouterService {
         this.providerFactory = providerFactory;
         this.routingConfig = routingConfig;
 
-        // Initialize provider priorities (can be made configurable)
-        this.providerPriorities = new HashMap<>();
-        this.providerPriorities.put("geminiProvider", 1);
-        this.providerPriorities.put("openaiProvider", 2);
+        // Initialize provider priorities (configurable via ai.routing.provider-priorities)
+        this.providerPriorities = new HashMap<>(Optional.ofNullable(routingConfig.getProviderPriorities()).orElseGet(HashMap::new));
+        if (this.providerPriorities.isEmpty()) {
+            this.providerPriorities.put("geminiProvider", 1);
+            this.providerPriorities.put("openaiProvider", 2);
+            this.providerPriorities.put("huggingfaceProvider", 3);
+        }
     }
 
     /**

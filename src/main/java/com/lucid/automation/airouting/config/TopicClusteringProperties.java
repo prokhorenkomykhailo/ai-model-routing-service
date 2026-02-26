@@ -41,6 +41,12 @@ public class TopicClusteringProperties {
      */
     private String draftTopic = "ai-topic-drafts";
 
+    /**
+     * Optional provider hint (bean name/providerId) to force a provider for Step 1.
+     * Example: "geminiProvider", "openaiProvider", "huggingfaceProvider".
+     */
+    private String providerHint = "";
+
     public String getPromptName() {
         return promptName;
     }
@@ -87,5 +93,13 @@ public class TopicClusteringProperties {
 
     public void setDraftTopic(String draftTopic) {
         this.draftTopic = draftTopic;
+    }
+
+    public String getProviderHint() {
+        return providerHint;
+    }
+
+    public void setProviderHint(String providerHint) {
+        this.providerHint = providerHint;
     }
 }

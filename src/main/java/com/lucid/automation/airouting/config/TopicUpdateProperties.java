@@ -17,6 +17,12 @@ public class TopicUpdateProperties {
 
     private String updatePromptName = "topic_update/v1/topic_update";
 
+    /**
+     * Optional provider hint (bean name/providerId) to force a provider for Step 6 metadata generation.
+     * Example: "geminiProvider", "openaiProvider", "huggingfaceProvider".
+     */
+    private String providerHint = "";
+
     private boolean belongsCheckEnabled = true;
 
     private String belongsCheckModelHint = "";
@@ -68,6 +74,14 @@ public class TopicUpdateProperties {
 
     public void setUpdatePromptName(String updatePromptName) {
         this.updatePromptName = updatePromptName;
+    }
+
+    public String getProviderHint() {
+        return providerHint;
+    }
+
+    public void setProviderHint(String providerHint) {
+        this.providerHint = providerHint;
     }
 
     public boolean isBelongsCheckEnabled() {

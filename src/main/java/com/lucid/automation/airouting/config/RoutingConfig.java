@@ -14,6 +14,7 @@ public class RoutingConfig {
     private Map<String, String> taskProviders = new HashMap<>();
     private String defaultProvider = "geminiProvider";
     private Map<String, ProviderConfig> providers = new HashMap<>();
+    private Map<String, Integer> providerPriorities = new HashMap<>();
     
     public String getProviderForTask(AITaskType taskType) {
         return taskProviders.getOrDefault(taskType.name().toLowerCase(), defaultProvider);
@@ -28,6 +29,14 @@ public class RoutingConfig {
     
     public Map<String, ProviderConfig> getProviders() { return providers; }
     public void setProviders(Map<String, ProviderConfig> providers) { this.providers = providers; }
+
+    public Map<String, Integer> getProviderPriorities() {
+        return providerPriorities;
+    }
+
+    public void setProviderPriorities(Map<String, Integer> providerPriorities) {
+        this.providerPriorities = providerPriorities;
+    }
     
     public static class ProviderConfig {
         private String type;

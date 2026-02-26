@@ -8,9 +8,8 @@ TopicMetadataEvent outputs and writes:
 - JSONL dump of the raw output events
 - A human-friendly JSON summary with validation results
 
-This is meant for local verification of Step 3 fields required by the UI:
-external party, priority, due date + reason, suggested action, and the
-Situation/Impact/ProposedSolution/DecisionNeeded sections.
+This is meant for local verification of Step 3 fields required by the UI.
+Primary focus: Situation / Impact / ProposedSolution / DecisionNeeded sections.
 """
 
 import csv
@@ -161,16 +160,20 @@ def produce_refined_event(event: Dict[str, Any]) -> Tuple[int, str]:
 
 def consume_metadata_events(group: str, max_messages: int, timeout_s: float) -> List[Dict[str, Any]]:
     """
-    Uses kafka-console-consumer with a timeout and parses JSON per line.
+    Uses kafka-console-consumer with a timeout and extracts JSON objects.
+
+    Some producers emit pretty-printed JSON spanning multiple lines; we therefore
+    parse by brace counting instead of line-by-line json.loads().
     """
+    # We intentionally read "whatever is available" within a short timeout and filter by workspace/batch.
+    # This is robust for small, dedicated test topics and avoids consumer-group offset edge cases.
     cmd = [
         "kafka-console-consumer",
         "--bootstrap-server",
         BOOTSTRAP,
         "--topic",
         TOPIC_OUT,
-        "--group",
-        group,
+        "--from-beginning",
         "--property",
         "print.value=true",
         "--property",
@@ -179,21 +182,37 @@ def consume_metadata_events(group: str, max_messages: int, timeout_s: float) -> 
         "print.timestamp=false",
         "--timeout-ms",
         str(int(timeout_s * 1000)),
-        "--max-messages",
-        str(max_messages),
     ]
-    proc = docker_exec(cmd, timeout_s=int(timeout_s) + 30)
-    out = proc.stdout.decode("utf-8", errors="replace").strip().splitlines()
+    try:
+        proc = docker_exec(cmd, timeout_s=int(timeout_s) + 30)
+    except subprocess.TimeoutExpired:
+        return []
+    text = (proc.stdout or b"").decode("utf-8", errors="replace")
+
     events: List[Dict[str, Any]] = []
-    for line in out:
-        line = line.strip()
-        if not line:
+    buf: List[str] = []
+    depth = 0
+    in_obj = False
+    for ch in text:
+        if ch == "{" and not in_obj:
+            in_obj = True
+            depth = 1
+            buf = ["{"]
             continue
-        try:
-            events.append(json.loads(line))
-        except Exception:
-            # ignore non-json lines
+        if not in_obj:
             continue
+        buf.append(ch)
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                raw = "".join(buf)
+                in_obj = False
+                try:
+                    events.append(json.loads(raw))
+                except Exception:
+                    pass
     return events
 
 
@@ -218,8 +237,6 @@ def validate_event(evt: Dict[str, Any]) -> List[str]:
 
     if not non_empty_str(topic.get("priority")):
         missing.append("topic.priority")
-    if not non_empty_str(topic.get("reason")):
-        missing.append("topic.reason")
     if not non_empty_str(topic.get("suggestedAction")):
         missing.append("topic.suggestedAction")
     if not non_empty_str(topic.get("situation")):
@@ -304,14 +321,20 @@ def main() -> int:
 
     # Consume outputs (wait in a couple of rounds to allow the service to process).
     all_events: List[Dict[str, Any]] = []
+    seen_event_ids: set[str] = set()
     start = time.time()
     while time.time() - start < MAX_WAIT_S and len(all_events) < CLUSTER_TARGET:
         remaining = CLUSTER_TARGET - len(all_events)
-        chunk = consume_metadata_events(group, remaining, timeout_s=60)
+        chunk = consume_metadata_events(group, remaining, timeout_s=10)
         if chunk:
             for evt in chunk:
                 if evt.get("workspaceId") != WORKSPACE_ID or evt.get("batchId") != BATCH_ID:
                     continue
+                event_id = evt.get("eventId")
+                if isinstance(event_id, str) and event_id in seen_event_ids:
+                    continue
+                if isinstance(event_id, str):
+                    seen_event_ids.add(event_id)
                 all_events.append(evt)
         if len(all_events) >= CLUSTER_TARGET:
             break
