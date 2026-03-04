@@ -138,6 +138,35 @@ public class MessageService {
         }
     }
 
+    public List<Message> findByWorkspaceChannelThread(String workspaceId, String channelId, String threadTs) {
+        if (workspaceId == null || channelId == null || threadTs == null
+            || workspaceId.isBlank() || channelId.isBlank() || threadTs.isBlank()) {
+            return List.of();
+        }
+        try {
+            String index = workspaceId.trim() + ":" + channelId.trim() + ":" + threadTs.trim();
+            List<Message> rows = messageRepository.findByWorkspaceChannelThreadIndex(index);
+            return rows.stream()
+                .filter(m -> m.getIsDeleted() == null || !m.getIsDeleted())
+                .sorted((a, b) -> Double.compare(parseTs(a.getMessageTs()), parseTs(b.getMessageTs())))
+                .toList();
+        } catch (Exception e) {
+            logger.debug("Failed to find messages by workspace/channel/thread: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private double parseTs(String ts) {
+        if (ts == null || ts.isBlank()) {
+            return Double.MAX_VALUE;
+        }
+        try {
+            return Double.parseDouble(ts.trim());
+        } catch (Exception e) {
+            return Double.MAX_VALUE;
+        }
+    }
+
     public void deleteById(String id) {
         if (id == null) {
             logger.warn("⚠️ Cannot delete message with null ID");

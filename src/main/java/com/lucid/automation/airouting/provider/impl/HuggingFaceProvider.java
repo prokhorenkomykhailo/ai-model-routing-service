@@ -21,7 +21,14 @@ import org.springframework.util.StringUtils;
 /**
  * Hugging Face Inference API provider.
  *
- * Supports hosted models and custom endpoints that accept the HF "inputs" payload.
+ * Supports Hugging Face "Inference Providers" router (OpenAI-compatible chat completions).
+ *
+ * The legacy endpoint https://api-inference.huggingface.co/models/... was decommissioned in 2025
+ * and now returns HTTP 410. For LLM calls, Hugging Face recommends using the router:
+ *   https://router.huggingface.co/v1/chat/completions
+ *
+ * This provider intentionally uses the same request/response shape as OpenAI chat completions
+ * to make Steps 1/3/6 pluggable without changing pipeline code.
  * This is intended for rapid experimentation with open-source models (e.g. via HF)
  * without changing Steps 1/3/6 code.
  */
@@ -33,7 +40,7 @@ public class HuggingFaceProvider extends AIProvider {
     @Value("${ai.providers.huggingface.api-key:}")
     private String apiKey;
 
-    @Value("${ai.providers.huggingface.endpoint:https://api-inference.huggingface.co/models}")
+    @Value("${ai.providers.huggingface.endpoint:https://router.huggingface.co/v1/chat/completions}")
     private String endpoint;
 
     @Value("${ai.providers.huggingface.model:}")
@@ -58,7 +65,10 @@ public class HuggingFaceProvider extends AIProvider {
 
     @Override
     public boolean isAvailable() {
-        return enabled && StringUtils.hasText(resolveApiKey()) && StringUtils.hasText(resolveEndpoint());
+        return enabled
+            && StringUtils.hasText(resolveApiKey())
+            && StringUtils.hasText(resolveEndpoint())
+            && StringUtils.hasText(resolveModel());
     }
 
     @Override
@@ -83,9 +93,15 @@ public class HuggingFaceProvider extends AIProvider {
         }
 
         String url = resolveEndpoint();
+        String resolvedModel = resolveModel();
         try {
             long start = System.currentTimeMillis();
-            String body = objectMapper.writeValueAsString(Map.of("inputs", maskedQuery));
+            Map<String, Object> message = Map.of("role", "user", "content", maskedQuery);
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("model", resolvedModel);
+            payload.put("messages", new Object[] { message });
+            payload.put("temperature", 0.2);
+            String body = objectMapper.writeValueAsString(payload);
 
             HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
@@ -108,17 +124,38 @@ public class HuggingFaceProvider extends AIProvider {
                 throw new RuntimeException("Empty response from HuggingFace API");
             }
 
-            // HF does not return token usage reliably; estimate and mark as estimated.
-            int inputTokensEst = estimateTokens(maskedQuery);
-            int outputTokensEst = estimateTokens(output);
+            int inputTokens = estimateTokens(maskedQuery);
+            int outputTokens = estimateTokens(output);
+            Integer totalTokens = null;
+            try {
+                JsonNode node = objectMapper.readTree(response.body());
+                JsonNode usage = node.get("usage");
+                if (usage != null && usage.isObject()) {
+                    JsonNode pt = usage.get("prompt_tokens");
+                    JsonNode ct = usage.get("completion_tokens");
+                    JsonNode tt = usage.get("total_tokens");
+                    if (pt != null && pt.canConvertToInt()) {
+                        inputTokens = pt.asInt();
+                    }
+                    if (ct != null && ct.canConvertToInt()) {
+                        outputTokens = ct.asInt();
+                    }
+                    if (tt != null && tt.canConvertToInt()) {
+                        totalTokens = tt.asInt();
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("endpoint", url);
-            metadata.put("model", model);
-            metadata.put("actualTokens", false);
-            sendTokenConsumption("text-query", userId, tenantId, inputTokensEst, outputTokensEst, inputTokensEst + outputTokensEst, null, metadata);
+            metadata.put("model", resolvedModel);
+            metadata.put("actualTokens", totalTokens != null);
+            int total = totalTokens != null ? totalTokens : (inputTokens + outputTokens);
+            sendTokenConsumption("text-query", userId, tenantId, inputTokens, outputTokens, total, null, metadata);
 
             logger.info("✅ HF-API [{}]: text-query completed | ⏱️ {}ms | estIn={} estOut={} | respChars={}",
-                debugId, duration, inputTokensEst, outputTokensEst, output.length());
+                debugId, duration, inputTokens, outputTokens, output.length());
             return output;
         } catch (Exception e) {
             logger.error("🚨 HF-API [{}]: Error calling HuggingFace API url={}: {}", debugId, url, e.getMessage(), e);
@@ -142,21 +179,11 @@ public class HuggingFaceProvider extends AIProvider {
     }
 
     private String resolveEndpoint() {
-        String base = endpoint != null ? endpoint.trim() : "";
-        if (!StringUtils.hasText(base)) {
-            return null;
-        }
-        if (StringUtils.hasText(model)) {
-            String m = model.trim();
-            if (base.endsWith("/models")) {
-                return base + "/" + m;
-            }
-            // If endpoint already looks like a full URL, keep it.
-            if (base.contains("{model}")) {
-                return base.replace("{model}", m);
-            }
-        }
-        return base;
+        return StringUtils.hasText(endpoint) ? endpoint.trim() : null;
+    }
+
+    private String resolveModel() {
+        return StringUtils.hasText(model) ? model.trim() : null;
     }
 
     private String extractText(String json) {
@@ -165,30 +192,11 @@ public class HuggingFaceProvider extends AIProvider {
         }
         try {
             JsonNode node = objectMapper.readTree(json);
-            // Common HF hosted response: [{"generated_text":"..."}]
-            if (node.isArray() && node.size() > 0) {
-                JsonNode first = node.get(0);
-                if (first.isObject()) {
-                    JsonNode gt = first.get("generated_text");
-                    if (gt != null && gt.isTextual()) {
-                        return gt.asText();
-                    }
-                }
-            }
-            // Some endpoints: {"generated_text":"..."}
+            // OpenAI-compatible: {"choices":[{"message":{"content":"..."}}]}
             if (node.isObject()) {
-                JsonNode gt = node.get("generated_text");
-                if (gt != null && gt.isTextual()) {
-                    return gt.asText();
-                }
-                // Text-generation-inference style: {"choices":[{"text":"..."}]}
                 JsonNode choices = node.get("choices");
                 if (choices != null && choices.isArray() && choices.size() > 0) {
                     JsonNode first = choices.get(0);
-                    JsonNode text = first.get("text");
-                    if (text != null && text.isTextual()) {
-                        return text.asText();
-                    }
                     JsonNode message = first.get("message");
                     if (message != null && message.isObject()) {
                         JsonNode content = message.get("content");
@@ -196,6 +204,14 @@ public class HuggingFaceProvider extends AIProvider {
                             return content.asText();
                         }
                     }
+                    JsonNode text = first.get("text");
+                    if (text != null && text.isTextual()) {
+                        return text.asText();
+                    }
+                }
+                JsonNode gt = node.get("generated_text");
+                if (gt != null && gt.isTextual()) {
+                    return gt.asText();
                 }
             }
         } catch (Exception ignored) {

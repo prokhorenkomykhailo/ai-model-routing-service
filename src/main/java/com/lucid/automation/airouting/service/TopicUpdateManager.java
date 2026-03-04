@@ -10,6 +10,7 @@ import com.lucid.automation.airouting.dto.topic.TopicActionItem;
 import com.lucid.automation.airouting.dto.topic.TopicMetadata;
 import com.lucid.automation.airouting.dto.topic.TopicMetadataEvent;
 import com.lucid.automation.airouting.model.AITaskType;
+import com.lucid.automation.airouting.model.Message;
 import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.producer.TopicMetadataProducer;
 import com.lucid.automation.airouting.util.PromptLoader;
@@ -42,6 +43,8 @@ public class TopicUpdateManager {
     private final TopicEmbeddingStoreService embeddingStoreService;
     private final TopicMetadataProducer metadataProducer;
     private final AIProviderRouterService providerRouterService;
+    private final MessageService messageService;
+    private final PendingResponseSignalService pendingResponseSignalService;
     private final PromptLoader promptLoader;
     private final ObjectMapper objectMapper;
     private final JdbcTemplate embeddingJdbc;
@@ -69,6 +72,8 @@ public class TopicUpdateManager {
                              TopicEmbeddingStoreService embeddingStoreService,
                              TopicMetadataProducer metadataProducer,
                              AIProviderRouterService providerRouterService,
+                             MessageService messageService,
+                             PendingResponseSignalService pendingResponseSignalService,
                              PromptLoader promptLoader,
                              ObjectMapper objectMapper,
                              @Qualifier("topicEmbeddingJdbcTemplate") Optional<JdbcTemplate> topicEmbeddingJdbcTemplate,
@@ -77,6 +82,8 @@ public class TopicUpdateManager {
         this.embeddingStoreService = embeddingStoreService;
         this.metadataProducer = metadataProducer;
         this.providerRouterService = providerRouterService;
+        this.messageService = messageService;
+        this.pendingResponseSignalService = pendingResponseSignalService;
         this.promptLoader = promptLoader;
         this.objectMapper = objectMapper;
         this.embeddingJdbc = topicEmbeddingJdbcTemplate.orElse(null);
@@ -166,8 +173,7 @@ public class TopicUpdateManager {
                 candidateEvaluations(workspaceId, channelName, searchCtx.candidates(), best, null, "rejected_below_threshold"));
             publishNewTopic(tenantId, workspaceId, channelName, messageId, channelId, threadTs, authorLabel, text,
                 "below_similarity_threshold", best.score(),
-                new BelongsCheckDecision(false, false, 0.0, "below_similarity_threshold", null),
-                ctx,
+                new BelongsCheckDecision(false, false, 0.0, "below_similarity_threshold", null), ctx,
                 "semantic_similarity_path_below_threshold");
             return;
         }
@@ -179,8 +185,7 @@ public class TopicUpdateManager {
                 candidateEvaluations(workspaceId, channelName, searchCtx.candidates(), best, null, "rejected_missing_metadata"));
             publishNewTopic(tenantId, workspaceId, channelName, messageId, channelId, threadTs, authorLabel, text,
                 "missing_existing_topic_metadata", best.score(),
-                new BelongsCheckDecision(false, false, 0.0, "missing_existing_topic_metadata", null),
-                ctx,
+                new BelongsCheckDecision(false, false, 0.0, "missing_existing_topic_metadata", null), ctx,
                 "semantic_similarity_path_missing_metadata");
             return;
         }
@@ -270,16 +275,20 @@ public class TopicUpdateManager {
                                      String decisionPath) {
         AIProvider provider = null;
         TopicMetadata updated = null;
+        PendingResponseSignalService.PendingResponseSignal pendingSignal = null;
         boolean llmGenerated = false;
         try {
             provider = providerRouterService.selectProvider(AITaskType.GENERATE_TOPIC, tenantId, properties.getProviderHint());
             String prompt = buildUpdatePrompt(existing, author, text, channelName);
-            updated = parseTopicMetadata(provider.processTextQuery(prompt, "system", tenantId));
+            JsonNode root = tryParseJson(provider.processTextQuery(prompt, "system", tenantId));
+            updated = parseTopicMetadataNode(root);
+            pendingSignal = pendingResponseSignalService.fromLlmNode(root).orElse(null);
             llmGenerated = updated != null;
         } catch (Exception e) {
             logger.warn("Step6 update: provider unavailable, falling back to deterministic metadata: {}", e.getMessage());
         }
         TopicMetadata finalTopic = ensureMinimumFields(updated, existing, channelName, author, text);
+        finalTopic = pendingResponseSignalService.applyToTopic(finalTopic, pendingSignal, author);
 
         int previousVersion = fetchTopicVersion(topicId);
         int nextVersion = previousVersion > 0 ? previousVersion + 1 : 1;
@@ -319,6 +328,10 @@ public class TopicUpdateManager {
         }
         meta.put("belongsCheck", belongsCheckMetadata(decision));
         meta.put("similaritySearch", similaritySearchMetadata(searchContext));
+        meta.put("pendingResponseDetected", pendingSignal != null);
+        if (pendingSignal != null) {
+            meta.put("pendingResponse", pendingResponseSignalService.toMetadataMap(pendingSignal));
+        }
         meta.put("metadataFullyRegenerated", true);
         meta.put("metadataRegeneratedOnUpdate", llmGenerated);
         meta.put("metadataGenerationMode", llmGenerated ? "llm" : "fallback");
@@ -359,16 +372,20 @@ public class TopicUpdateManager {
         seed.setSummary(text);
         AIProvider provider = null;
         TopicMetadata created = null;
+        PendingResponseSignalService.PendingResponseSignal pendingSignal = null;
         boolean llmGenerated = false;
         try {
             provider = providerRouterService.selectProvider(AITaskType.GENERATE_TOPIC, tenantId, properties.getProviderHint());
             String prompt = buildUpdatePrompt(seed, author, text, channelName);
-            created = parseTopicMetadata(provider.processTextQuery(prompt, "system", tenantId));
+            JsonNode root = tryParseJson(provider.processTextQuery(prompt, "system", tenantId));
+            created = parseTopicMetadataNode(root);
+            pendingSignal = pendingResponseSignalService.fromLlmNode(root).orElse(null);
             llmGenerated = created != null;
         } catch (Exception e) {
             logger.warn("Step6 create: provider unavailable, falling back to deterministic metadata: {}", e.getMessage());
         }
         TopicMetadata finalTopic = ensureMinimumFields(created, seed, channelName, author, text);
+        finalTopic = pendingResponseSignalService.applyToTopic(finalTopic, pendingSignal, author);
 
         String topicId = stableTopicId(workspaceId, channelName, messageId);
 
@@ -399,6 +416,10 @@ public class TopicUpdateManager {
         }
         meta.put("belongsCheck", belongsCheckMetadata(decision));
         meta.put("similaritySearch", similaritySearchMetadata(searchContext));
+        meta.put("pendingResponseDetected", pendingSignal != null);
+        if (pendingSignal != null) {
+            meta.put("pendingResponse", pendingResponseSignalService.toMetadataMap(pendingSignal));
+        }
         meta.put("metadataFullyRegenerated", true);
         meta.put("metadataRegeneratedOnUpdate", llmGenerated);
         meta.put("metadataGenerationMode", llmGenerated ? "llm" : "fallback");
@@ -725,6 +746,21 @@ New message (channel=%s, author=%s):
         if (!StringUtils.hasText(topic.getSummary())) {
             topic.setSummary(StringUtils.hasText(text) ? text.trim() : "");
         }
+        if (!StringUtils.hasText(topic.getSituation())) {
+            topic.setSituation(topic.getSummary());
+        }
+        if (!StringUtils.hasText(topic.getImpact())) {
+            topic.setImpact(topic.getReason());
+        }
+        if (!StringUtils.hasText(topic.getProposedSolution())) {
+            topic.setProposedSolution(topic.getSuggestedAction());
+        }
+        if (!StringUtils.hasText(topic.getDecisionNeeded())) {
+            topic.setDecisionNeeded(topic.getSuggestedAction());
+        }
+        if (!StringUtils.hasText(topic.getPriority()) && StringUtils.hasText(topic.getUrgency())) {
+            topic.setPriority(topic.getUrgency());
+        }
 
         if (topic.getParticipants() == null || topic.getParticipants().isEmpty()) {
             Set<String> participants = new LinkedHashSet<>();
@@ -792,6 +828,13 @@ New message (channel=%s, author=%s):
         metadata.setTitle(text(root, "title"));
         metadata.setSummary(text(root, "summary"));
         metadata.setExternalParty(text(root, "external_party", "externalParty"));
+        metadata.setPriority(text(root, "priority"));
+        metadata.setReason(text(root, "reason"));
+        metadata.setSuggestedAction(text(root, "suggested_action", "suggestedAction"));
+        metadata.setSituation(text(root, "situation"));
+        metadata.setImpact(text(root, "impact"));
+        metadata.setProposedSolution(text(root, "proposed_solution", "proposedSolution"));
+        metadata.setDecisionNeeded(text(root, "decision_needed", "decisionNeeded"));
         metadata.setChannel(text(root, "channel"));
         metadata.setUrgency(text(root, "urgency"));
         metadata.setDeadline(text(root, "deadline"));

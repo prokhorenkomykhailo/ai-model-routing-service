@@ -53,12 +53,17 @@ existing_topic_json:
 new_messages:
 {{new_messages}}
 """);
+        MessageService messageService = mock(MessageService.class);
+        when(messageService.findByWorkspaceChannelThread(anyString(), anyString(), anyString())).thenReturn(List.of());
+        PendingResponseSignalService signalService = new PendingResponseSignalService();
 
         TopicUpdateManager mgr = new TopicUpdateManager(
             props,
             embeddingStore,
             producer,
             router,
+            messageService,
+            signalService,
             loader,
             new ObjectMapper(),
             Optional.empty(),
@@ -141,12 +146,17 @@ existing_topic_json:
 new_messages:
 {{new_messages}}
 """);
+        MessageService messageService = mock(MessageService.class);
+        when(messageService.findByWorkspaceChannelThread(anyString(), anyString(), anyString())).thenReturn(List.of());
+        PendingResponseSignalService signalService = new PendingResponseSignalService();
 
         TopicUpdateManager mgr = new TopicUpdateManager(
             props,
             embeddingStore,
             producer,
             router,
+            messageService,
+            signalService,
             loader,
             new ObjectMapper(),
             Optional.of(jdbc),
@@ -234,12 +244,17 @@ existing_topic_json:
 new_messages:
 {{new_messages}}
 """);
+        MessageService messageService = mock(MessageService.class);
+        when(messageService.findByWorkspaceChannelThread(anyString(), anyString(), anyString())).thenReturn(List.of());
+        PendingResponseSignalService signalService = new PendingResponseSignalService();
 
         TopicUpdateManager mgr = new TopicUpdateManager(
             props,
             embeddingStore,
             producer,
             router,
+            messageService,
+            signalService,
             loader,
             new ObjectMapper(),
             Optional.empty(),
@@ -306,12 +321,17 @@ new_messages:
 
         PromptLoader loader = mock(PromptLoader.class);
         when(loader.loadPromptTemplate(anyString())).thenReturn("{{existing_topic_json}} {{new_messages}}");
+        MessageService messageService = mock(MessageService.class);
+        when(messageService.findByWorkspaceChannelThread(anyString(), anyString(), anyString())).thenReturn(List.of());
+        PendingResponseSignalService signalService = new PendingResponseSignalService();
 
         TopicUpdateManager mgr = new TopicUpdateManager(
             props,
             embeddingStore,
             producer,
             router,
+            messageService,
+            signalService,
             loader,
             new ObjectMapper(),
             Optional.empty(),
@@ -367,12 +387,17 @@ new_messages:
 
         PromptLoader loader = mock(PromptLoader.class);
         when(loader.loadPromptTemplate(anyString())).thenReturn("{{existing_topic_json}} {{new_messages}}");
+        MessageService messageService = mock(MessageService.class);
+        when(messageService.findByWorkspaceChannelThread(anyString(), anyString(), anyString())).thenReturn(List.of());
+        PendingResponseSignalService signalService = new PendingResponseSignalService();
 
         TopicUpdateManager mgr = new TopicUpdateManager(
             props,
             embeddingStore,
             producer,
             router,
+            messageService,
+            signalService,
             loader,
             new ObjectMapper(),
             Optional.empty(),
@@ -439,12 +464,17 @@ new_messages:
 
         PromptLoader loader = mock(PromptLoader.class);
         when(loader.loadPromptTemplate(anyString())).thenReturn("{{existing_topic_json}} {{new_messages}}");
+        MessageService messageService = mock(MessageService.class);
+        when(messageService.findByWorkspaceChannelThread(anyString(), anyString(), anyString())).thenReturn(List.of());
+        PendingResponseSignalService signalService = new PendingResponseSignalService();
 
         TopicUpdateManager mgr = new TopicUpdateManager(
             props,
             embeddingStore,
             producer,
             router,
+            messageService,
+            signalService,
             loader,
             new ObjectMapper(),
             Optional.of(jdbc),
@@ -482,5 +512,94 @@ new_messages:
         Assertions.assertEquals(true, Boolean.parseBoolean(String.valueOf(candidates.get(0).get("selected"))));
         Assertions.assertEquals(false, Boolean.parseBoolean(String.valueOf(candidates.get(0).get("accepted"))));
         Assertions.assertEquals("rejected_belongs_check_blocked", String.valueOf(candidates.get(0).get("rejectedReason")));
+    }
+
+    @Test
+    void handleNewMessage_emitsPendingResponseSignalMetadata_whenUnansweredRequestDetected() {
+        TopicUpdateProperties props = new TopicUpdateProperties();
+        props.setEnabled(true);
+        props.setBelongsCheckEnabled(false);
+
+        TopicEmbeddingProperties embeddingProps = new TopicEmbeddingProperties();
+        TopicEmbeddingStoreService embeddingStore = mock(TopicEmbeddingStoreService.class);
+        when(embeddingStore.search(anyString(), any(com.lucid.automation.airouting.dto.topic.TopicMetadata.class), anyInt()))
+            .thenReturn(List.of());
+
+        TopicMetadataProducer producer = mock(TopicMetadataProducer.class);
+
+        AIProviderRouterService router = mock(AIProviderRouterService.class);
+        AIProvider provider = mock(AIProvider.class);
+        when(provider.getProviderId()).thenReturn("test");
+        when(provider.processTextQuery(anyString(), anyString(), anyString()))
+            .thenReturn("""
+                {
+                  "title":"Invoice follow up",
+                  "summary":"Need invoice confirmation",
+                  "participants":["Devon (U001)","Sam (U002)"],
+                  "action_items":[{"task":"Follow up","owner":"Devon (U001)","status":"pending","priority":"medium"}],
+                  "pending_response":{
+                    "detected":true,
+                    "type":"waiting_on_other_party",
+                    "requester":"Devon (U001)",
+                    "requester_user_id":"U001",
+                    "assignee":"Sam (U002)",
+                    "assignee_user_id":"U002",
+                    "request_text":"@Sam can you send the invoice?",
+                    "reason":"Invoice still pending",
+                    "suggested_action":"Follow up with Sam for the invoice.",
+                    "evidence":"request without reply"
+                  },
+                  "urgency":"medium",
+                  "status":"active",
+                  "channel":"#finance",
+                  "tags":["finance"]
+                }
+                """);
+        when(router.selectProvider(any(AITaskType.class), anyString(), any())).thenReturn(provider);
+
+        PromptLoader loader = mock(PromptLoader.class);
+        when(loader.loadPromptTemplate(anyString())).thenReturn("{{existing_topic_json}} {{new_messages}}");
+
+        MessageService messageService = mock(MessageService.class);
+        PendingResponseSignalService signalService = new PendingResponseSignalService();
+
+        TopicUpdateManager mgr = new TopicUpdateManager(
+            props,
+            embeddingStore,
+            producer,
+            router,
+            messageService,
+            signalService,
+            loader,
+            new ObjectMapper(),
+            Optional.empty(),
+            embeddingProps
+        );
+
+        IngestionEventDTO ev = new IngestionEventDTO();
+        ev.setTenantId("tenant-1");
+        IngestionMessageDTO msg = new IngestionMessageDTO();
+        msg.setWorkspaceId("ws1");
+        msg.setChannelId("C1");
+        msg.setChannelName("#finance");
+        msg.setThreadTs("t1");
+        msg.setTs("101");
+        msg.setText("@Sam can you send the invoice?");
+        ev.setMessage(msg);
+        IngestionUserDTO user = new IngestionUserDTO();
+        user.setDisplayName("Devon");
+        user.setSlackUserId("U001");
+        ev.setUser(user);
+
+        mgr.handleNewMessage(ev);
+
+        ArgumentCaptor<TopicMetadataEvent> cap = ArgumentCaptor.forClass(TopicMetadataEvent.class);
+        verify(producer, times(1)).publish(cap.capture());
+        @SuppressWarnings("unchecked")
+        var meta = (java.util.Map<String, Object>) cap.getValue().getMetadata();
+        Assertions.assertEquals(true, Boolean.parseBoolean(String.valueOf(meta.get("pendingResponseDetected"))));
+        @SuppressWarnings("unchecked")
+        var pending = (java.util.Map<String, Object>) meta.get("pendingResponse");
+        Assertions.assertEquals("waiting_on_other_party", String.valueOf(pending.get("type")));
     }
 }

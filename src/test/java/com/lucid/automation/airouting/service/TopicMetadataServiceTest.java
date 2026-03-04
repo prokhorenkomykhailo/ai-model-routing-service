@@ -21,6 +21,7 @@ class TopicMetadataServiceTest {
             mock(AIProviderRouterService.class),
             mock(TopicMetadataProducer.class),
             mock(MessageService.class),
+            mock(PendingResponseSignalService.class),
             new ObjectMapper(),
             new TopicMetadataProperties()
         );
@@ -74,6 +75,7 @@ class TopicMetadataServiceTest {
             mock(AIProviderRouterService.class),
             mock(TopicMetadataProducer.class),
             mock(MessageService.class),
+            mock(PendingResponseSignalService.class),
             new ObjectMapper(),
             new TopicMetadataProperties()
         );
@@ -105,4 +107,3 @@ class TopicMetadataServiceTest {
         Assertions.assertTrue(meta.getDecisionNeeded() != null && !meta.getDecisionNeeded().isBlank());
     }
 }
-

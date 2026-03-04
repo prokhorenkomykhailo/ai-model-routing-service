@@ -49,7 +49,9 @@ ai:
     huggingface:
       type: huggingface
       api-key: ${HUGGINGFACE_API_KEY:}
-      endpoint: ${HUGGINGFACE_ENDPOINT:https://api-inference.huggingface.co/models}
+      # HF legacy Inference API host (api-inference.huggingface.co/models/...) was decommissioned (HTTP 410).
+      # Use the HF router (OpenAI-compatible) for chat-completions style calls.
+      endpoint: ${HUGGINGFACE_ENDPOINT:https://router.huggingface.co/v1/chat/completions}
       model: ${HUGGINGFACE_MODEL:}
       timeout: ${HUGGINGFACE_TIMEOUT:60000}
       enabled: ${HUGGINGFACE_ENABLED:false}
@@ -173,3 +175,12 @@ topic:
     update-prompt-name: ${TOPIC_UPDATE_PROMPT_NAME:topic_update/v1/topic_update}
     provider-hint: ${TOPIC_UPDATE_PROVIDER_HINT:}
     prompt-version: ${TOPIC_UPDATE_PROMPT_VERSION:v1}
+  action-suggestion:
+    enabled: ${TOPIC_ACTION_SUGGESTION_ENABLED:true}
+    prompt-name: ${TOPIC_ACTION_SUGGESTION_PROMPT_NAME:topic_action_suggestion/v1/topic_action_suggestion}
+    prompt-version: ${TOPIC_ACTION_SUGGESTION_PROMPT_VERSION:v1}
+    provider-hint: ${TOPIC_ACTION_SUGGESTION_PROVIDER_HINT:}
+    default-tone: ${TOPIC_ACTION_SUGGESTION_DEFAULT_TONE:professional}
+    default-language: ${TOPIC_ACTION_SUGGESTION_DEFAULT_LANGUAGE:English}
+    max-context-chars: ${TOPIC_ACTION_SUGGESTION_MAX_CONTEXT_CHARS:12000}
+    max-response-chars: ${TOPIC_ACTION_SUGGESTION_MAX_RESPONSE_CHARS:4000}

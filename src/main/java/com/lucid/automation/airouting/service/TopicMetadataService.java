@@ -26,7 +26,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
@@ -43,27 +42,24 @@ public class TopicMetadataService {
     private final AIProviderRouterService providerRouterService;
     private final TopicMetadataProducer producer;
     private final MessageService messageService;
+    private final PendingResponseSignalService pendingResponseSignalService;
     private final ObjectMapper objectMapper;
     private final TopicMetadataProperties properties;
 
     private static final Pattern CSV_SPLIT = Pattern.compile(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)");
     private volatile Map<Integer, CsvRow> csvCache;
-    private static final Set<String> TAG_STOPWORDS = Set.of(
-        "and", "or", "the", "a", "an", "to", "of", "for", "in", "on", "with", "by",
-        "from", "at", "as", "is", "are", "was", "were", "be", "been", "being",
-        "we", "you", "they", "it", "this", "that", "these", "those"
-    );
-
     public TopicMetadataService(TopicMetadataPromptBuilder promptBuilder,
                                 AIProviderRouterService providerRouterService,
                                 TopicMetadataProducer producer,
                                 MessageService messageService,
+                                PendingResponseSignalService pendingResponseSignalService,
                                 ObjectMapper objectMapper,
                                 TopicMetadataProperties properties) {
         this.promptBuilder = promptBuilder;
         this.providerRouterService = providerRouterService;
         this.producer = producer;
         this.messageService = messageService;
+        this.pendingResponseSignalService = pendingResponseSignalService;
         this.objectMapper = objectMapper;
         this.properties = properties;
     }
@@ -124,12 +120,13 @@ public class TopicMetadataService {
         List<Message> messages = loadMessages(cluster.getMessageIds());
         String prompt = promptBuilder.buildPrompt(cluster, messages);
         String response = provider.processTextQuery(prompt, workspace.getDeemergeUserId(), workspace.getTenantId());
+        JsonNode responseRoot = tryParseJson(response);
 
         logger.debug("🧾 Step3 raw LLM response ({} chars): {}",
             response != null ? response.length() : 0,
             response != null ? response.substring(0, Math.min(response.length(), 500)) + (response.length() > 500 ? "..." : "") : "null");
 
-        TopicMetadata topic = parseMetadata(response);
+        TopicMetadata topic = parseMetadata(responseRoot);
         if (topic == null) {
             producer.publishDlq(
                 buildDlqPayload(refinedEvent, cluster, "invalid_json_response"),
@@ -140,6 +137,9 @@ public class TopicMetadataService {
             return null;
         }
         applyFallbacks(topic, cluster, messages);
+        PendingResponseSignalService.PendingResponseSignal pendingSignal =
+            pendingResponseSignalService.fromLlmNode(responseRoot).orElse(null);
+        topic = pendingResponseSignalService.applyToTopic(topic, pendingSignal, null);
         topic = ensureNonEmptyActionItems(topic, cluster, provider, workspace);
         TopicMetadataEvent out = new TopicMetadataEvent();
         out.setEventId(UUID.randomUUID().toString());
@@ -152,7 +152,21 @@ public class TopicMetadataService {
         out.setPromptVersion(properties.getPromptVersion());
         out.setMessageIds(cluster.getMessageIds());
         out.setTopic(topic);
-        out.setMetadata(refinedEvent.getMetadata());
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (refinedEvent.getMetadata() instanceof Map<?, ?> raw) {
+            for (Map.Entry<?, ?> entry : raw.entrySet()) {
+                if (entry.getKey() != null) {
+                    metadata.put(String.valueOf(entry.getKey()), entry.getValue());
+                }
+            }
+        }
+        metadata.put("step", "3");
+        metadata.put("promptVersion", properties.getPromptVersion());
+        metadata.put("pendingResponseDetected", pendingSignal != null);
+        if (pendingSignal != null) {
+            metadata.put("pendingResponse", pendingResponseSignalService.toMetadataMap(pendingSignal));
+        }
+        out.setMetadata(metadata);
         return out;
     }
 
@@ -554,7 +568,6 @@ JSON:
             String normalized = topic.getTitle().toLowerCase().replaceAll("[^a-z0-9 ]", " ");
             for (String raw : normalized.split("\\s+")) {
                 if (!StringUtils.hasText(raw) || raw.length() < 3) continue;
-                if (TAG_STOPWORDS.contains(raw)) continue;
                 tags.add(raw);
                 if (tags.size() >= Math.max(5, properties.getMinTagsFallback())) {
                     // keep collecting a bit more but cap size
@@ -685,6 +698,10 @@ JSON:
 
     private TopicMetadata parseMetadata(String response) {
         JsonNode root = tryParseJson(response);
+        return parseMetadata(root);
+    }
+
+    private TopicMetadata parseMetadata(JsonNode root) {
         if (root == null || !root.isObject()) {
             return null;
         }

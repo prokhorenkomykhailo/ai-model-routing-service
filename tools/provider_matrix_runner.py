@@ -42,6 +42,8 @@ CSV_PATH = Path(
 OUTDIR = Path(os.environ.get("MATRIX_OUT_DIR", str(BASE / "logs" / f"provider_matrix3_{int(time.time())}")))
 OUTDIR.mkdir(parents=True, exist_ok=True)
 
+USE_MOCK = os.environ.get("MATRIX_USE_MOCK", "true").strip().lower() in {"1", "true", "yes", "y", "on"}
+
 
 def run(cmd: List[str], *, cwd: Optional[Path] = None, env: Optional[Dict[str, str]] = None, timeout_s: int = 120) -> subprocess.CompletedProcess:
     return subprocess.run(
@@ -99,6 +101,80 @@ def ensure_mock_server(log_path: Path) -> Optional[subprocess.Popen]:
             return proc
         time.sleep(0.1)
     raise RuntimeError("mock_ai_server failed to start on :9001")
+
+def preflight_live_provider(provider_id: str, env: Dict[str, str], out_dir: Path) -> Optional[str]:
+    """
+    Returns an error string if the provider cannot be exercised in live mode,
+    otherwise returns None.
+    """
+    if USE_MOCK:
+        return None
+
+    if provider_id == "openaiProvider":
+        key = env.get("OPENAI_API_KEY", "").strip()
+        if not key:
+            return "OPENAI_API_KEY_missing"
+        # Minimal completion to detect insufficient quota quickly.
+        payload = '{"model":"gpt-3.5-turbo","messages":[{"role":"user","content":"ping"}],"max_tokens":1}'
+        proc = run(
+            [
+                "curl",
+                "-sS",
+                "-o",
+                str(out_dir / "openai_preflight.json"),
+                "-w",
+                "%{http_code}",
+                "https://api.openai.com/v1/chat/completions",
+                "-H",
+                f"Authorization: Bearer {key}",
+                "-H",
+                "Content-Type: application/json",
+                "-d",
+                payload,
+            ],
+            timeout_s=30,
+        )
+        code = (proc.stdout or "").strip()
+        if code.startswith("2"):
+            return None
+        return f"openai_preflight_http_{code or 'unknown'}"
+
+    if provider_id == "huggingfaceProvider":
+        key = (env.get("HUGGINGFACE_API_KEY") or env.get("HF_API_KEY") or "").strip()
+        if not key:
+            return "HF_API_KEY_missing"
+        model = env.get("HUGGINGFACE_MODEL", "").strip()
+        if not model:
+            return "HUGGINGFACE_MODEL_missing"
+        endpoint = env.get("HUGGINGFACE_ENDPOINT", "https://router.huggingface.co/v1/chat/completions").strip()
+        payload = json.dumps(
+            {"model": model, "messages": [{"role": "user", "content": "Return ONLY valid JSON: {\"ok\":true}"}], "temperature": 0.2},
+            ensure_ascii=False,
+        )
+        proc = run(
+            [
+                "curl",
+                "-sS",
+                "-o",
+                str(out_dir / "hf_preflight.json"),
+                "-w",
+                "%{http_code}",
+                endpoint,
+                "-H",
+                f"Authorization: Bearer {key}",
+                "-H",
+                "Content-Type: application/json",
+                "-d",
+                payload,
+            ],
+            timeout_s=45,
+        )
+        code = (proc.stdout or "").strip()
+        if code.startswith("2"):
+            return None
+        return f"huggingface_preflight_http_{code or 'unknown'}"
+
+    return None
 
 
 def ensure_topics(topics: List[str]) -> None:
@@ -229,17 +305,31 @@ def provider_env(provider_id: str) -> Dict[str, str]:
     env["TOPIC_METADATA_PROVIDER_HINT"] = provider_id
     env["TOPIC_UPDATE_PROVIDER_HINT"] = provider_id
 
-    # Mock server defaults (user can override by setting real endpoints/keys).
-    if provider_id == "openaiProvider":
-        env.setdefault("OPENAI_API_KEY", "test")
-        env.setdefault("OPENAI_BASE_URL", "http://localhost:9001/v1")
-    if provider_id == "huggingfaceProvider":
-        env.setdefault("HUGGINGFACE_ENABLED", "true")
-        env.setdefault("HUGGINGFACE_API_KEY", "test")
-        env.setdefault("HUGGINGFACE_ENDPOINT", "http://localhost:9001/models")
-        env.setdefault("HUGGINGFACE_MODEL", "mock")
+    # Allow legacy env var names without forcing users to rename secrets.
+    if "HF_API_KEY" in env and "HUGGINGFACE_API_KEY" not in env:
+        env["HUGGINGFACE_API_KEY"] = env["HF_API_KEY"]
+
+    # Mock server defaults (only if enabled).
+    if USE_MOCK:
+        if provider_id == "openaiProvider":
+            env.setdefault("OPENAI_API_KEY", "test")
+            env.setdefault("OPENAI_BASE_URL", "http://localhost:9001/v1")
+        if provider_id == "huggingfaceProvider":
+            env.setdefault("HUGGINGFACE_ENABLED", "true")
+            env.setdefault("HUGGINGFACE_API_KEY", "test")
+            env.setdefault("HUGGINGFACE_ENDPOINT", "http://localhost:9001/models")
+            env.setdefault("HUGGINGFACE_MODEL", "mock")
+        else:
+            env.setdefault("HUGGINGFACE_ENABLED", "false")
     else:
-        env.setdefault("HUGGINGFACE_ENABLED", "false")
+        # Real providers: require user-provided keys; do not force localhost endpoints.
+        if provider_id == "huggingfaceProvider":
+            env.setdefault("HUGGINGFACE_ENABLED", "true")
+            # Provide a reasonable default model if user didn't set one.
+            env.setdefault("HUGGINGFACE_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+            env.setdefault("HUGGINGFACE_TIMEOUT", "120000")
+        else:
+            env.setdefault("HUGGINGFACE_ENABLED", "false")
 
     return env
 
@@ -282,11 +372,12 @@ def copy_latest(glob_pat: str, dst: Path) -> bool:
 
 def main() -> int:
     mock_proc: Optional[subprocess.Popen] = None
-    try:
-        mock_proc = ensure_mock_server(OUTDIR / "mock_ai_server_9001.log")
-    except Exception as e:
-        # Only required for OpenAI/HF runs; allow Gemini-only users to proceed.
-        print(f"WARNING: could not start mock AI server on :9001 ({e}). OpenAI/HF runs may fail.")
+    if USE_MOCK:
+        try:
+            mock_proc = ensure_mock_server(OUTDIR / "mock_ai_server_9001.log")
+        except Exception as e:
+            # Only required for OpenAI/HF runs; allow Gemini-only users to proceed.
+            print(f"WARNING: could not start mock AI server on :9001 ({e}). OpenAI/HF runs may fail.")
 
     providers = [
         ProviderRun("geminiProvider", "gemini"),
@@ -345,6 +436,23 @@ def main() -> int:
             run_out = OUTDIR / p.provider_id
             run_out.mkdir(parents=True, exist_ok=True)
             service_log = run_out / "service.log"
+
+            preflight_err = preflight_live_provider(p.provider_id, env, run_out)
+            if preflight_err:
+                summary.append(
+                    {
+                        "provider": p.provider_id,
+                        "tenantId": tenant_id,
+                        "ok": {"step1": False, "step3": False, "step6": False},
+                        "errors": [preflight_err],
+                        "outputs": {
+                            "step1_event": str(run_out / "step1.event.json"),
+                            "step3_report": str(run_out / "step3.report.json"),
+                            "step6_report": str(run_out / "step6.report.json"),
+                        },
+                    }
+                )
+                continue
 
             proc = start_service(env, service_log)
             ok = wait_health(server_port)

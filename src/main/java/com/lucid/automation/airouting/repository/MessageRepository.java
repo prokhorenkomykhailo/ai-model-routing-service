@@ -83,6 +83,12 @@ public interface MessageRepository extends CrudRepository<Message, String> {
             String workspaceId, Boolean isProcessed, Boolean isDeleted);
 
     /**
+     * Find messages by workspace/channel/thread composite index.
+     * Index format: "workspaceId:channelId:threadTs"
+     */
+    List<Message> findByWorkspaceChannelThreadIndex(String workspaceChannelThreadIndex);
+
+    /**
      * Find active unprocessed messages for workspace
      * Convenience method that automatically filters out deleted messages
      *

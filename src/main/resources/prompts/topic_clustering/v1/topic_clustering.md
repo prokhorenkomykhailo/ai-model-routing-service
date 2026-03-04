@@ -32,5 +32,7 @@ Given a set of Slack messages, your task is to:
 - Consider temporal relationships and deadlines mentioned.
 - Target: for ~200 messages, produce ~12–25 clusters when appropriate (avoid returning only a few clusters).
 - Avoid clusters larger than ~40 messages; if a topic is too broad, split it into smaller clusters.
+- If a request/question appears unresolved (no clear reply/delivery), keep those messages together as a follow-up cluster instead of burying them inside unrelated chatter.
+- Treat pending follow-up threads as first-class topics when they represent blocked work or unanswered asks.
 - `message_ids` MUST be integers (not strings).
 - Respond with JSON ONLY, no prose, no explanations, no markdown. If you cannot cluster, return an empty clusters array in JSON.
