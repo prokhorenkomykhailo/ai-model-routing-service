@@ -1,8 +1,9 @@
 package com.lucid.automation.airouting.consumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lucid.automation.airouting.dto.topic.TopicClusterDraftEvent;
-import com.lucid.automation.airouting.dto.topic.TopicClusterRefinedEvent;
+import com.lucid.automation.common.dto.topic.TopicClusterDraftEvent;
+import com.lucid.automation.common.dto.topic.TopicClusterRefinedEvent;
+import com.lucid.automation.common.dto.topic.TopicClusterRefined;
 import com.lucid.automation.airouting.producer.TopicRefinedProducer;
 import com.lucid.automation.airouting.service.TopicMergeSplitService;
 import java.time.Instant;
@@ -44,7 +45,7 @@ public class TopicMergeSplitConsumer {
                             Acknowledgment acknowledgment) {
         try {
             logger.info("Step2 consuming draft batch {} workspace {}", event.getBatchId(), event.getWorkspaceId());
-            List<com.lucid.automation.airouting.dto.topic.TopicClusterRefined> refinedClusters =
+            List<TopicClusterRefined> refinedClusters =
                 mergeSplitService.refine(event.getClusters());
 
             TopicClusterRefinedEvent refinedEvent = new TopicClusterRefinedEvent();

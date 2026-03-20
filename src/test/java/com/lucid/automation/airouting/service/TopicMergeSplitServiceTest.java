@@ -3,8 +3,8 @@ package com.lucid.automation.airouting.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.lucid.automation.airouting.config.TopicMergeSplitProperties;
-import com.lucid.automation.airouting.dto.topic.TopicClusterDraft;
-import com.lucid.automation.airouting.dto.topic.TopicClusterRefined;
+import com.lucid.automation.common.dto.topic.TopicClusterDraft;
+import com.lucid.automation.common.dto.topic.TopicClusterRefined;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 

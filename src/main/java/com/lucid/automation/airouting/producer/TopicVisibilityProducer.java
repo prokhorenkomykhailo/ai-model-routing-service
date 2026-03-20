@@ -3,7 +3,7 @@ package com.lucid.automation.airouting.producer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lucid.automation.airouting.config.TopicVisibilityProperties;
 import com.lucid.automation.airouting.dto.topic.TopicVisibilityDlqEvent;
-import com.lucid.automation.airouting.dto.topic.TopicVisibilityEvent;
+import com.lucid.automation.common.dto.topic.TopicVisibilityEvent;
 import java.time.Instant;
 import java.util.UUID;
 import org.slf4j.Logger;

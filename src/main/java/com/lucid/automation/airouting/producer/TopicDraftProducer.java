@@ -1,7 +1,7 @@
 package com.lucid.automation.airouting.producer;
 
 import com.lucid.automation.airouting.config.TopicClusteringProperties;
-import com.lucid.automation.airouting.dto.topic.TopicClusterDraftEvent;
+import com.lucid.automation.common.dto.topic.TopicClusterDraftEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;

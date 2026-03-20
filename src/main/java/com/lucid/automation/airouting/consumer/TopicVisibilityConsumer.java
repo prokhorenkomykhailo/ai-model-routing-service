@@ -1,8 +1,8 @@
 package com.lucid.automation.airouting.consumer;
 
 import com.lucid.automation.airouting.config.TopicVisibilityProperties;
-import com.lucid.automation.airouting.dto.topic.TopicMetadataEvent;
-import com.lucid.automation.airouting.dto.topic.TopicVisibilityEvent;
+import com.lucid.automation.common.dto.topic.TopicMetadataEvent;
+import com.lucid.automation.common.dto.topic.TopicVisibilityEvent;
 import com.lucid.automation.airouting.producer.TopicVisibilityProducer;
 import com.lucid.automation.airouting.service.TopicVisibilityBatchReportService;
 import com.lucid.automation.airouting.service.TopicVisibilityCacheService;
@@ -63,6 +63,8 @@ public class TopicVisibilityConsumer {
             for (String userId : touchedUsers) {
                 TopicVisibilityEvent snapshot = cacheService.snapshotEvent(event.getWorkspaceId(), userId);
                 if (snapshot != null && snapshot.getTopicIds() != null && !snapshot.getTopicIds().isEmpty()) {
+                    snapshot.setTenantId(event.getTenantId());
+                    snapshot.setTenantSchema(event.getTenantSchema());
                     producer.publish(snapshot);
                     emitted++;
                 }

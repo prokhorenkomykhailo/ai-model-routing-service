@@ -3,8 +3,8 @@ package com.lucid.automation.airouting.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lucid.automation.airouting.config.TopicClusteringProperties;
-import com.lucid.automation.airouting.dto.topic.TopicClusterDraft;
-import com.lucid.automation.airouting.dto.topic.TopicClusterDraftEvent;
+import com.lucid.automation.common.dto.topic.TopicClusterDraft;
+import com.lucid.automation.common.dto.topic.TopicClusterDraftEvent;
 import com.lucid.automation.airouting.model.AITaskType;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.Workspace;
@@ -111,6 +111,9 @@ public class TopicClusteringService {
         Map<String, Object> eventMetadata = new HashMap<>(Optional.ofNullable(metadata).orElseGet(HashMap::new));
         if (workspace.getTenantId() != null) {
             eventMetadata.putIfAbsent("tenantId", workspace.getTenantId());
+        }
+        if (workspace.getTenantSchema() != null) {
+            eventMetadata.putIfAbsent("tenantSchema", workspace.getTenantSchema());
         }
         eventMetadata.putIfAbsent("workspaceId", workspace.getId());
         event.setMetadata(eventMetadata);

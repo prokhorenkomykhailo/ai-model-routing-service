@@ -2,9 +2,9 @@ package com.lucid.automation.airouting.service;
 
 import com.lucid.automation.airouting.config.TopicVisibilityProperties;
 import com.lucid.automation.airouting.config.TopicVisibilityRule;
-import com.lucid.automation.airouting.dto.topic.TopicActionItem;
-import com.lucid.automation.airouting.dto.topic.TopicMetadata;
-import com.lucid.automation.airouting.dto.topic.TopicMetadataEvent;
+import com.lucid.automation.common.dto.topic.TopicActionItem;
+import com.lucid.automation.common.dto.topic.TopicMetadata;
+import com.lucid.automation.common.dto.topic.TopicMetadataEvent;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;

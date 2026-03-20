@@ -5,11 +5,11 @@ import com.fasterxml.jackson.core.json.JsonReadFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lucid.automation.airouting.config.TopicMetadataProperties;
-import com.lucid.automation.airouting.dto.topic.TopicActionItem;
-import com.lucid.automation.airouting.dto.topic.TopicClusterRefined;
-import com.lucid.automation.airouting.dto.topic.TopicClusterRefinedEvent;
-import com.lucid.automation.airouting.dto.topic.TopicMetadata;
-import com.lucid.automation.airouting.dto.topic.TopicMetadataEvent;
+import com.lucid.automation.common.dto.topic.TopicActionItem;
+import com.lucid.automation.common.dto.topic.TopicClusterRefined;
+import com.lucid.automation.common.dto.topic.TopicClusterRefinedEvent;
+import com.lucid.automation.common.dto.topic.TopicMetadata;
+import com.lucid.automation.common.dto.topic.TopicMetadataEvent;
 import com.lucid.automation.airouting.model.AITaskType;
 import com.lucid.automation.airouting.model.Message;
 import com.lucid.automation.airouting.model.Workspace;
@@ -148,6 +148,8 @@ public class TopicMetadataService {
         out.setBatchId(refinedEvent.getBatchId());
         out.setClusterId(cluster.getClusterId());
         out.setTopicId(stableTopicId(refinedEvent.getWorkspaceId(), cluster.getClusterId()));
+        out.setTenantId(extractTenantId(refinedEvent));
+        out.setTenantSchema(extractTenantSchema(refinedEvent));
         out.setProviderId(provider.getProviderId());
         out.setPromptVersion(properties.getPromptVersion());
         out.setMessageIds(cluster.getMessageIds());
@@ -883,6 +885,17 @@ JSON:
         }
         if (StringUtils.hasText(properties.getTenantId())) {
             return properties.getTenantId();
+        }
+        return null;
+    }
+
+    private String extractTenantSchema(TopicClusterRefinedEvent event) {
+        Object metadata = event.getMetadata();
+        if (metadata instanceof Map<?, ?> map) {
+            Object tenantSchema = map.get("tenantSchema");
+            if (tenantSchema instanceof String s && StringUtils.hasText(s)) {
+                return s;
+            }
         }
         return null;
     }

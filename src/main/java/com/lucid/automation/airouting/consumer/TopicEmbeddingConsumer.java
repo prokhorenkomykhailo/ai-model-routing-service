@@ -1,6 +1,6 @@
 package com.lucid.automation.airouting.consumer;
 
-import com.lucid.automation.airouting.dto.topic.TopicMetadataEvent;
+import com.lucid.automation.common.dto.topic.TopicMetadataEvent;
 import com.lucid.automation.airouting.service.TopicEmbeddingStoreService;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;

@@ -1,6 +1,6 @@
 package com.lucid.automation.airouting.service;
 
-import com.lucid.automation.airouting.dto.topic.TopicClusterDraftEvent;
+import com.lucid.automation.common.dto.topic.TopicClusterDraftEvent;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;

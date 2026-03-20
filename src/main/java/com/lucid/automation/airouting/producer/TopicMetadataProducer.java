@@ -2,7 +2,7 @@ package com.lucid.automation.airouting.producer;
 
 import com.lucid.automation.airouting.config.TopicMetadataProperties;
 import com.lucid.automation.airouting.dto.topic.TopicMetadataDlqEvent;
-import com.lucid.automation.airouting.dto.topic.TopicMetadataEvent;
+import com.lucid.automation.common.dto.topic.TopicMetadataEvent;
 import java.time.Instant;
 import java.util.UUID;
 import org.slf4j.Logger;

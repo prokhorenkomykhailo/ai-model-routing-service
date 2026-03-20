@@ -3,7 +3,7 @@ package com.lucid.automation.airouting.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lucid.automation.airouting.config.TopicEmbeddingProperties;
 import com.lucid.automation.airouting.config.TopicUpdateProperties;
-import com.lucid.automation.airouting.dto.topic.TopicMetadataEvent;
+import com.lucid.automation.common.dto.topic.TopicMetadataEvent;
 import com.lucid.automation.airouting.model.AITaskType;
 import com.lucid.automation.airouting.provider.AIProvider;
 import com.lucid.automation.airouting.producer.TopicMetadataProducer;
@@ -34,7 +34,7 @@ public class TopicUpdateManagerTest {
 
         TopicEmbeddingProperties embeddingProps = new TopicEmbeddingProperties();
         TopicEmbeddingStoreService embeddingStore = mock(TopicEmbeddingStoreService.class);
-        when(embeddingStore.search(anyString(), any(com.lucid.automation.airouting.dto.topic.TopicMetadata.class), anyInt()))
+        when(embeddingStore.search(anyString(), any(com.lucid.automation.common.dto.topic.TopicMetadata.class), anyInt()))
             .thenReturn(List.of());
 
         TopicMetadataProducer producer = mock(TopicMetadataProducer.class);
@@ -108,7 +108,7 @@ new_messages:
         embeddingProps.getPgvector().setTable("topics_embeddings");
 
         TopicEmbeddingStoreService embeddingStore = mock(TopicEmbeddingStoreService.class);
-        when(embeddingStore.search(anyString(), any(com.lucid.automation.airouting.dto.topic.TopicMetadata.class), anyInt()))
+        when(embeddingStore.search(anyString(), any(com.lucid.automation.common.dto.topic.TopicMetadata.class), anyInt()))
             .thenReturn(List.of(new TopicEmbeddingStoreService.ScoredTopic("topic-123", 0.9)));
 
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
@@ -225,7 +225,7 @@ new_messages:
 
         TopicEmbeddingProperties embeddingProps = new TopicEmbeddingProperties();
         TopicEmbeddingStoreService embeddingStore = mock(TopicEmbeddingStoreService.class);
-        when(embeddingStore.search(anyString(), any(com.lucid.automation.airouting.dto.topic.TopicMetadata.class), anyInt()))
+        when(embeddingStore.search(anyString(), any(com.lucid.automation.common.dto.topic.TopicMetadata.class), anyInt()))
             .thenReturn(List.of(new TopicEmbeddingStoreService.ScoredTopic("topic-abc", 0.72)));
 
         TopicMetadataProducer producer = mock(TopicMetadataProducer.class);
@@ -307,7 +307,7 @@ new_messages:
 
         TopicEmbeddingProperties embeddingProps = new TopicEmbeddingProperties();
         TopicEmbeddingStoreService embeddingStore = mock(TopicEmbeddingStoreService.class);
-        when(embeddingStore.search(anyString(), any(com.lucid.automation.airouting.dto.topic.TopicMetadata.class), anyInt()))
+        when(embeddingStore.search(anyString(), any(com.lucid.automation.common.dto.topic.TopicMetadata.class), anyInt()))
             .thenThrow(new RuntimeException("pgvector unreachable"));
 
         TopicMetadataProducer producer = mock(TopicMetadataProducer.class);
@@ -372,7 +372,7 @@ new_messages:
 
         TopicEmbeddingProperties embeddingProps = new TopicEmbeddingProperties();
         TopicEmbeddingStoreService embeddingStore = mock(TopicEmbeddingStoreService.class);
-        when(embeddingStore.search(anyString(), any(com.lucid.automation.airouting.dto.topic.TopicMetadata.class), anyInt()))
+        when(embeddingStore.search(anyString(), any(com.lucid.automation.common.dto.topic.TopicMetadata.class), anyInt()))
             .thenReturn(List.of());
 
         TopicMetadataProducer producer = mock(TopicMetadataProducer.class);
@@ -433,7 +433,7 @@ new_messages:
         embeddingProps.getPgvector().setTable("topics_embeddings");
 
         TopicEmbeddingStoreService embeddingStore = mock(TopicEmbeddingStoreService.class);
-        when(embeddingStore.search(anyString(), any(com.lucid.automation.airouting.dto.topic.TopicMetadata.class), anyInt()))
+        when(embeddingStore.search(anyString(), any(com.lucid.automation.common.dto.topic.TopicMetadata.class), anyInt()))
             .thenReturn(List.of(new TopicEmbeddingStoreService.ScoredTopic("topic-123", 0.9)));
 
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
@@ -522,7 +522,7 @@ new_messages:
 
         TopicEmbeddingProperties embeddingProps = new TopicEmbeddingProperties();
         TopicEmbeddingStoreService embeddingStore = mock(TopicEmbeddingStoreService.class);
-        when(embeddingStore.search(anyString(), any(com.lucid.automation.airouting.dto.topic.TopicMetadata.class), anyInt()))
+        when(embeddingStore.search(anyString(), any(com.lucid.automation.common.dto.topic.TopicMetadata.class), anyInt()))
             .thenReturn(List.of());
 
         TopicMetadataProducer producer = mock(TopicMetadataProducer.class);

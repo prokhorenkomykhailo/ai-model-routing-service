@@ -2,9 +2,9 @@ package com.lucid.automation.airouting.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lucid.automation.airouting.config.TopicVisibilityProperties;
-import com.lucid.automation.airouting.dto.topic.TopicActionItem;
-import com.lucid.automation.airouting.dto.topic.TopicMetadata;
-import com.lucid.automation.airouting.dto.topic.TopicMetadataEvent;
+import com.lucid.automation.common.dto.topic.TopicActionItem;
+import com.lucid.automation.common.dto.topic.TopicMetadata;
+import com.lucid.automation.common.dto.topic.TopicMetadataEvent;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

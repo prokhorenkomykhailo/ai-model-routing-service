@@ -1,7 +1,7 @@
 package com.lucid.automation.airouting.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lucid.automation.airouting.dto.topic.TopicMetadata;
+import com.lucid.automation.common.dto.topic.TopicMetadata;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

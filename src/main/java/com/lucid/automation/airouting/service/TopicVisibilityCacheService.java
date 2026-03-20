@@ -1,7 +1,7 @@
 package com.lucid.automation.airouting.service;
 
 import com.lucid.automation.airouting.config.TopicVisibilityProperties;
-import com.lucid.automation.airouting.dto.topic.TopicVisibilityEvent;
+import com.lucid.automation.common.dto.topic.TopicVisibilityEvent;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;

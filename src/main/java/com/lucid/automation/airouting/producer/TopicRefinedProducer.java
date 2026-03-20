@@ -2,7 +2,7 @@ package com.lucid.automation.airouting.producer;
 
 import com.lucid.automation.airouting.config.TopicMergeSplitProperties;
 import com.lucid.automation.airouting.dto.topic.TopicDraftDlqEvent;
-import com.lucid.automation.airouting.dto.topic.TopicClusterRefinedEvent;
+import com.lucid.automation.common.dto.topic.TopicClusterRefinedEvent;
 import java.time.Instant;
 import java.util.UUID;
 import org.slf4j.Logger;

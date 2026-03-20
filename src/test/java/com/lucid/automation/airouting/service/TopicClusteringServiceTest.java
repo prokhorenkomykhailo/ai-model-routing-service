@@ -7,7 +7,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lucid.automation.airouting.config.TopicClusteringProperties;
-import com.lucid.automation.airouting.dto.topic.TopicClusterDraftEvent;
+import com.lucid.automation.common.dto.topic.TopicClusterDraftEvent;
 import com.lucid.automation.airouting.model.AITaskType;
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.Workspace;

@@ -2,8 +2,8 @@ package com.lucid.automation.airouting.runner;
 
 import com.lucid.automation.airouting.model.SlackMessage;
 import com.lucid.automation.airouting.model.Workspace;
-import com.lucid.automation.airouting.dto.topic.TopicClusterDraft;
-import com.lucid.automation.airouting.dto.topic.TopicClusterDraftEvent;
+import com.lucid.automation.common.dto.topic.TopicClusterDraft;
+import com.lucid.automation.common.dto.topic.TopicClusterDraftEvent;
 import com.lucid.automation.airouting.producer.TopicDraftProducer;
 import com.lucid.automation.airouting.service.TopicDraftCacheService;
 import com.lucid.automation.airouting.service.TopicClusteringService;

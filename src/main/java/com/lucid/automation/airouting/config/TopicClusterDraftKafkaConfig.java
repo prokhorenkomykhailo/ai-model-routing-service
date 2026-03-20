@@ -1,6 +1,6 @@
 package com.lucid.automation.airouting.config;
 
-import com.lucid.automation.airouting.dto.topic.TopicClusterDraftEvent;
+import com.lucid.automation.common.dto.topic.TopicClusterDraftEvent;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -58,7 +58,7 @@ public class TopicClusterDraftKafkaConfig {
         configProps.put(ErrorHandlingDeserializer.KEY_DESERIALIZER_CLASS, StringDeserializer.class);
         configProps.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class);
 
-        configProps.put(JsonDeserializer.TRUSTED_PACKAGES, "com.lucid.automation.airouting.dto.topic");
+        configProps.put(JsonDeserializer.TRUSTED_PACKAGES, "com.lucid.automation.common.dto.topic");
         configProps.put("spring.json.use.type.headers", false);
         configProps.put("spring.json.fail.on.unknown.properties", false);
         configProps.put("spring.json.value.default.type", TopicClusterDraftEvent.class.getName());

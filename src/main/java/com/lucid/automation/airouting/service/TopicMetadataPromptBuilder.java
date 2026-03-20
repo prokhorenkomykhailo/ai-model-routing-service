@@ -2,7 +2,7 @@ package com.lucid.automation.airouting.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lucid.automation.airouting.config.TopicMetadataProperties;
-import com.lucid.automation.airouting.dto.topic.TopicClusterRefined;
+import com.lucid.automation.common.dto.topic.TopicClusterRefined;
 import com.lucid.automation.airouting.model.Message;
 import com.lucid.automation.airouting.util.PromptLoader;
 import java.util.ArrayList;

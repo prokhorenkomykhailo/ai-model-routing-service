@@ -1,7 +1,7 @@
 package com.lucid.automation.airouting.consumer;
 
 import com.lucid.automation.airouting.config.TopicMetadataProperties;
-import com.lucid.automation.airouting.dto.topic.TopicClusterRefinedEvent;
+import com.lucid.automation.common.dto.topic.TopicClusterRefinedEvent;
 import com.lucid.automation.airouting.service.TopicMetadataService;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;

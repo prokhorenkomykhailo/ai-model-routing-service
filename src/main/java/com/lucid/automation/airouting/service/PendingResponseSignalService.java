@@ -1,8 +1,8 @@
 package com.lucid.automation.airouting.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.lucid.automation.airouting.dto.topic.TopicActionItem;
-import com.lucid.automation.airouting.dto.topic.TopicMetadata;
+import com.lucid.automation.common.dto.topic.TopicActionItem;
+import com.lucid.automation.common.dto.topic.TopicMetadata;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;

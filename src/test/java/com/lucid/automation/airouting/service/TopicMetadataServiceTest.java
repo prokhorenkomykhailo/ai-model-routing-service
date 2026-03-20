@@ -2,8 +2,8 @@ package com.lucid.automation.airouting.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lucid.automation.airouting.config.TopicMetadataProperties;
-import com.lucid.automation.airouting.dto.topic.TopicActionItem;
-import com.lucid.automation.airouting.dto.topic.TopicMetadata;
+import com.lucid.automation.common.dto.topic.TopicActionItem;
+import com.lucid.automation.common.dto.topic.TopicMetadata;
 import com.lucid.automation.airouting.producer.TopicMetadataProducer;
 import java.lang.reflect.Method;
 import java.util.List;
